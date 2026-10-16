@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +11,8 @@ import pandas as pd
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
+    delta_table_identity,
+    delta_table_version,
     has_delta_log,
     iter_delta_table_row_batches,
     read_delta_table_arrow,
@@ -1674,6 +1676,8 @@ def _existing_partition_matches(
     row_count: int,
     output_columns_hash: str,
     mtf_source_family_hash: str,
+    compute_contract_hash: str = "",
+    warmup_span: int | None = None,
 ) -> bool:
     if not existing_rows:
         return False
@@ -1686,6 +1690,9 @@ def _existing_partition_matches(
         and int(head.get("row_count", -1) or -1) == row_count
         and existing_output_columns_hash == output_columns_hash
         and head.get("mtf_source_family_hash") == mtf_source_family_hash
+        and bool(compute_contract_hash)
+        and head.get("compute_contract_hash") == compute_contract_hash
+        and (warmup_span is None or head.get("warmup_span") == warmup_span)
     )
 
 
@@ -1740,6 +1747,8 @@ def _build_partition_rows(
     compute_profile: DerivedIndicatorProfile | None = None,
     existing_rows: list[DerivedIndicatorFrameRow] | None = None,
     adjustment_ladder_rows: tuple[dict[str, object], ...] = (),
+    source_snapshot_hash: str = "",
+    compute_contract_hash: str = "",
 ) -> list[DerivedIndicatorFrameRow]:
     if base_frame is None:
         base_frame = _prepare_base_frame(
@@ -1829,6 +1838,8 @@ def _build_partition_rows(
                 source_indicator_output_columns_hash=source_indicator_output_columns_hash,
                 source_indicator_columns_hash=source_indicator_columns_hash,
                 mtf_source_family_hash=mtf_source_family_hash,
+                source_snapshot_hash=source_snapshot_hash,
+                compute_contract_hash=compute_contract_hash,
                 row_count=len(local_series),
                 warmup_span=profile.warmup_bars,
                 null_warmup_span=null_warmup_span,
@@ -1897,6 +1908,169 @@ def build_derived_indicator_frames(
     return rows
 
 
+def _delta_source_refs(paths: Sequence[Path]) -> list[dict[str, object]]:
+    return [{**delta_table_identity(path), "version": delta_table_version(path)} for path in paths]
+
+
+def _derived_compute_contract_hash(ladder: tuple[dict[str, object], ...]) -> str:
+    research = Path(__file__).parent.parent
+    files = (
+        Path(__file__),
+        Path(__file__).with_name("registry.py"),
+        research / "bar_usage_policy.py",
+        research / "continuous_front_indicators" / "input_projection.py",
+        research / "continuous_front_indicators" / "rules.py",
+        research.parent.parent / "spark_jobs" / "research_derived_source_frames_job.py",
+    )
+    payload = {
+        "contract": "derived-native-v1",
+        "implementation": [hashlib.sha256(path.read_bytes()).hexdigest() for path in files],
+        "numpy": np.__version__,
+        "pandas": pd.__version__,
+        "bar_usage": BAR_USAGE_POLICY_ID,
+        "indicator_usage": INDICATOR_USAGE_POLICY_ID,
+        "mtf": MTF_MAPPINGS,
+        "ladder": sorted(ladder, key=lambda row: json.dumps(row, sort_keys=True, default=str)),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _derived_source_snapshot_hash(
+    *,
+    input_refs: list[dict[str, object]],
+    source_path: Path,
+    compute_contract_hash: str,
+    profile: DerivedIndicatorProfile,
+    columns: tuple[str, ...],
+    timeframes: Sequence[str],
+    instruments: Sequence[str],
+) -> str:
+    if not has_delta_log(source_path):
+        return ""
+    payload = {
+        "version": 1,
+        "inputs": input_refs,
+        "source_frame": _delta_source_refs([source_path]),
+        "compute": compute_contract_hash,
+        "profile": asdict(profile),
+        "columns": columns,
+        "timeframes": sorted(set(timeframes)),
+        "instruments": sorted(set(instruments)),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _derived_metadata_fast_reuse(
+    *,
+    output_dir: Path,
+    dataset_version: str,
+    indicator_set_version: str,
+    derived_indicator_set_version: str,
+    contour_id: str,
+    series_mode: str,
+    profile: DerivedIndicatorProfile,
+    snapshot_hash: str,
+    compute_contract_hash: str,
+    instruments: Sequence[str],
+    timeframes: Sequence[str],
+) -> dict[str, object] | None:
+    table_path = output_dir / "research_derived_indicator_frames.delta"
+    if not snapshot_hash or not has_delta_log(table_path):
+        return None
+    metadata = load_derived_indicator_partition_metadata(
+        output_dir=output_dir,
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        contour_id=contour_id,
+    )
+    scoped = [
+        row
+        for row in metadata
+        if row.get("series_mode") == series_mode
+        and (not instruments or row["instrument_id"] in instruments)
+    ]
+    output_hash = derived_indicator_output_columns_hash(profile.output_columns)
+    if not scoped or any(
+        row.get("source_snapshot_hash") != snapshot_hash
+        or row.get("compute_contract_hash") != compute_contract_hash
+        or row.get("output_columns_hash") != output_hash
+        or row.get("warmup_span") != profile.warmup_bars
+        for row in scoped
+    ):
+        return None
+    source_metadata = load_derived_source_frame_partition_metadata(
+        output_dir=output_dir,
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        contour_id=contour_id,
+    )
+    expected_counts = {}
+    for row in source_metadata:
+        if str(row.get("series_mode") or "contract") != series_mode:
+            continue
+        if instruments and row["instrument_id"] not in instruments:
+            continue
+        partition = _derived_partition_key(
+            dataset_version=dataset_version,
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
+            series_key=_series_key_from_source_metadata(row, requested_series_mode=series_mode),
+            timeframe=str(row["timeframe"]),
+        )
+        count = int(row.get("partition_row_count") or row.get("joined_row_count") or 0)
+        expected_counts[partition] = expected_counts.get(partition, 0) + count
+    if _derived_partition_coverage_changed(
+        table_path=table_path,
+        expected_counts=expected_counts,
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        contour_id=contour_id,
+        dataset_instrument_ids=instruments,
+        series_mode=series_mode,
+    ):
+        return None
+    selected = {
+        key: count
+        for key, count in expected_counts.items()
+        if not timeframes or key.timeframe in timeframes
+    }
+    if not selected:
+        return None
+    return {
+        "dataset_version": dataset_version,
+        "indicator_set_version": indicator_set_version,
+        "derived_indicator_set_version": derived_indicator_set_version,
+        "profile_version": profile.version,
+        "bar_usage_policy_id": BAR_USAGE_POLICY_ID,
+        "indicator_usage_policy_id": INDICATOR_USAGE_POLICY_ID,
+        "derived_indicator_row_count": sum(selected.values()),
+        "source_frame_row_count": sum(expected_counts.values()),
+        "source_frame_report": {"status": "PASS-NOOP", "mode": "exact_snapshot_reuse"},
+        "source_projection_contract_changed": False,
+        "derived_projection_contract_changed": False,
+        "derived_partition_coverage_changed": False,
+        "refreshed_row_count": 0,
+        "refreshed_partition_count": 0,
+        "reused_partition_count": len(selected),
+        "extended_partition_count": 0,
+        "recomputed_partition_count": 0,
+        "deleted_partition_count": 0,
+        "write_batch_count": 0,
+        "output_columns_hash": output_hash,
+        "loaded_indicator_partition_count": 0,
+        "loaded_source_frame_partition_count": 0,
+        "reuse_plan_mode": "metadata_fast_path",
+        "output_paths": {
+            DERIVED_SOURCE_FRAME_TABLE: (
+                output_dir / "research_derived_source_frames.delta"
+            ).as_posix(),
+            "research_derived_indicator_frames": table_path.as_posix(),
+        },
+    }
+
+
 def materialize_derived_indicator_frames(
     *,
     dataset_output_dir: Path,
@@ -1932,6 +2106,21 @@ def materialize_derived_indicator_frames(
     registry: DerivedIndicatorProfileRegistry = build_derived_indicator_profile_registry()
     resolved_profile = profile or registry.get(profile_version or "core_v1")
     required_source_indicator_columns = _source_indicator_columns_for_profile(resolved_profile)
+    input_paths = [
+        dataset_output_dir / "research_bar_views.delta",
+        indicator_output_dir / "research_indicator_frames.delta",
+    ]
+    input_refs = _delta_source_refs(input_paths)
+    compute_contract_hash = _derived_compute_contract_hash(adjustment_ladder_rows)
+    snapshot_args = {
+        "input_refs": input_refs,
+        "source_path": derived_indicator_output_dir / "research_derived_source_frames.delta",
+        "compute_contract_hash": compute_contract_hash,
+        "profile": resolved_profile,
+        "columns": required_source_indicator_columns,
+        "timeframes": timeframes,
+        "instruments": dataset_instrument_ids,
+    }
     record_stage_timing(
         stage_timings,
         "load_dataset_manifest",
@@ -1969,6 +2158,40 @@ def materialize_derived_indicator_frames(
     )
 
     stage_started = stage_timer()
+    initial_snapshot_hash = _derived_source_snapshot_hash(**snapshot_args)
+    reused = _derived_metadata_fast_reuse(
+        output_dir=derived_indicator_output_dir,
+        dataset_version=dataset_version,
+        indicator_set_version=indicator_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        contour_id=contour_id,
+        series_mode=series_mode,
+        profile=resolved_profile,
+        snapshot_hash=initial_snapshot_hash,
+        compute_contract_hash=compute_contract_hash,
+        instruments=dataset_instrument_ids,
+        timeframes=timeframes,
+    )
+    if reused is not None:
+        if (
+            _delta_source_refs(input_paths) != input_refs
+            or _derived_source_snapshot_hash(**snapshot_args) != initial_snapshot_hash
+        ):
+            raise ValueError("L2 inputs changed during snapshot reuse")
+        record_stage_timing(stage_timings, "reuse_decision", stage_started, reused=True)
+        return {
+            **reused,
+            "stage_timings": stage_timings,
+            "refresh_window_count": len(tuple(refresh_windows)),
+            "delta_manifest": {
+                **research_derived_source_frame_store_contract(
+                    source_indicator_columns=required_source_indicator_columns
+                ),
+                **research_derived_indicator_store_contract(profile=resolved_profile),
+            },
+        }
+    record_stage_timing(stage_timings, "reuse_decision", stage_started, reused=False)
+    stage_started = stage_timer()
     source_frame_report = run_research_derived_source_frames_spark_job(
         bar_views_path=dataset_output_dir / "research_bar_views.delta",
         indicator_frames_path=indicator_output_dir / "research_indicator_frames.delta",
@@ -1983,6 +2206,9 @@ def materialize_derived_indicator_frames(
         dataset_instrument_ids=dataset_instrument_ids,
         refresh_windows=refresh_windows,
     )
+    if _delta_source_refs(input_paths) != input_refs:
+        raise ValueError("L2 inputs changed during source-frame production")
+    source_snapshot_hash = _derived_source_snapshot_hash(**snapshot_args)
     source_rows_by_table = dict(source_frame_report.get("rows_by_table", {}))
     record_stage_timing(
         stage_timings,
@@ -2298,6 +2524,8 @@ def materialize_derived_indicator_frames(
                 row_count=row_count,
                 output_columns_hash=target_output_columns_hash,
                 mtf_source_family_hash=family_hash,
+                compute_contract_hash=compute_contract_hash,
+                warmup_span=resolved_profile.warmup_bars,
             ):
                 reused_partitions += 1
                 continue
@@ -2305,6 +2533,7 @@ def materialize_derived_indicator_frames(
             source_unchanged = (
                 not full_family_repair
                 and bool(head)
+                and head.get("compute_contract_hash") == compute_contract_hash
                 and (
                     head.get("source_bars_hash") == source_bars_hash
                     and head.get("source_indicators_hash") == source_indicators_hash
@@ -2436,6 +2665,8 @@ def materialize_derived_indicator_frames(
                         source_frames=source_frames,
                         base_frame=source_base_frame,
                         source_dataset_bars_hash=current_dataset_bars_hash,
+                        source_snapshot_hash=source_snapshot_hash,
+                        compute_contract_hash=compute_contract_hash,
                         output_columns_hash=target_output_columns_hash,
                         compute_profile=compute_profile,
                         existing_rows=existing_rows,
