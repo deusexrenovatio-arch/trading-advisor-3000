@@ -94,6 +94,20 @@ The product containers set Spark driver memory to `4g` by default through both
 `TA3000_SPARK_DRIVER_MEMORY` before bootstrap only when the host capacity and a
 verified workload require a different value.
 
+Production containers default to `14g` RAM
+(`TA3000_DAGSTER_MEMORY_LIMIT`) and `18g` total RAM-plus-swap
+(`TA3000_DAGSTER_MEMORY_SWAP_LIMIT`), allowing up to 4 GiB swap per container.
+Keep the external production launcher synchronized with these values. Validate
+host capacity before changing limits. Docker restores both services on Engine
+startup with `restart: always`; durable nightly pauses use the three Dagster
+controls described in [research operations](docs/runbooks/app/research-plane-operations.md).
+
+The daily schedule ends at midnight MSK after the previous fully closed day and
+explicitly sets `stability_lag_minutes=0`. Subtracting the generic 20-minute live
+lag here would drop that day's daily candle. General live/raw callers retain the
+20-minute default. Missed nights use the same native scheduled configuration and
+existing CF/research sensors, after checking for an already owning run.
+
 Dagster daemon owns the actual nightly run through:
 
 - schedule: `moex_baseline_daily_update_schedule`;
