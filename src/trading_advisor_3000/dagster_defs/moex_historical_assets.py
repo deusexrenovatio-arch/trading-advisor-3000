@@ -563,6 +563,9 @@ def _build_baseline_daily_schedule_run_config(context) -> dict[str, object]:
         baseline_root=baseline_root,
         run_id=run_id,
         ingest_till_utc=ingest_till_utc,
+        # The schedule already selects a fully closed MSK day. A second lag
+        # would discard its last intraday bars and the entire daily candle.
+        stability_lag_minutes=0,
         **registered_history_refresh_kwargs(baseline_root),
     )
 

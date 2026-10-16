@@ -109,6 +109,21 @@ Re-enable the prior controls after health checks. Direct Docker restarts outside
 this route remain an operator responsibility. Worker monitoring requires the
 stable `TA3000_RESEARCH_WORKER_OWNER` role configured in the product compose file.
 
+Product-main services use Docker `restart: always`: Engine startup restores the
+webserver and daemon, including after Windows shutdown. An explicit container
+stop lasts until Engine restarts. For a durable nightly pause, save and stop
+`moex_baseline_daily_update_schedule`,
+`moex_cf_catch_up_after_moex_baseline_sensor`, and
+`research_data_prep_after_moex_cf_catch_up_sensor` through Dagster; preserve their
+cursors and restore their prior statuses after maintenance. Inventory queued and
+active runs before delivery; leave unrelated controls unchanged. The base
+on-demand Compose keeps its existing `unless-stopped` lifecycle.
+
+Policy/resource changes need explicit drained delivery: synchronize the local
+launcher, then apply and read back the exact existing containers' restart policy,
+RAM and total RAM-plus-swap limits. Preserve mounts and the Dagster home volume.
+`--no-recreate` bootstrap does not apply these changes to existing containers.
+
 ## Solution Intent
 
 - Solution Class: staged
