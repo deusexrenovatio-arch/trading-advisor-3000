@@ -58,6 +58,12 @@ def publish_data_snapshot(
     if runtime_provenance() != provenance:
         raise ValueError("Data snapshot code/dependencies changed during calculation")
     tables = {**inputs, **capture_data_inputs(canonical_paths, canonical_roots)}
+    for name, reference in report["economics_refresh"].get("output_references", {}).items():
+        actual = tables.get(name)
+        if actual is None or any(
+            actual[key] != reference[key] for key in ("table_id", "delta_version", "table_path")
+        ):
+            raise ValueError(f"Economics publication output changed: {name}")
     required = [path.stem for path in canonical_paths]
     required.extend(name for name in inputs if name.startswith("raw_"))
     if not any(name.startswith("raw_") for name in inputs):
