@@ -521,11 +521,13 @@ def test_baseline_update_can_refresh_money_math_side_tables_before_canonical_rou
     )
 
 
+@pytest.mark.parametrize("economics_history_refresh", [False, True])
 @pytest.mark.parametrize("target_session_date", ["2026-07-11", "2026-07-12"])
 def test_baseline_update_reuses_covered_published_economics_when_source_is_temporarily_empty(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     target_session_date: str,
+    economics_history_refresh: bool,
 ) -> None:
     raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
     changed_windows = [
@@ -563,17 +565,37 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
     )
     version_before = delta_table_version(economics_table_path)
     stage_order: list[str] = []
+    oi_path = tmp_path / "raw" / "daily_oi.delta"
+    write_delta_table_rows(table_path=oi_path, rows=[{"count": 1}], columns={"count": "long"})
+    write_delta_table_rows(table_path=oi_path, rows=[{"count": 2}], columns={"count": "long"})
+    renewed_oi = baseline_module.capture_table(oi_path)
+    renewal = {
+        "tables": {
+            "raw": baseline_module.capture_table(raw_table_path),
+            "prepared": baseline_module.capture_table(canonical_bars_path),
+            "oi": renewed_oi,
+        }
+    }
+    if economics_history_refresh:
+        monkeypatch.setattr(
+            baseline_module, "validate_contract_parameter_evidence", lambda *a: {"accepted": True}
+        )
 
     def _source_unavailable(**_kwargs):
         stage_order.append("economics")
-        raise baseline_module.EconomicsSourceUnavailable(
+        error = baseline_module.EconomicsSourceUnavailable(
             target_session_date=target_session_date,
             required_contract_ids=("BRM6",),
             missing_sources=("indicative_fx", "rms_limits", "rms_staticparams"),
         )
+        if economics_history_refresh:
+            error.native_history_renewal = renewal
+        raise error
 
     def _fake_canonical(**_kwargs):
         stage_order.append("canonical")
+        if economics_history_refresh:
+            assert _kwargs["daily_open_interest_version"] == renewed_oi["delta_version"]
         return {
             "status": "PASS",
             "publish_decision": "publish",
@@ -606,9 +628,17 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
         economics_mode="refresh",
         raw_economics_root=tmp_path / "raw" / "economics",
         canonical_economics_root=canonical_economics_root,
+        economics_history_refresh=economics_history_refresh,
+        daily_open_interest_path=oi_path if economics_history_refresh else None,
+        daily_open_interest_version=0 if economics_history_refresh else None,
+        economics_source_paths={"raw_contract_specs_path": tmp_path / "prepared.delta"}
+        if economics_history_refresh
+        else None,
     )
 
     assert stage_order == ["economics", "canonical"]
+    if economics_history_refresh:
+        assert report["economics_refresh"]["native_history_renewal"] == renewal
     assert report["status"] == "PASS"
     assert report["economics_refresh"]["status"] == "PASS-NOOP"
     assert report["economics_refresh"]["refresh_status"] == "DEFERRED"
@@ -3050,3 +3080,261 @@ def test_cf_catch_up_covers_canonical_target_bar_deletion_scope(
     assert window["overlap_minutes"] == expected_overlap
     assert report["overlap_minutes"] == 180
     assert window["window_hash_sha256"] == baseline_module._cf_catch_up_window_hash(window)
+
+
+@pytest.mark.parametrize("outside_asset", ["SR", "BRANCH"])
+def test_economics_source_failure_limits_required_contracts_to_configured_assets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    outside_asset: str,
+) -> None:
+    _patch_common_inputs(monkeypatch, [])
+
+    class Client:
+        def fetch_futures_contract_securities(self):
+            return [
+                {"SECID": "BRM6", "ASSETCODE": "BR", "IMTIME": "2026-07-11 09:00:00"},
+                {"SECID": "BRU6", "ASSETCODE": "BR", "IMTIME": "2026-07-11 09:00:00"},
+                {"SECID": "UNRELATED", "ASSETCODE": outside_asset, "IMTIME": "2026-07-11 09:00:00"},
+            ]
+
+        def fetch_futures_indicative_rates(self, **kwargs):
+            return [{"secid": "USD/RUB", "tradedate": "2026-07-10", "rate": 80}]
+
+        def fetch_futures_rms_limits(self, **kwargs):
+            return []
+
+        def fetch_futures_rms_staticparams(self, **kwargs):
+            return []
+
+    with pytest.raises(baseline_module.EconomicsSourceUnavailable) as captured:
+        baseline_module.refresh_moex_contract_economics(
+            client=Client(),
+            universe=baseline_module.load_universe(tmp_path / "u"),
+            mappings=baseline_module.load_mapping_registry(tmp_path / "m"),
+            raw_economics_root=tmp_path / "raw",
+            canonical_economics_root=tmp_path / "canonical",
+            evidence_dir=tmp_path / "evidence",
+            run_id="scope",
+            ingest_till_utc="2026-07-10T21:00:00Z",
+            changed_windows=[],
+            refresh_window_days=7,
+        )
+    assert captured.value.required_contract_ids == ("BRM6", "BRU6")
+    # IMTIME provenance remains the actual source date, including a weekend.
+    assert captured.value.target_session_date == "2026-07-11"
+    assert not (tmp_path / "raw").exists()
+
+
+@pytest.mark.parametrize("problem", ["missing_asset", "missing_mapping", "inactive_scope"])
+def test_economics_scope_rejects_incomplete_configured_inputs(tmp_path, monkeypatch, problem):
+    from dataclasses import replace
+
+    _patch_common_inputs(monkeypatch, [])
+    universe = baseline_module.load_universe(tmp_path / "u")
+    mappings = baseline_module.load_mapping_registry(tmp_path / "m")
+    payloads = [{"SECID": "BRM6", "ASSETCODE": "BR"}]
+    if problem == "missing_asset":
+        payloads = [{"SECID": "SRM6", "ASSETCODE": "SR"}]
+    elif problem == "missing_mapping":
+        mappings = []
+    else:
+        universe = [replace(universe[0], status="inactive")]
+    with pytest.raises(ValueError, match="economics .*scope|missing configured instruments"):
+        baseline_module._required_economics_contract_ids(
+            universe=universe, mappings=mappings, contract_payloads=payloads
+        )
+
+
+def test_economics_scope_uses_exact_aliases_and_excludes_inactive_assets(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    _patch_common_inputs(monkeypatch, [])
+    symbol = baseline_module.load_universe(tmp_path / "u")[0]
+    mapping = baseline_module.load_mapping_registry(tmp_path / "m")[0]
+    universe = [
+        replace(symbol, moex_asset_codes=("BR", "BRENT")),
+        replace(symbol, internal_id="FUT_SR", status="inactive", moex_asset_codes=("SR",)),
+    ]
+    mappings = [mapping, replace(mapping, internal_id="FUT_SR", moex_secid="SRM6")]
+    payloads = [
+        {"SECID": "BRM6", "ASSETCODE": "BR"},
+        {"SECID": "BRU6", "ASSETCODE": "BRENT"},
+        {"SECID": "SRM6", "ASSETCODE": "SR"},
+        {"SECID": "OTHER", "ASSETCODE": "BRANCH"},
+    ]
+    assert baseline_module._required_economics_contract_ids(
+        universe=universe, mappings=mappings, contract_payloads=payloads
+    ) == ("BRM6", "BRU6")
+    assert baseline_module._required_economics_contract_ids(
+        universe=[replace(symbol, moex_asset_codes=())],
+        mappings=[mapping],
+        contract_payloads=payloads,
+    ) == ("BRM6",)
+
+
+@pytest.mark.parametrize("advanced", ["raw", "prepared", "oi"])
+def test_economics_fallback_rejects_advanced_renewal_input(tmp_path, advanced):
+    from trading_advisor_3000.product_plane.common.data_snapshots import SnapshotUnavailableError
+    from trading_advisor_3000.product_plane.data_plane.moex.economics_reuse import (
+        reuse_published_economics_after_source_unavailable,
+    )
+
+    tables = {}
+    for name in ("raw", "prepared", "oi"):
+        path = tmp_path / f"{name}.delta"
+        write_delta_table_rows(table_path=path, rows=[{"value": 1}], columns={"value": "long"})
+        tables[name] = baseline_module.capture_table(path)
+    error = baseline_module.EconomicsSourceUnavailable(
+        target_session_date="2026-07-11",
+        required_contract_ids=("BRM6",),
+        missing_sources=("rms_limits",),
+    )
+    error.native_history_renewal = {"tables": tables}
+    write_delta_table_rows(
+        table_path=tmp_path / f"{advanced}.delta", rows=[{"value": 2}], columns={"value": "long"}
+    )
+    with pytest.raises(SnapshotUnavailableError, match="input changed"):
+        reuse_published_economics_after_source_unavailable(
+            canonical_economics_root=tmp_path / "economics",
+            evidence_dir=tmp_path / "evidence",
+            run_id="drift",
+            source_error=error,
+        )
+    assert not (tmp_path / "evidence" / "contract-economics-report.json").exists()
+
+
+@pytest.mark.parametrize("problem", ["stale", "ambiguous"])
+def test_economics_scoped_reuse_retains_quality_rejection(tmp_path, problem):
+    from trading_advisor_3000.product_plane.data_plane.moex.economics_reuse import (
+        reuse_published_economics_after_source_unavailable,
+    )
+
+    root = tmp_path / "economics"
+    extra = (
+        (_contract_economics_row("BRM6", effective_from_ts="2026-07-11T07:00:00Z"),)
+        if problem == "ambiguous"
+        else ()
+    )
+    _write_contract_economics_table(
+        root / "canonical_contract_economics.delta", contract_ids=("BRM6",), additional_rows=extra
+    )
+    error = baseline_module.EconomicsSourceUnavailable(
+        target_session_date="2026-07-15" if problem == "stale" else "2026-07-11",
+        required_contract_ids=("BRM6",),
+        missing_sources=("rms_limits",),
+    )
+    with pytest.raises(RuntimeError, match="published economics coverage failed"):
+        reuse_published_economics_after_source_unavailable(
+            canonical_economics_root=root,
+            evidence_dir=tmp_path / "evidence",
+            run_id="invalid",
+            source_error=error,
+        )
+    report = json.loads((tmp_path / "evidence" / "contract-economics-report.json").read_text())
+    invalid = report["published_coverage"]["invalid_contracts"]["BRM6"]
+    assert invalid == (
+        ["source_age_days=5"] if problem == "stale" else ["ambiguous_active_intervals=2"]
+    )
+
+
+def test_native_history_source_failure_preserves_real_fixture_renewal(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    _patch_common_inputs(monkeypatch, [])
+    paths = {name: tmp_path / f"{name}.delta" for name in ("raw", "prepared", "oi")}
+    observed = {}
+
+    def renew(**kwargs):
+        refs = {}
+        from trading_advisor_3000.product_plane.data_plane.moex.native_history_refresh import (
+            write_changed_support_rows,
+        )
+
+        row = {
+            "source_id": "moex-history",
+            "board": "RFUD",
+            "moex_secid": "BRM6",
+            "trade_date": "2026-07-10",
+            "source_document_hash": "official-row",
+            "fetched_at_utc": "2026-07-11T10:00:00Z",
+            "last_settle_price": 100.0,
+        }
+        columns = {key: "string" for key in row}
+        columns.update(trade_date="date", fetched_at_utc="timestamp", last_settle_price="double")
+        for name, path in paths.items():
+            refs[name] = write_changed_support_rows(path, [row], columns=columns)
+            assert set(refs[name]) == {"table_path", "table_id", "delta_version", "changed_rows"}
+        observed.update(refs)
+        return SimpleNamespace(
+            observed_date_start="2026-07-10",
+            observed_date_end="2026-07-10",
+            admitted_date_end="2026-07-10",
+            tables=refs,
+            source_hash="fixture-history",
+            current_crosscheck={},
+        )
+
+    monkeypatch.setattr(baseline_module, "refresh_native_history_support", renew)
+    monkeypatch.setattr(
+        baseline_module,
+        "validate_contract_parameter_evidence",
+        lambda *args: {"prepared_input_version": 0},
+    )
+    monkeypatch.setattr(baseline_module, "bind_contract_parameter_input", lambda *args: None)
+    monkeypatch.setattr(
+        baseline_module, "renew_contract_parameter_evidence", lambda value: ((), {})
+    )
+
+    class Client:
+        def fetch_futures_contract_securities(self):
+            return [{"SECID": "BRM6", "ASSETCODE": "BR", "IMTIME": "2026-07-11 10:00:00"}]
+
+        def fetch_futures_indicative_rates(self, **kwargs):
+            return [{"secid": "USD/RUB", "tradedate": "2026-07-10", "rate": 80}]
+
+        def fetch_futures_rms_limits(self, **kwargs):
+            return []
+
+        def fetch_futures_rms_staticparams(self, **kwargs):
+            return []
+
+    with pytest.raises(baseline_module.EconomicsSourceUnavailable) as captured:
+        baseline_module.refresh_moex_contract_economics(
+            client=Client(),
+            universe=baseline_module.load_universe(tmp_path / "u"),
+            mappings=baseline_module.load_mapping_registry(tmp_path / "m"),
+            raw_economics_root=tmp_path / "raw-economics",
+            canonical_economics_root=tmp_path / "economics",
+            evidence_dir=tmp_path / "evidence",
+            run_id="native-source-failure",
+            ingest_till_utc="2026-07-10T21:00:00Z",
+            changed_windows=[],
+            refresh_window_days=7,
+            economics_history_refresh=True,
+            daily_open_interest_path=paths["oi"],
+            economics_source_paths={"raw_contract_specs_path": paths["prepared"]},
+            economics_calculation_options={
+                "additional_contract_parameter_regimes": (),
+                "contract_parameter_evidence": {},
+            },
+        )
+    renewal = captured.value.native_history_renewal
+    assert renewal["tables"] == observed
+    assert renewal["source_hash"] == "fixture-history"
+    assert renewal["tables"]["oi"]["delta_version"] == delta_table_version(paths["oi"])
+    _write_contract_economics_table(
+        tmp_path / "economics" / "canonical_contract_economics.delta", contract_ids=("BRM6",)
+    )
+    from trading_advisor_3000.product_plane.data_plane.moex.economics_reuse import (
+        reuse_published_economics_after_source_unavailable,
+    )
+
+    report = reuse_published_economics_after_source_unavailable(
+        canonical_economics_root=tmp_path / "economics",
+        evidence_dir=tmp_path / "evidence",
+        run_id="native-source-failure",
+        source_error=captured.value,
+    )
+    assert report["status"] == "PASS-NOOP"
+    assert report["native_history_renewal"]["tables"] == observed

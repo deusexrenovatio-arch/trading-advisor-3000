@@ -566,6 +566,45 @@ def _deduplicate_rows_by_key(
     return deduplicated
 
 
+def _required_economics_contract_ids(
+    *,
+    universe: Sequence[object],
+    mappings: Sequence[object],
+    contract_payloads: Sequence[Mapping[str, object]],
+) -> tuple[str, ...] | None:
+    # Legacy unscoped callers retain full-catalog admission.
+    if not universe and not mappings:
+        return None
+    symbols = {symbol.internal_id: symbol for symbol in universe if symbol.is_active}
+    selected = _select_active_mappings_for_universe(list(universe), list(mappings))
+    if not symbols or {mapping.internal_id for mapping in selected} != set(symbols):
+        raise ValueError("economics refresh requires a complete active universe/mapping scope")
+    required = set()
+    missing = []
+    for mapping in selected:
+        symbol = symbols[mapping.internal_id]
+        assets = {str(code).strip().upper() for code in symbol.moex_asset_codes}
+        matches = {
+            str(payload.get("SECID") or payload.get("secid") or "").strip()
+            for payload in contract_payloads
+            if (
+                str(payload.get("ASSETCODE") or payload.get("assetcode") or "").strip().upper()
+                in assets
+                if assets
+                else str(payload.get("SECID") or payload.get("secid") or "").strip()
+                == mapping.moex_secid
+            )
+        } - {""}
+        if not matches:
+            missing.append(mapping.internal_id)
+        required.update(matches)
+    if missing:
+        raise ValueError(
+            f"economics current securities missing configured instruments: {', '.join(missing)}"
+        )
+    return tuple(sorted(required))
+
+
 def _write_iss_economics_raw_tables(
     *,
     client: MoexISSClient,
@@ -574,6 +613,7 @@ def _write_iss_economics_raw_tables(
     contract_payloads: Sequence[Mapping[str, object]] | None = None,
     fx_payloads: Sequence[Mapping[str, object]] | None = None,
     write_contract_snapshot: bool = True,
+    required_contract_ids: Sequence[str] | None = None,
 ) -> dict[str, object]:
     trade_datetime = _economics_trade_date(ingest_till_utc)
     trade_date = trade_datetime.date()
@@ -743,8 +783,10 @@ def _write_iss_economics_raw_tables(
     if missing_sources:
         raise EconomicsSourceUnavailable(
             target_session_date=contract_snapshot_trade_date.isoformat(),
-            required_contract_ids=tuple(
-                str(row["moex_secid"]) for row in contract_rows if row.get("moex_secid")
+            required_contract_ids=(
+                required_contract_ids
+                if required_contract_ids is not None
+                else tuple(str(row["moex_secid"]) for row in contract_rows if row.get("moex_secid"))
             ),
             missing_sources=missing_sources,
         )
@@ -860,7 +902,7 @@ def refresh_moex_contract_economics(
     previous_economics_reference: Mapping[str, object] | None = None,
     canonical_bars_path: Path | None = None,
 ) -> dict[str, object]:
-    del universe, mappings, changed_windows
+    del changed_windows
 
     from trading_advisor_3000.spark_jobs.moex_contract_economics_job import (
         run_moex_contract_economics_spark_job,
@@ -896,7 +938,11 @@ def refresh_moex_contract_economics(
     )
     if verified is not None:
         bind_contract_parameter_input(sources["raw_contract_specs_path"], verified)
-    renewal = None
+    renewal_report = None
+    current_securities = client.fetch_futures_contract_securities()
+    required_contract_ids = _required_economics_contract_ids(
+        universe=universe, mappings=mappings, contract_payloads=current_securities
+    )
     if economics_history_refresh:
         if verified is None:
             raise ValueError("native history refresh requires the existing admitted base evidence")
@@ -904,7 +950,6 @@ def refresh_moex_contract_economics(
         trade_dates = [
             end - timedelta(days=offset) for offset in range(refresh_window_days - 1, -1, -1)
         ]
-        current_securities = client.fetch_futures_contract_securities()
         dated_fx_rows = client.fetch_futures_indicative_rates(
             date_from=trade_dates[0], date_till=end
         )
@@ -926,20 +971,27 @@ def refresh_moex_contract_economics(
         )
         verified = validate_contract_parameter_evidence(rules, evidence)
         bind_contract_parameter_input(sources["raw_contract_specs_path"], verified)
+        renewal_report = {
+            "observed_date_start": renewal.observed_date_start,
+            "observed_date_end": renewal.observed_date_end,
+            "admitted_date_end": renewal.admitted_date_end,
+            "tables": renewal.tables,
+            "source_hash": renewal.source_hash,
+            "current_crosscheck": renewal.current_crosscheck,
+        }
+    try:
         raw_refresh_report = _write_iss_economics_raw_tables(
             client=client,
             raw_economics_root=raw_economics_root,
             ingest_till_utc=ingest_till_utc,
             contract_payloads=current_securities,
-            fx_payloads=dated_fx_rows,
-            write_contract_snapshot=False,
+            fx_payloads=dated_fx_rows if economics_history_refresh else None,
+            write_contract_snapshot=not economics_history_refresh,
+            required_contract_ids=required_contract_ids,
         )
-    else:
-        raw_refresh_report = _write_iss_economics_raw_tables(
-            client=client,
-            raw_economics_root=raw_economics_root,
-            ingest_till_utc=ingest_till_utc,
-        )
+    except EconomicsSourceUnavailable as exc:
+        exc.native_history_renewal = renewal_report
+        raise
     inputs = {
         (
             "prepared_raw_moex_contract_securities"
@@ -996,15 +1048,8 @@ def refresh_moex_contract_economics(
     report["output_references"] = output_references
     report["snapshot_inputs"] = inputs
     report["raw_refresh"] = raw_refresh_report
-    if renewal is not None:
-        report["native_history_renewal"] = {
-            "observed_date_start": renewal.observed_date_start,
-            "observed_date_end": renewal.observed_date_end,
-            "admitted_date_end": renewal.admitted_date_end,
-            "tables": renewal.tables,
-            "source_hash": renewal.source_hash,
-            "current_crosscheck": renewal.current_crosscheck,
-        }
+    if renewal_report is not None:
+        report["native_history_renewal"] = renewal_report
     return report
 
 
