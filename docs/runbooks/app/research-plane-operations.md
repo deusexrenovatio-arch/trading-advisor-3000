@@ -88,7 +88,9 @@ publication still compare exact raw runtime provenance.
 
 L1 migrates only an exact complete legacy bars/ladder/minute proof, row membership
 and context. It updates row input proofs while preserving every value/NULL and
-legacy source provenance. L2 verifies actual bars/count/MTF/content plus the finite
+legacy source provenance. Complete metadata-only partitions use one existing atomic
+predicate write with the exact proven row count as its budget (the accepted
+maximum is 105307); computed suffixes keep the ordinary 100000-row limit. L2 verifies actual bars/count/MTF/content plus the finite
 old compute recipe before advancing its complete metadata carrier. Unknown or
 mismatched partitions compute conservatively. Compatible fixtures forbid numerical
 builders; subsequent same-code runs use the normal metadata noop. Migration reads

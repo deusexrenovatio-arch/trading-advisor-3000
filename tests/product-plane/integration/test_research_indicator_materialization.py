@@ -3057,3 +3057,57 @@ def test_explicit_full_guard_reaches_both_numerical_owners(tmp_path, monkeypatch
     assert first_report["refreshed_partition_count"] == 4
     assert second_report["refreshed_partition_count"] == 4
     assert len(calls_l1) == len(calls_l2) == 4
+
+
+def test_metadata_migration_uses_exact_atomic_partition_budget(tmp_path, monkeypatch):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    l1, *_ = _vp_partition_fixture(tmp_path, monkeypatch)
+    before = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    writer = owner.write_indicator_frame_partition_batches
+    allowances = []
+
+    def small_budget(**kwargs):
+        explicit = kwargs.get("max_rows_per_delta_write")
+        if explicit is not None:
+            batches = tuple(kwargs["partition_row_batches"])
+            assert len(batches) == 1
+            assert explicit == len(batches[0][1]) > 2
+            kwargs["partition_row_batches"] = batches
+            allowances.append(explicit)
+        else:
+            kwargs["max_rows_per_delta_write"] = 2
+        return writer(**kwargs)
+
+    monkeypatch.setattr(owner, "write_indicator_frame_partition_batches", small_budget)
+    monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
+    with bridge._verified_migration_scope(tuple(bridge.LEGACY_SOURCES)[1]):
+        result = materialize_indicator_frames(**l1)
+    assert sorted(allowances) == [24, 24, 96, 96]
+    assert result["hash_migrated_partition_count"] == 4
+    assert result["hash_migrated_row_count"] == result["refreshed_row_count"] == 240
+    assert result["write_batch_count"] == 4
+    after = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    assert [(r.instrument_id, r.timeframe, r.ts, r.values) for r in before] == [
+        (r.instrument_id, r.timeframe, r.ts, r.values) for r in after
+    ]
+    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+    # An ordinary computed tail does not inherit the metadata-only allowance.
+    DeltaTable(str(l1["volume_profile_raw_1m_table_path"])).update(
+        updates={"high": "90.0"}, predicate="instrument_id='BR' AND ts_open='2026-03-02T06:01:00Z'"
+    )
+    with pytest.raises(ValueError, match="atomic indicator suffix exceeds"):
+        materialize_indicator_frames(**l1)

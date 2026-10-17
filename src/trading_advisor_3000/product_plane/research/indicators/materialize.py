@@ -3074,6 +3074,7 @@ def _materialize_indicator_window_tails(
     starts: dict[IndicatorFramePartitionKey, str] = {}
     diagnostics: dict[str, object] = {}
     refreshed = reused = missing_source = metadata_rebased = migrated = 0
+    migration_rows = migration_batches = 0
     has_volume_profile = _profile_has_volume_profile_spec(profile)
     columns = profile.expected_output_columns()
 
@@ -3086,6 +3087,7 @@ def _materialize_indicator_window_tails(
 
     def batches() -> Iterator[tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]]:
         nonlocal refreshed, reused, missing_source, metadata_rebased, migrated
+        nonlocal migration_rows, migration_batches
         for partition, count in sorted(
             partition_counts.items(),
             key=lambda item: (
@@ -3242,10 +3244,23 @@ def _materialize_indicator_window_tails(
                         )
                         for bar, row_hash in zip(series, input_hashes)
                     ]
-                    starts[partition] = series[0].ts
                     assert_source_stable()
                     migration_source()
-                    yield partition, rows
+                    # A complete proven partition can exceed the ordinary suffix
+                    # budget (accepted 15m partitions exceed 100k rows). Keep one
+                    # atomic overwrite, bounded by its exact proven row count;
+                    # computed/changed suffixes retain the outer default limit.
+                    _, written, writes = write_indicator_frame_partition_batches(
+                        output_dir=indicator_output_dir,
+                        partition_row_batches=((partition, rows),),
+                        profile=profile,
+                        partition_start_ts={partition: series[0].ts},
+                        max_rows_per_delta_write=count,
+                    )
+                    assert_source_stable()
+                    migration_source()
+                    migration_rows += written
+                    migration_batches += writes
                     reused += 1
                     migrated += 1
                     continue
@@ -3331,6 +3346,8 @@ def _materialize_indicator_window_tails(
         partition_start_ts=starts,
     )
     assert_source_stable()
+    row_count += migration_rows
+    batch_count += migration_batches
     record_stage_timing(
         stage_timings,
         "write_indicator_frames",
@@ -3351,6 +3368,7 @@ def _materialize_indicator_window_tails(
         "write_batch_count": batch_count,
         "metadata_rebased_partition_count": metadata_rebased,
         "hash_migrated_partition_count": migrated,
+        "hash_migrated_row_count": migration_rows,
         "profile_version": profile.version,
         "output_columns_hash": indicator_output_columns_hash(columns),
         "volume_profile_missing_source_partition_count": missing_source,
