@@ -2485,3 +2485,92 @@ def test_l0_windowed_job_keeps_global_indices_and_full_tree(tmp_path):
     assert {
         name: DeltaTable(str(output / f"{name}.delta")).version() for name in versions
     } == versions
+
+
+def test_hash_migration_empty_scope_dispatches_both_native_jobs(tmp_path, monkeypatch):
+    receipt = {
+        "version": 1,
+        "snapshot_id": "accepted",
+        "manifest_sha256": "pinned",
+        "source_sha256": "legacy",
+    }
+    frozen = {
+        "refresh_scope_version": 1,
+        "force_full_refresh": False,
+        "windows": [],
+        "hash_compatibility": receipt,
+    }
+    monkeypatch.setattr(research_assets, "resolve_refresh_scope", lambda **kwargs: frozen)
+    context = _baseline_update_sensor_context(
+        tmp_path=tmp_path,
+        run_id="migration-noop",
+        report={
+            "status": "PASS",
+            "publish_decision": "publish",
+            "cf_catch_up": {"status": "NOOP", "windows": []},
+            "data_snapshot": {"snapshot_manifest_path": str(tmp_path / "data.json")},
+        },
+    )
+    request = _single_sensor_run_request(
+        research_assets.moex_cf_catch_up_after_moex_baseline_sensor, context
+    )
+    cf = request.run_config["ops"]["continuous_front_bars"]["config"]
+    assert cf["changed_windows"] == [] and cf["force_full_refresh"] is False
+    assert cf["hash_compatibility"] == receipt
+    handoff = _single_sensor_run_request(
+        research_assets.research_data_prep_after_moex_cf_catch_up_sensor,
+        SimpleNamespace(
+            dagster_run=SimpleNamespace(
+                run_id="migration-cf", run_config=request.run_config, tags=request.tags
+            )
+        ),
+    )
+    for op in handoff.run_config["ops"].values():
+        assert op["config"]["changed_windows"] == []
+        assert op["config"]["force_full_refresh"] is False
+        assert op["config"]["hash_compatibility"] == receipt
+    from dagster._core.execution.api import create_execution_plan
+
+    job = product_plane_definitions.get_repository_def().get_job(RESEARCH_DATA_PREP_JOB_NAME)
+    plan = create_execution_plan(
+        job.get_subset(asset_selection=set(handoff.asset_selection)), run_config=handoff.run_config
+    )
+    assert {
+        "research_data_snapshot",
+        "continuous_front_indicator_acceptance_report",
+        "research_indicator_frames",
+        "research_derived_indicator_frames",
+    } <= set(plan.step_keys_to_execute)
+
+
+@pytest.mark.parametrize("full", [False, True])
+def test_l1_l2_assets_forward_empty_bounded_scope_and_full_guard(tmp_path, monkeypatch, full):
+    config = {"refresh_scope_version": 1, "force_full_refresh": full}
+    dataset = {
+        "materialized_output_dir": str(tmp_path),
+        "dataset_version": "fixture",
+        "indicator_set_version": "indicators-v1",
+        "indicator_profile_version": "core_v1",
+        "derived_indicator_set_version": "derived-indicators-v1",
+        "derived_indicator_profile_version": "core_v1",
+        "changed_windows": [],
+        "contour_id": "pit_active_front",
+    }
+    monkeypatch.setattr(research_assets, "_existing_research_dataset_context", lambda _: dataset)
+    l1 = []
+    l2 = []
+    monkeypatch.setattr(research_assets, "materialize_indicator_frames", lambda **kw: l1.append(kw))
+    monkeypatch.setattr(
+        research_assets, "materialize_derived_indicator_frames", lambda **kw: l2.append(kw) or {}
+    )
+    monkeypatch.setattr(research_assets, "_materialized_table_manifest", lambda *a, **kw: {})
+    monkeypatch.setattr(research_assets, "_delta_table_summary", lambda **kw: {})
+    monkeypatch.setattr(research_assets, "has_delta_log", lambda _: False)
+    context = SimpleNamespace(op_execution_context=SimpleNamespace(op_config=config))
+    research_assets.research_indicator_frames.op.compute_fn.decorated_fn.__wrapped__(context)
+    research_assets.research_derived_indicator_frames.op.compute_fn.decorated_fn.__wrapped__(
+        context
+    )
+    assert l1[0]["changed_windows"] == (None if full else ())
+    assert l1[0]["force_recompute"] is full
+    assert l2[0]["force_recompute"] is full

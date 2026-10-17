@@ -1962,6 +1962,7 @@ def materialize_indicator_frames(
     timeframes: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     changed_windows: Sequence[Mapping[str, object]] | None = None,
+    force_recompute: bool = False,
     volume_profile_source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]]
     | None = None,
     volume_profile_raw_1m_table_path: Path | None = None,
@@ -1985,6 +1986,7 @@ def materialize_indicator_frames(
             timeframes=timeframes,
             dataset_instrument_ids=dataset_instrument_ids,
             changed_windows=changed_windows,
+            force_recompute=force_recompute,
             volume_profile_source_rows=volume_profile_source_rows,
             volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
             volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
@@ -2041,13 +2043,18 @@ def _materialize_indicator_frames_unlocked(
     timeframes: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     changed_windows: Sequence[Mapping[str, object]] | None = None,
+    force_recompute: bool = False,
     volume_profile_source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]]
     | None = None,
     volume_profile_raw_1m_table_path: Path | None = None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
 ) -> dict[str, object]:
+    from ..hash_compatibility import migration_source
+
     refresh_windows = (
-        _normalize_indicator_windows(changed_windows) if changed_windows is not None else None
+        _normalize_indicator_windows(changed_windows)
+        if changed_windows is not None and not force_recompute
+        else None
     )
     stage_timings: StageTimings = {}
     compute_diagnostics: dict[str, object] = {}
@@ -2157,7 +2164,7 @@ def _materialize_indicator_frames_unlocked(
             volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
             source_snapshot_hash=source_snapshot_hash,
         )
-        if volume_profile_source_rows is None
+        if volume_profile_source_rows is None and not migration_source() and not force_recompute
         else None
     )
     if fast_reuse_report is not None:
@@ -2496,29 +2503,37 @@ def _materialize_indicator_frames_unlocked(
                 source_rows=volume_profile_source_rows,
                 tick_sizes=volume_profile_tick_size_by_instrument,
             )
-            if _existing_partition_matches(
-                existing_partition_metadata,
-                source_hash=source_hash,
-                profile_version=resolved_profile.version,
-                row_count=row_count,
-                output_columns_hash=target_output_columns_hash,
-                legacy_output_columns_match=set(target_output_columns).issubset(
-                    existing_output_columns
-                ),
-                compute_contract_hash=_indicator_compute_contract_hash(resolved_profile),
-                refresh_context_hash=current_refresh_context,
-            ) and existing_partition_metadata.get("source_snapshot_hash"):
+            if (
+                not force_recompute
+                and _existing_partition_matches(
+                    existing_partition_metadata,
+                    source_hash=source_hash,
+                    profile_version=resolved_profile.version,
+                    row_count=row_count,
+                    output_columns_hash=target_output_columns_hash,
+                    legacy_output_columns_match=set(target_output_columns).issubset(
+                        existing_output_columns
+                    ),
+                    compute_contract_hash=_indicator_compute_contract_hash(resolved_profile),
+                    refresh_context_hash=current_refresh_context,
+                )
+                and existing_partition_metadata.get("source_snapshot_hash")
+            ):
                 reused_partitions += 1
                 continue
 
-            source_unchanged = bool(existing_partition_metadata) and (
-                existing_partition_metadata.get("source_bars_hash") == source_hash
-                and int(existing_partition_metadata.get("row_count", -1) or -1) == row_count
+            source_unchanged = (
+                not force_recompute
+                and bool(existing_partition_metadata)
                 and (
-                    bool(set(target_output_columns) - existing_output_columns)
-                    or not existing_partition_metadata.get("compute_contract_hash")
-                    or existing_partition_metadata["compute_contract_hash"]
-                    == _indicator_compute_contract_hash(resolved_profile)
+                    existing_partition_metadata.get("source_bars_hash") == source_hash
+                    and int(existing_partition_metadata.get("row_count", -1) or -1) == row_count
+                    and (
+                        bool(set(target_output_columns) - existing_output_columns)
+                        or not existing_partition_metadata.get("compute_contract_hash")
+                        or existing_partition_metadata["compute_contract_hash"]
+                        == _indicator_compute_contract_hash(resolved_profile)
+                    )
                 )
             )
             missing_columns = set(target_output_columns) - existing_output_columns
@@ -2562,7 +2577,8 @@ def _materialize_indicator_frames_unlocked(
                     partition=partition_key,
                     value_columns=existing_value_columns or reusable_existing_columns,
                 )
-                if existing_partition_metadata is not None
+                if not force_recompute
+                and existing_partition_metadata is not None
                 and reusable_existing_columns
                 and (
                     can_extend_from_existing
@@ -3052,24 +3068,24 @@ def _materialize_indicator_window_tails(
     deleted_partitions: tuple[IndicatorFramePartitionKey, ...],
     stage_timings: StageTimings,
 ) -> dict[str, object]:
+    from ..hash_compatibility import migration_source
+
+    migration = migration_source()
     starts: dict[IndicatorFramePartitionKey, str] = {}
     diagnostics: dict[str, object] = {}
-    refreshed = reused = missing_source = metadata_rebased = 0
+    refreshed = reused = missing_source = metadata_rebased = migrated = 0
     has_volume_profile = _profile_has_volume_profile_spec(profile)
     columns = profile.expected_output_columns()
 
     def assert_source_stable() -> None:
-        if (
-            has_volume_profile
-            and _source_snapshot_hash(
-                dataset_output_dir / "research_bar_views.delta", volume_profile_raw_1m_table_path
-            )
-            != source_snapshot_hash
-        ):
+        if (has_volume_profile or migration) and _source_snapshot_hash(
+            dataset_output_dir / "research_bar_views.delta",
+            volume_profile_raw_1m_table_path if has_volume_profile else None,
+        ) != source_snapshot_hash:
             raise ValueError("L1 inputs changed during partition proof")
 
     def batches() -> Iterator[tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]]:
-        nonlocal refreshed, reused, missing_source, metadata_rebased
+        nonlocal refreshed, reused, missing_source, metadata_rebased, migrated
         for partition, count in sorted(
             partition_counts.items(),
             key=lambda item: (
@@ -3128,6 +3144,7 @@ def _materialize_indicator_window_tails(
                 and volume_profile_source_rows is None
                 and not selected_windows
                 and int(metadata.get("row_count", -1)) == count
+                and not migration
             ):
                 reused += 1
                 continue
@@ -3174,6 +3191,7 @@ def _materialize_indicator_window_tails(
                     changed_ts.clear()
                 # Prove consumed inputs, including minute-only corrections/deletions
                 # absent from caller L0 windows. Never use cached VP hashes as proof.
+                volume_hashes: dict[str, str] = {}
                 input_hashes = _indicator_input_row_hashes(
                     series,
                     compute_contract_hash=_indicator_compute_contract_hash(profile),
@@ -3182,7 +3200,55 @@ def _materialize_indicator_window_tails(
                     has_volume_profile=has_volume_profile,
                     required_columns=profile.required_input_columns(),
                     series_mode=partition.series_mode,
+                    volume_profile_hashes=volume_hashes,
                 )
+                legacy_hash = ""
+                if migration:
+                    legacy_hash = _bars_hash(series, adjustment_ladder_rows=ladder)
+                    if has_volume_profile and resolved_minutes is not None:
+                        legacy_hash = _volume_profile_source_hash(
+                            target_bars_hash=legacy_hash,
+                            local_series=series,
+                            source_rows_by_series=resolved_minutes,
+                            tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+                        )
+                if (
+                    migration
+                    and metadata.get("source_bars_hash") == legacy_hash
+                    and len(existing) == len(series) == count
+                    and len(existing_by_ts) == count
+                    and set(existing_by_ts) == source_ts
+                    and all(
+                        row.source_bars_hash == legacy_hash and row.row_count == count
+                        for row in existing
+                    )
+                    and metadata.get("profile_version") == profile.version
+                    and metadata.get("output_columns_hash")
+                    == indicator_output_columns_hash(columns)
+                ):
+                    stamp = max(
+                        pd.Timestamp.now(tz="UTC"),
+                        _utc_timestamp(str(metadata["created_at"])) + pd.Timedelta(1, unit="us"),
+                    )
+                    rows = [
+                        replace(
+                            existing_by_ts[bar.ts],
+                            bar_end_ts=bar.bar_end_ts,
+                            input_row_hash=row_hash,
+                            volume_profile_input_hash=volume_hashes.get(bar.ts, ""),
+                            source_snapshot_hash=source_snapshot_hash,
+                            source_dataset_bars_hash=source_dataset_bars_hash,
+                            created_at=stamp.isoformat().replace("+00:00", "Z"),
+                        )
+                        for bar, row_hash in zip(series, input_hashes)
+                    ]
+                    starts[partition] = series[0].ts
+                    assert_source_stable()
+                    migration_source()
+                    yield partition, rows
+                    reused += 1
+                    migrated += 1
+                    continue
                 changed_ts.update(
                     row.ts
                     for row, row_hash in zip(series, input_hashes)
@@ -3284,6 +3350,7 @@ def _materialize_indicator_window_tails(
         "deleted_partition_count": len(deleted_partitions),
         "write_batch_count": batch_count,
         "metadata_rebased_partition_count": metadata_rebased,
+        "hash_migrated_partition_count": migrated,
         "profile_version": profile.version,
         "output_columns_hash": indicator_output_columns_hash(columns),
         "volume_profile_missing_source_partition_count": missing_source,

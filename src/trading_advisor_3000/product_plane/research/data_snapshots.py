@@ -105,6 +105,7 @@ def _parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "changed_windows",
         "refresh_scope_version",
         "force_full_refresh",
+        "hash_compatibility",
         "continuous_front_policy",
         "indicator_set_version",
         "indicator_profile_version",
@@ -311,6 +312,7 @@ def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) 
             "changed_windows",
             "refresh_scope_version",
             "force_full_refresh",
+            "hash_compatibility",
             "continuous_front_policy",
             "canonical_contract_economics_path",
         )
@@ -359,6 +361,104 @@ def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) 
     return {**result, "status": "PASS-NOOP", "stage_timings": {}, "reused_from_run_id": source_id}
 
 
+def _validate_hash_compatibility(config: Mapping, pending: Mapping, instance: Any) -> dict | None:
+    """Validate an admission receipt against authoritative accepted state again."""
+    from .hash_compatibility import REQUIRED_QUALITY, SCOPE_PARAMETER_KEYS, compatible_provenance
+
+    receipt = config.get("hash_compatibility")
+    if not receipt:
+        return None
+    accepted = current_snapshot(_registry(config))
+    if not accepted or receipt != {
+        "version": 1,
+        "snapshot_id": accepted["snapshot_id"],
+        "manifest_sha256": accepted["manifest_sha256"],
+        "source_sha256": accepted["parameters"].get("runtime_provenance", {}).get("source_sha256"),
+    }:
+        raise ValueError("stale or forged hash compatibility receipt")
+    if (
+        not compatible_provenance(
+            accepted["parameters"].get("runtime_provenance", {}), pending["runtime_provenance"]
+        )
+        or any(
+            accepted["parameters"].get(key) != value
+            for key, value in _parameters(config).items()
+            if key not in SCOPE_PARAMETER_KEYS
+        )
+        or len(accepted["parents"]) != 1
+        or not REQUIRED_QUALITY.issubset(accepted["quality_checks"])
+        or any(accepted["quality_checks"][key] != "PASS" for key in REQUIRED_QUALITY)
+    ):
+        raise ValueError("hash compatibility semantics or QC changed")
+    owners = accepted["parameters"].get("quality_owners", {})
+    for stage in REQUIRED_QUALITY - {"continuous_front_acceptance"}:
+        owner = owners.get(stage)
+        run = instance.get_run_by_id(owner) if owner else None
+        if (
+            run is None
+            or run.status.value != "SUCCESS"
+            or not any(
+                step.step_key == stage and step.status.value == "SUCCESS"
+                for step in instance.get_run_step_stats(owner)
+            )
+        ):
+            raise ValueError("hash compatibility lacks native successful QC owner")
+    parent_root = Path(config["canonical_output_dir"]) / ".data_snapshots"
+    old_data = load_snapshot(parent_root / "manifests" / f"{accepted['parents'][0]}.json")
+    data = current_snapshot(parent_root)
+    if (
+        not data
+        or data["tables"] != old_data["tables"]
+        or pending["parents"] != [data["snapshot_id"]]
+        or pending["parent_manifest_sha256"] != data["manifest_sha256"]
+    ):
+        raise ValueError("hash compatibility Data pins changed")
+    # Only already completed native stages may have advanced their own outputs.
+    completed = {
+        name for stage in pending["quality_checks"] for name in _STAGE_OUTPUTS.get(stage, ())
+    }
+    assert_tables_unchanged(
+        {name: ref for name, ref in accepted["tables"].items() if name not in completed}
+    )
+    assert_tables_unchanged(pending["tables"])
+    return accepted
+
+
+def _accepted_cf_result(context: Any, config: Mapping, pending: dict, accepted: dict) -> dict:
+    """Revalidate the unchanged accepted native CF/QC producer before migration."""
+    evidence = accepted["parameters"]["quality_evidence"]["continuous_front_bars"]
+    result = evidence["cf_result"]
+    outputs = _STAGE_OUTPUTS["continuous_front_bars"]
+    if (
+        result.get("status") != "PASS"
+        or set(result.get("output_paths", {})) != set(outputs)
+        or set(result.get("rows_by_table", {})) != set(outputs)
+        or result.get("dataset_version") != pending["dataset_version"]
+        or not result.get("qc_rows")
+        or any(row.get("status") != "PASS" for row in result["qc_rows"])
+        or any(pending["tables"].get(name) != accepted["tables"][name] for name in outputs)
+        or any(
+            Path(result["output_paths"][name]).resolve()
+            != Path(accepted["tables"][name]["table_path"]).resolve()
+            for name in outputs
+        )
+    ):
+        raise ValueError("hash compatibility CF evidence mismatch")
+    pending["quality_checks"]["continuous_front_bars"] = "PASS"
+    pending["quality_owners"]["continuous_front_bars"] = str(context.run_id)
+    pending["quality_evidence"]["continuous_front_bars"] = {
+        **evidence,
+        "revalidated_from_snapshot_id": accepted["snapshot_id"],
+    }
+    atomic_json(_pending_path(context, config), pending)
+    return {
+        **result,
+        "status": "PASS-NOOP",
+        "stage_timings": {},
+        "revalidated_from_snapshot_id": accepted["snapshot_id"],
+    }
+
+
 def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
     """Pin upstream inputs and checkpoint completed outputs after each owning asset."""
 
@@ -380,10 +480,16 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
                 ):
                     return function(context, *args, **kwargs)
             pending = _initial(context, config)
+            op_context = getattr(context, "op_execution_context", context)
+            compatible = _validate_hash_compatibility(
+                config, pending, getattr(op_context, "instance", None)
+            )
             if function.__name__ == "continuous_front_bars":
                 reused = _upstream_cf_result(context, config, pending)
                 if reused is not None:
                     return reused
+                if compatible is not None:
+                    return _accepted_cf_result(context, config, pending, compatible)
             root = Path(config["materialized_output_dir"])
             writable = [root / f"{name}.delta" for name in output_tables]
             inputs = {
@@ -402,7 +508,16 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
                 if inputs
                 else None
             )
-            with worker_lease(root, str(context.run_id), function.__name__):
+            from contextlib import nullcontext
+
+            from .hash_compatibility import _verified_migration_scope
+
+            migration = (
+                _verified_migration_scope(config["hash_compatibility"]["source_sha256"])
+                if compatible is not None
+                else nullcontext()
+            )
+            with worker_lease(root, str(context.run_id), function.__name__), migration:
                 with materialization_snapshot_scope(view, writable_paths=writable) as reads:
                     result = function(context, *args, **kwargs)
             inputs = reads.plain_tables()

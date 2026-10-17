@@ -609,6 +609,23 @@ def _indicator_source_bars_hash(rows: list[ResearchBarView]) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
 
 
+def _legacy_indicator_hash(rows: list[IndicatorFrameRow], *, value_columns: tuple[str, ...]) -> str:
+    payload = [
+        {
+            "contract_id": row.contract_id,
+            "instrument_id": row.instrument_id,
+            "timeframe": row.timeframe,
+            "ts": row.ts,
+            "values": {column: row.values.get(column) for column in value_columns},
+            "source_bars_hash": row.source_bars_hash,
+            "row_count": row.row_count,
+        }
+        for row in rows
+    ]
+    normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
+
+
 def _indicator_hash(
     rows: list[IndicatorFrameRow],
     *,
@@ -1998,7 +2015,9 @@ def _delta_source_refs(paths: Sequence[Path]) -> list[dict[str, object]]:
     return [{**delta_table_identity(path), "version": delta_table_version(path)} for path in paths]
 
 
-def _derived_compute_contract_hash(ladder: tuple[dict[str, object], ...]) -> str:
+def _derived_compute_contract_hash(
+    ladder: tuple[dict[str, object], ...], *, implementation_sha256: str | None = None
+) -> str:
     research = Path(__file__).parent.parent
     files = (
         Path(__file__),
@@ -2008,9 +2027,14 @@ def _derived_compute_contract_hash(ladder: tuple[dict[str, object], ...]) -> str
         research / "continuous_front_indicators" / "rules.py",
         research.parent.parent / "spark_jobs" / "research_derived_source_frames_job.py",
     )
+    from ..hash_compatibility import CANONICAL_L2_IMPLEMENTATION_SHA256, reviewed_current_source
+
+    implementations = [hashlib.sha256(path.read_bytes()).hexdigest() for path in files]
+    if reviewed_current_source():
+        implementations[0] = implementation_sha256 or CANONICAL_L2_IMPLEMENTATION_SHA256
     payload = {
         "contract": "derived-native-v1",
-        "implementation": [hashlib.sha256(path.read_bytes()).hexdigest() for path in files],
+        "implementation": implementations,
         "numpy": np.__version__,
         "pandas": pd.__version__,
         "bar_usage": BAR_USAGE_POLICY_ID,
@@ -2172,6 +2196,7 @@ def materialize_derived_indicator_frames(
     timeframes: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     refresh_windows: Sequence[Mapping[str, object]] = (),
+    force_recompute: bool = False,
 ) -> dict[str, object]:
     stage_timings: StageTimings = {}
     stage_started = stage_timer()
@@ -2258,7 +2283,7 @@ def materialize_derived_indicator_frames(
         instruments=dataset_instrument_ids,
         timeframes=timeframes,
     )
-    if reused is not None:
+    if reused is not None and not force_recompute:
         if (
             _delta_source_refs(input_paths) != input_refs
             or _derived_source_snapshot_hash(**snapshot_args) != initial_snapshot_hash
@@ -2494,6 +2519,10 @@ def materialize_derived_indicator_frames(
     metadata_rebase_plan: list[
         tuple[DerivedIndicatorFramePartitionKey, ResearchBarView, dict[str, object]]
     ] = []
+    from ..hash_compatibility import LEGACY_SOURCES, migration_source
+
+    migration = migration_source()
+    hash_migrated_partitions = 0
     reused_partitions = 0
     refreshed_partitions = 0
     extended_partitions = 0
@@ -2605,34 +2634,67 @@ def materialize_derived_indicator_frames(
                 profile=resolved_profile,
                 apply_bar_usage_policy="bar_usage_flags" in source_base_frame.columns,
             )
-            if not full_family_repair and _existing_partition_matches(
-                existing_partition_metadata,
-                source_bars_hash=source_bars_hash,
-                source_indicators_hash=source_indicators_hash,
-                profile_version=resolved_profile.version,
-                row_count=row_count,
-                output_columns_hash=target_output_columns_hash,
-                mtf_source_family_hash=family_hash,
-                compute_contract_hash=compute_contract_hash,
-                warmup_span=resolved_profile.warmup_bars,
+            hash_migration = False
+            match_metadata = existing_partition_metadata
+            if migration and head and stored_indicator_metadata_matches:
+                old_indicator_hash = (
+                    _legacy_indicator_hash(
+                        local_indicator_rows, value_columns=required_source_indicator_columns
+                    )
+                    if migration == next(iter(LEGACY_SOURCES))
+                    else source_indicators_hash
+                )
+                old_compute_hash = _derived_compute_contract_hash(
+                    adjustment_ladder_rows, implementation_sha256=LEGACY_SOURCES[migration]
+                )
+                if (
+                    head.get("source_indicators_hash") == old_indicator_hash
+                    and head.get("compute_contract_hash") == old_compute_hash
+                ):
+                    hash_migration = True
+                    match_metadata = [
+                        {
+                            **head,
+                            "source_indicators_hash": source_indicators_hash,
+                            "compute_contract_hash": compute_contract_hash,
+                        }
+                    ]
+            if (
+                not full_family_repair
+                and not force_recompute
+                and _existing_partition_matches(
+                    match_metadata,
+                    source_bars_hash=source_bars_hash,
+                    source_indicators_hash=source_indicators_hash,
+                    profile_version=resolved_profile.version,
+                    row_count=row_count,
+                    output_columns_hash=target_output_columns_hash,
+                    mtf_source_family_hash=family_hash,
+                    compute_contract_hash=compute_contract_hash,
+                    warmup_span=resolved_profile.warmup_bars,
+                )
             ):
                 reused_partitions += 1
-                if head.get("source_snapshot_hash") != source_snapshot_hash:
+                if head.get("source_snapshot_hash") != source_snapshot_hash or hash_migration:
                     # Full current source/MTF content was just verified. Retain
                     # existing values, advance only the complete metadata carrier.
                     source_columns_hash = source_indicator_output_columns_hash
                     rebase_metadata = {
                         "source_snapshot_hash": source_snapshot_hash,
+                        "source_indicators_hash": source_indicators_hash,
+                        "compute_contract_hash": compute_contract_hash,
                         "source_dataset_bars_hash": current_dataset_bars_hash,
                         "source_indicator_profile_version": source_indicator_profile_version,
                         "source_indicator_output_columns_hash": source_columns_hash,
                     }
+                    hash_migrated_partitions += int(hash_migration)
                     metadata_rebase_plan.append((partition_key, local_series[-1], rebase_metadata))
                     replace_partitions.append(partition_key)
                 continue
 
             source_unchanged = (
                 not full_family_repair
+                and not force_recompute
                 and bool(head)
                 and head.get("compute_contract_hash") == compute_contract_hash
                 and (
@@ -2878,6 +2940,7 @@ def materialize_derived_indicator_frames(
         "deleted_partition_count": len(deleted_partitions),
         "write_batch_count": batch_count,
         "metadata_rebased_partition_count": len(metadata_rebase_plan),
+        "hash_migrated_partition_count": hash_migrated_partitions,
         "refresh_window_count": len(tuple(refresh_windows)),
         "output_columns_hash": target_output_columns_hash,
         "loaded_indicator_partition_count": 0,

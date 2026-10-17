@@ -9,6 +9,7 @@ from pathlib import Path
 
 from trading_advisor_3000.product_plane.common.data_snapshots import (
     SnapshotUnavailableError,
+    assert_tables_unchanged,
     capture_table,
     current_snapshot,
     load_snapshot,
@@ -84,22 +85,48 @@ def resolve_refresh_scope(
         or set(research["parameters"].get("timeframes", [])) != set(timeframes)
     ):
         return {**full, "reason": "missing_or_legacy_research_scope"}
+    compatibility = {}
     if configuration is not None:
         ignored = {
             "changed_windows",
             "refresh_scope_version",
             "force_full_refresh",
             "data_snapshot_manifest_path",
+            "hash_compatibility",
         }
-        if (
-            any(
-                research["parameters"].get(key) != value
-                for key, value in _parameters(configuration).items()
-                if key not in ignored
-            )
-            or research["parameters"].get("runtime_provenance") != runtime_provenance()
+        if any(
+            research["parameters"].get(key) != value
+            for key, value in _parameters(configuration).items()
+            if key not in ignored
         ):
             return {**full, "reason": "research_semantics_changed"}
+        if research["parameters"].get("runtime_provenance") != runtime_provenance():
+            from .hash_compatibility import REQUIRED_QUALITY, compatible_provenance
+
+            old = research["parameters"].get("runtime_provenance", {})
+            try:
+                parent = load_snapshot(root / "manifests" / f"{research['parents'][0]}.json")
+            except (FileNotFoundError, SnapshotUnavailableError):
+                return {**full, "reason": "data_ancestry_unavailable"}
+            if (
+                not compatible_provenance(old, runtime_provenance())
+                or data["tables"] != parent["tables"]
+                or not REQUIRED_QUALITY.issubset(research["quality_checks"])
+                or any(research["quality_checks"][key] != "PASS" for key in REQUIRED_QUALITY)
+            ):
+                return {**full, "reason": "research_semantics_changed"}
+            try:
+                assert_tables_unchanged(research["tables"])
+            except (ValueError, OSError, SnapshotUnavailableError):
+                return {**full, "reason": "accepted_research_outputs_changed"}
+            compatibility = {
+                "hash_compatibility": {
+                    "version": 1,
+                    "snapshot_id": research["snapshot_id"],
+                    "manifest_sha256": research["manifest_sha256"],
+                    "source_sha256": old["source_sha256"],
+                }
+            }
     volume_profile_name = Path(
         str((configuration or {}).get("volume_profile_raw_1m_table_path", "raw_moex_history.delta"))
     ).stem
@@ -155,7 +182,12 @@ def resolve_refresh_scope(
     windows = [dict(window) for scope in scopes for window in scope.get("windows", [])]
     intervals = [item for scope in scopes for item in scope.get("effective_intervals", [])]
     if not windows and not intervals:
-        return {"refresh_scope_version": 1, "force_full_refresh": False, "windows": []}
+        return {
+            "refresh_scope_version": 1,
+            "force_full_refresh": False,
+            "windows": [],
+            **compatibility,
+        }
     references = [
         reference for manifest in (data, research) for reference in manifest["tables"].values()
     ]
@@ -200,6 +232,7 @@ def resolve_refresh_scope(
     return {
         "refresh_scope_version": 1,
         "force_full_refresh": False,
+        **compatibility,
         "windows": [
             {
                 "instrument_id": instrument,

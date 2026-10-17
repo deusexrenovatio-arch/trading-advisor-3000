@@ -66,6 +66,34 @@ They are not the production-current serving location and can be cleaned up after
 `materialization_key` is an identity/fingerprint recorded in `materialization.lock.json` and run artifacts.
 It is not used as a physical folder segment.
 
+## Reviewed hash transition
+
+The pre/post volume-profile invalidation releases have one finite compatibility
+bridge in `research/hash_compatibility.py`. Only the two recorded deployed source
+hashes can migrate to its exact reviewed package fingerprint. The fingerprint
+covers every Python path and byte, normalizes CRLF, and substitutes only its own
+single anchored digest literal. Any other source/dependency/contract/profile
+change retains conservative admission. Explicit full admission reaches both L1/L2
+numerical owners as `force_recompute`, disabling metadata, partition, extension
+and cached-prefix reuse. Freeze the literal after the final source
+diff; independent review must bind that same diff. Do not add aliases for an
+unreviewed numerical change.
+
+`hash_compatibility` is an admission receipt carrying accepted Research id/hash
+and old source, not an operator permission switch. The snapshot owner rechecks
+accepted Data pins, unchanged current Research outputs, mandatory PASS QC and
+successful native owners. Empty bounded scope explicitly dispatches revalidation;
+it does not become a fake window or full refresh. Resume, same-run CF handoff and
+publication still compare exact raw runtime provenance.
+
+L1 migrates only an exact complete legacy bars/ladder/minute proof, row membership
+and context. It updates row input proofs while preserving every value/NULL and
+legacy source provenance. L2 verifies actual bars/count/MTF/content plus the finite
+old compute recipe before advancing its complete metadata carrier. Unknown or
+mismatched partitions compute conservatively. Compatible fixtures forbid numerical
+builders; subsequent same-code runs use the normal metadata noop. Migration reads
+inputs and rewrites proof metadata; it is not zero-I/O or a measured speed claim.
+
 ## Research preflight and recovery
 
 Change surface: product-plane.
