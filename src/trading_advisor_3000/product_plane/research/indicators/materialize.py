@@ -3075,6 +3075,7 @@ def _materialize_indicator_window_tails(
     diagnostics: dict[str, object] = {}
     refreshed = reused = missing_source = metadata_rebased = migrated = 0
     migration_rows = migration_batches = 0
+    migration_full_partitions = migration_full_rows = 0
     has_volume_profile = _profile_has_volume_profile_spec(profile)
     columns = profile.expected_output_columns()
 
@@ -3087,7 +3088,7 @@ def _materialize_indicator_window_tails(
 
     def batches() -> Iterator[tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]]:
         nonlocal refreshed, reused, missing_source, metadata_rebased, migrated
-        nonlocal migration_rows, migration_batches
+        nonlocal migration_rows, migration_batches, migration_full_partitions, migration_full_rows
         for partition, count in sorted(
             partition_counts.items(),
             key=lambda item: (
@@ -3307,7 +3308,14 @@ def _materialize_indicator_window_tails(
                 # When the old last bar was deleted, rewrite the last surviving
                 # bar as the metadata carrier for the smaller current series.
                 start = min(min(candidates), series[-1].ts)
-            starts[partition] = start
+            # A genuinely changed/unprovable legacy partition cannot use a
+            # cached v1 prefix. Compute the complete native partition and use
+            # the existing full-partition writer; ordinary suffix limits stay.
+            full_legacy_partition = bool(
+                migration and _utc_timestamp(start) <= _utc_timestamp(series[0].ts)
+            )
+            if not full_legacy_partition:
+                starts[partition] = start
             rows = _build_partition_rows(
                 dataset_version=partition.dataset_version,
                 indicator_set_version=partition.indicator_set_version,
@@ -3316,14 +3324,14 @@ def _materialize_indicator_window_tails(
                 series_mode=partition.series_mode,
                 source_dataset_bars_hash=source_dataset_bars_hash,
                 source_snapshot_hash=source_snapshot_hash,
-                existing_rows=existing,
+                existing_rows=None if full_legacy_partition else existing,
                 adjustment_ladder_rows=adjustment_ladder_rows,
                 volume_profile_source_rows=resolved_minutes,
                 volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
                 volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
                 compute_diagnostics=diagnostics,
                 native_full_compute=True,
-                volume_profile_refresh_ts=changed_ts,
+                volume_profile_refresh_ts=None if full_legacy_partition else changed_ts,
             )
             if _profile_has_volume_profile_spec(profile) and (
                 volume_profile_source_rows is None and volume_profile_raw_1m_table_path is None
@@ -3331,9 +3339,14 @@ def _materialize_indicator_window_tails(
                 missing_source += 1
             assert_source_stable()
             refreshed += 1
+            if full_legacy_partition:
+                migration_full_partitions += 1
+                migration_full_rows += len(rows)
             yield (
                 partition,
-                [row for row in rows if _utc_timestamp(row.ts) >= _utc_timestamp(start)],
+                rows
+                if full_legacy_partition
+                else [row for row in rows if _utc_timestamp(row.ts) >= _utc_timestamp(start)],
             )
             del series, existing, existing_by_ts, rows, changed_ts, source_ts
 
@@ -3358,6 +3371,8 @@ def _materialize_indicator_window_tails(
         reused_partition_count=reused,
         hash_migrated_partition_count=migrated,
         hash_migrated_row_count=migration_rows,
+        migration_full_partition_count=migration_full_partitions,
+        migration_full_row_count=migration_full_rows,
     )
     return {
         "indicator_row_count": sum(partition_counts.values()),
@@ -3373,6 +3388,8 @@ def _materialize_indicator_window_tails(
         "metadata_rebased_partition_count": metadata_rebased,
         "hash_migrated_partition_count": migrated,
         "hash_migrated_row_count": migration_rows,
+        "migration_full_partition_count": migration_full_partitions,
+        "migration_full_row_count": migration_full_rows,
         "profile_version": profile.version,
         "output_columns_hash": indicator_output_columns_hash(columns),
         "volume_profile_missing_source_partition_count": missing_source,

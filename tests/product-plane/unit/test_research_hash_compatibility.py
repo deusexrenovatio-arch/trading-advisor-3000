@@ -77,7 +77,7 @@ def test_known_source_transition_is_finite_and_scope_is_revoked(monkeypatch):
 
 
 @pytest.fixture
-def accepted_chain(tmp_path, monkeypatch):
+def accepted_chain(tmp_path, monkeypatch, request):
     from types import SimpleNamespace
 
     import pyarrow as pa
@@ -92,6 +92,11 @@ def accepted_chain(tmp_path, monkeypatch):
     source = canonical / "canonical_bars.delta"
     write_deltalake(str(source), pa.table({"id": [1]}))
     tables = {"canonical_bars": snapshots.capture_table(source)}
+    if getattr(request, "param", None) == "schedule":
+        for name in ("raw_moex_session_schedule", "canonical_session_calendar"):
+            path = canonical / f"{name}.delta"
+            write_deltalake(str(path), pa.table({"id": [1]}))
+            tables[name] = snapshots.capture_table(path)
     data = snapshots.create_snapshot(
         tables=tables,
         required_tables=list(tables),
@@ -118,6 +123,9 @@ def accepted_chain(tmp_path, monkeypatch):
     old = {"source_sha256": next(iter(owner.LEGACY_SOURCES)), "dependencies": {"numpy": "same"}}
     current = {**old, "source_sha256": "new"}
     monkeypatch.setattr(checkpoint, "runtime_provenance", lambda: current)
+    from trading_advisor_3000.product_plane.research import refresh_scope
+
+    monkeypatch.setattr(refresh_scope, "runtime_provenance", lambda: current)
     stages = owner.REQUIRED_QUALITY - {"continuous_front_acceptance"}
     status = SimpleNamespace(value="SUCCESS")
     instance = SimpleNamespace(
@@ -256,9 +264,9 @@ def test_pending_resume_stays_strict_despite_compatible_transition(accepted_chai
         checkpoint._initial(context, config)
 
 
-@pytest.mark.parametrize("bad_qc", [False, True])
+@pytest.mark.parametrize("bad_qc,change_data", [(False, False), (True, False), (False, True)])
 def test_accepted_cf_revalidation_preserves_qc_and_never_calls_numeric_owner(
-    accepted_chain, bad_qc
+    accepted_chain, bad_qc, change_data
 ):
     from types import SimpleNamespace
 
@@ -281,7 +289,19 @@ def test_accepted_cf_revalidation_preserves_qc_and_never_calls_numeric_owner(
 
         contract = _store_contracts()[name]
         fields = set(contract["columns"]) | set(contract.get("physical_columns", ()))
-        write_deltalake(str(path), pa.table({field: ["fixture"] for field in fields}))
+        write_deltalake(
+            str(path),
+            pa.table(
+                {
+                    field: [
+                        "2026-01-10T00:00:00Z"
+                        if field in {"ts", "ts_close", "bar_end_ts", "end_utc"}
+                        else "fixture"
+                    ]
+                    for field in fields
+                }
+            ),
+        )
         tables[name] = snapshots.capture_table(path)
     result = {
         "status": "PASS",
@@ -313,10 +333,37 @@ def test_accepted_cf_revalidation_preserves_qc_and_never_calls_numeric_owner(
         snapshot_id=research["snapshot_id"], manifest_sha256=research["manifest_sha256"]
     )
     config.update(data_snapshot_enabled=True, code_version="new")
+    if change_data:
+        _advance_data(accepted_chain)
+        _apply_scope(accepted_chain, _resolved(accepted_chain))
     context = SimpleNamespace(run_id="current-cf", op_config=config, instance=instance)
 
     @checkpoint.snapshot_materialization(names)
     def continuous_front_bars(_):
+        if change_data:
+            assert _.run_id == "current-cf", "native CF handoff incorrectly recomputed"
+            for name in names:
+                reference = tables[name]
+                from deltalake import DeltaTable
+
+                fields = [
+                    field.name for field in DeltaTable(reference["table_path"]).schema().fields
+                ]
+                write_deltalake(
+                    reference["table_path"],
+                    pa.table(
+                        {
+                            field: [
+                                "2026-01-11T00:00:00Z"
+                                if field in {"ts", "ts_close", "bar_end_ts", "end_utc"}
+                                else "advanced"
+                            ]
+                            for field in fields
+                        }
+                    ),
+                    mode="overwrite",
+                )
+            return {**result, "numerical_owner_called": True}
         pytest.fail("compatible accepted CF started numerical work")
 
     if bad_qc:
@@ -324,8 +371,289 @@ def test_accepted_cf_revalidation_preserves_qc_and_never_calls_numeric_owner(
             continuous_front_bars(context)
     else:
         reused = continuous_front_bars(context)
-        assert reused["status"] == "PASS-NOOP"
+        assert reused["status"] == ("PASS" if change_data else "PASS-NOOP")
+        assert bool(reused.get("numerical_owner_called")) == change_data
         assert reused["qc_rows"] == result["qc_rows"]
         stored = __import__("json").loads(checkpoint._pending_path(context, config).read_text())
         assert stored["quality_checks"]["continuous_front_bars"] == "PASS"
         assert stored["quality_evidence"]["continuous_front_bars"]["cf_result"]["status"] == "PASS"
+        if change_data:
+            old_get = instance.get_run_by_id
+            instance.get_run_by_id = lambda run_id: (
+                SimpleNamespace(
+                    status=SimpleNamespace(value="SUCCESS"), job_name="moex_cf_catch_up_job"
+                )
+                if run_id == "current-cf"
+                else old_get(run_id)
+            )
+            consumer = SimpleNamespace(
+                run_id="current-research",
+                op_config=config,
+                instance=instance,
+                dagster_run=SimpleNamespace(
+                    tags={
+                        "ta3000/upstream_job": "moex_cf_catch_up_job",
+                        "ta3000/upstream_run_id": "current-cf",
+                    }
+                ),
+            )
+            imported = continuous_front_bars(consumer)
+            assert imported["reused_from_run_id"] == "current-cf"
+            assert imported["status"] == "PASS-NOOP"
+            # Even a legitimate native import cannot bypass a forged receipt.
+            from copy import deepcopy
+
+            forged = deepcopy(config)
+            forged["hash_compatibility"]["manifest_sha256"] = "forged"
+            consumer.run_id = "forged-research"
+            consumer.op_config = forged
+            with pytest.raises(ValueError, match="forged"):
+                continuous_front_bars(consumer)
+
+
+def _advance_data(
+    accepted_chain,
+    *,
+    full=False,
+    covered=True,
+    extra=None,
+    schema=False,
+    remove=(),
+    update_names=(),
+):
+    import pyarrow as pa
+    from deltalake import write_deltalake
+
+    from trading_advisor_3000.product_plane.common import data_snapshots as snapshots
+
+    config, pending, _, _, _, source, _ = accepted_chain
+    root = Path(config["canonical_output_dir"]) / ".data_snapshots"
+    previous = snapshots.current_snapshot(root)
+    values = {"id": [previous["tables"]["canonical_bars"]["delta_version"] + 2]}
+    if schema:
+        values["extra"] = [1]
+    write_deltalake(str(source), pa.table(values), mode="overwrite", schema_mode="overwrite")
+    tables = {
+        **{name: ref for name, ref in previous["tables"].items() if name not in remove},
+        "canonical_bars": snapshots.capture_table(source),
+        **(extra or {}),
+    }
+    for name in update_names:
+        path = Path(tables[name]["table_path"])
+        write_deltalake(
+            str(path), pa.table({"id": [tables[name]["delta_version"] + 2]}), mode="overwrite"
+        )
+        tables[name] = snapshots.capture_table(path)
+    windows = [
+        {
+            "instrument_id": "BR",
+            "timeframe": "15m",
+            "start_ts": "2026-01-09T12:00:00Z",
+            "end_ts": "2026-01-10T00:00:00Z",
+        }
+    ]
+    from trading_advisor_3000.product_plane.data_plane.data_snapshots import _downstream_scope
+
+    scope = _downstream_scope(
+        report={
+            "cf_catch_up": {"windows": windows, "target_timeframes": ["15m"]},
+            "canonical_report": {
+                "sidecar_refresh": {
+                    "dependency_scope": {
+                        "version": 1,
+                        "full_refresh": False,
+                        "output_delta_versions": tables,
+                    }
+                }
+            },
+        },
+        tables=tables,
+    )
+    assert set(scope["covered_tables"]["canonical_bars"]) == {"table_id", "delta_version"}
+    scope["full_refresh"] = full
+    if not covered:
+        scope["covered_tables"] = {}
+    data = snapshots.create_snapshot(
+        tables=tables,
+        required_tables=list(tables),
+        dataset_version="data",
+        run_id=f"changed-{tables['canonical_bars']['delta_version']}",
+        code_version="current",
+        quality_checks={"data": "PASS"},
+        parents=[previous["snapshot_id"]],
+        parameters={"downstream_scope": scope},
+    )
+    data_path = snapshots.save_snapshot(root, data)
+    snapshots.publish_snapshot(root, data_path, expected_current_id=previous["snapshot_id"])
+    config["data_snapshot_manifest_path"] = str(data_path)
+    pending.update(
+        tables=tables, parents=[data["snapshot_id"]], parent_manifest_sha256=data["manifest_sha256"]
+    )
+    return data
+
+
+def _resolved(accepted_chain):
+    from trading_advisor_3000.product_plane.research.refresh_scope import resolve_refresh_scope
+
+    config = accepted_chain[0]
+    return resolve_refresh_scope(
+        data_manifest_path=Path(config["data_snapshot_manifest_path"]),
+        materialized_output_dir=Path(config["materialized_output_dir"]),
+        dataset_version=config["dataset_version"],
+        timeframes=config["timeframes"],
+        configuration=config,
+    )
+
+
+def _apply_scope(accepted_chain, scope):
+    config = accepted_chain[0]
+    config.update(
+        changed_windows=scope["windows"],
+        force_full_refresh=scope["force_full_refresh"],
+        refresh_scope_version=scope["refresh_scope_version"],
+    )
+    if scope.get("hash_compatibility"):
+        config["hash_compatibility"] = scope["hash_compatibility"]
+
+
+def test_bounded_changed_data_keeps_finite_migration(accepted_chain):
+    config, pending, instance, accepted, _, _, checkpoint = accepted_chain
+    _advance_data(accepted_chain)
+    scope = _resolved(accepted_chain)
+    assert scope["force_full_refresh"] is False
+    assert scope["hash_compatibility"] == config["hash_compatibility"]
+    assert scope["windows"] == [
+        {
+            "instrument_id": "BR",
+            "timeframe": "15m",
+            "start_ts": "2026-01-02T00:00:00Z",
+            "end_ts": "2026-01-10T00:00:00Z",
+        }
+    ]
+    _apply_scope(accepted_chain, scope)
+    assert checkpoint._validate_hash_compatibility(config, pending, instance) == accepted
+
+
+@pytest.mark.parametrize(
+    "change", ["unbounded", "uncovered", "schema_roundtrip", "added_roundtrip", "missing_pin"]
+)
+def test_changed_data_migration_rejects_unproven_ancestry_edges(accepted_chain, change):
+    import pyarrow as pa
+    from deltalake import DeltaTable, write_deltalake
+
+    from trading_advisor_3000.product_plane.common import data_snapshots as snapshots
+
+    config, pending, instance, accepted, _, source, checkpoint = accepted_chain
+    old_files = DeltaTable(str(source)).file_uris()
+    if change == "added_roundtrip":
+        extra = source.parent / "canonical_extra.delta"
+        write_deltalake(str(extra), pa.table({"id": [1]}))
+        _advance_data(accepted_chain, extra={"canonical_extra": snapshots.capture_table(extra)})
+        _advance_data(accepted_chain, remove=("canonical_extra",))
+    elif change == "schema_roundtrip":
+        _advance_data(accepted_chain, schema=True)
+        _advance_data(accepted_chain)
+    else:
+        _advance_data(accepted_chain, full=change == "unbounded", covered=change != "uncovered")
+    if change == "missing_pin":
+        from urllib.parse import unquote, urlparse
+
+        for uri in old_files:
+            parsed = urlparse(uri)
+            path = unquote(parsed.path) if parsed.scheme == "file" else unquote(uri)
+            if len(path) > 2 and path[0] == "/" and path[2] == ":":
+                path = path[1:]
+            Path(path).unlink()
+    scope = _resolved(accepted_chain)
+    assert scope["force_full_refresh"] is True
+    with pytest.raises((ValueError, checkpoint.SnapshotUnavailableError)):
+        checkpoint._validate_hash_compatibility(config, pending, instance)
+
+
+@pytest.mark.parametrize(
+    "change", ["empty", "narrow_start", "narrow_end", "contract", "instrument", "full"]
+)
+def test_migration_runtime_rejects_forged_frozen_scope(accepted_chain, change):
+    config, pending, instance, _, _, _, checkpoint = accepted_chain
+    _advance_data(accepted_chain)
+    scope = _resolved(accepted_chain)
+    assert scope["force_full_refresh"] is False
+    _apply_scope(accepted_chain, scope)
+    if change == "empty":
+        config["changed_windows"] = []
+    elif change == "full":
+        config["force_full_refresh"] = True
+    else:
+        window = config["changed_windows"][0]
+        key, value = {
+            "narrow_start": ("start_ts", "2026-01-09T00:00:00Z"),
+            "narrow_end": ("end_ts", "2026-01-09T00:00:00Z"),
+            "contract": ("contract_id", "BRH6"),
+            "instrument": ("instrument_id", "SI"),
+        }[change]
+        window[key] = value
+    with pytest.raises(ValueError):
+        checkpoint._validate_hash_compatibility(config, pending, instance)
+
+
+def test_migration_scope_ignores_only_successful_stage_tail_advance(accepted_chain, monkeypatch):
+    from datetime import UTC, datetime
+
+    import pyarrow as pa
+    from deltalake import write_deltalake
+
+    from trading_advisor_3000.product_plane.common import data_snapshots as snapshots
+
+    config, pending, instance, _, _, source, checkpoint = accepted_chain
+    # Add an actual owned output to the accepted manifest before advancing Data.
+    output = Path(config["materialized_output_dir"]) / "continuous_front_bars.delta"
+    write_deltalake(str(output), pa.table({"ts": [datetime(2026, 1, 10, tzinfo=UTC)]}))
+    registry = checkpoint._registry(config)
+    before = snapshots.current_snapshot(registry)
+    tables = {**before["tables"], output.stem: snapshots.capture_table(output)}
+    accepted = snapshots.create_snapshot(
+        tables=tables,
+        required_tables=list(tables),
+        dataset_version=before["dataset_version"],
+        run_id="with-output",
+        code_version="old",
+        quality_checks=before["quality_checks"],
+        parameters=before["parameters"],
+        parents=before["parents"],
+    )
+    snapshots.publish_snapshot(
+        registry,
+        snapshots.save_snapshot(registry, accepted),
+        expected_current_id=before["snapshot_id"],
+    )
+    config["hash_compatibility"].update(
+        snapshot_id=accepted["snapshot_id"], manifest_sha256=accepted["manifest_sha256"]
+    )
+    _advance_data(accepted_chain)
+    scope = _resolved(accepted_chain)
+    _apply_scope(accepted_chain, scope)
+    write_deltalake(
+        str(output), pa.table({"ts": [datetime(2026, 1, 20, tzinfo=UTC)]}), mode="overwrite"
+    )
+    with pytest.raises((ValueError, checkpoint.SnapshotUnavailableError)):
+        checkpoint._validate_hash_compatibility(config, pending, instance)
+    monkeypatch.setitem(checkpoint._STAGE_OUTPUTS, "continuous_front_bars", (output.stem,))
+    pending["quality_checks"]["continuous_front_bars"] = "PASS"
+    pending["quality_owners"]["continuous_front_bars"] = "native"
+    pending["tables"][output.stem] = snapshots.capture_table(output)
+    assert checkpoint._validate_hash_compatibility(config, pending, instance) == accepted
+
+
+@pytest.mark.parametrize("accepted_chain", ["schedule"], indirect=True)
+def test_native_canonical_calendar_scope_covers_raw_schedule_provenance_advance(accepted_chain):
+    config, pending, instance, accepted, _, _, checkpoint = accepted_chain
+    data = _advance_data(
+        accepted_chain, update_names=("raw_moex_session_schedule", "canonical_session_calendar")
+    )
+    covered = data["parameters"]["downstream_scope"]["covered_tables"]
+    assert "raw_moex_session_schedule" not in covered
+    assert set(covered["canonical_session_calendar"]) == {"table_id", "delta_version"}
+    scope = _resolved(accepted_chain)
+    assert scope["force_full_refresh"] is False
+    _apply_scope(accepted_chain, scope)
+    assert checkpoint._validate_hash_compatibility(config, pending, instance) == accepted

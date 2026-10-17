@@ -81,8 +81,14 @@ unreviewed numerical change.
 
 `hash_compatibility` is an admission receipt carrying accepted Research id/hash
 and old source, not an operator permission switch. The snapshot owner rechecks
-accepted Data pins, unchanged current Research outputs, mandatory PASS QC and
-successful native owners. Empty bounded scope explicitly dispatches revalidation;
+historical Data pins, unchanged current Research outputs, mandatory PASS QC and
+successful native owners. Changed Data is admitted only through native bounded
+ancestry with exact names/path/ID/schema/layout on every edge. Runtime independently
+resolves and compares complete instrument/TF/UTC windows; contract filters and
+narrowed ranges reject admission. Canonical migration tails come from immutable
+accepted Data/Research pins and native windows. Strict current native CF proof is
+imported before compatibility validation; return still requires validation. Only
+unchanged Data pins permit accepted CF reuse; bounded changes run native CF. Empty bounded scope explicitly dispatches revalidation;
 it does not become a fake window or full refresh. Resume, same-run CF handoff and
 publication still compare exact raw runtime provenance.
 
@@ -92,7 +98,12 @@ legacy source provenance. Complete metadata-only partitions use one existing ato
 predicate write with the exact proven row count as its budget (the accepted
 maximum is 105307); computed suffixes keep the ordinary 100000-row limit. L2 verifies actual bars/count/MTF/content plus the finite
 old compute recipe before advancing its complete metadata carrier. Unknown or
-mismatched partitions compute conservatively. Compatible fixtures forbid numerical
+mismatched legacy partitions compute a complete native partition without cached
+prefix or VP values, using the existing full-partition writer. This affects only
+those partitions, retains the ordinary suffix limit and emits migration full
+partition/row counters. Existing full-partition delete/append recovery limitations
+remain: a failed partial staging write stays unaccepted; the old pinned manifest
+remains public truth until all native QC/publication complete. Compatible fixtures forbid numerical
 builders; subsequent same-code runs use the normal metadata noop. Migration reads
 inputs and rewrites proof metadata; it is not zero-I/O or a measured speed claim.
 

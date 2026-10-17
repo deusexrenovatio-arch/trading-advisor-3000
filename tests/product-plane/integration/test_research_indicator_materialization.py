@@ -3111,3 +3111,169 @@ def test_metadata_migration_uses_exact_atomic_partition_budget(tmp_path, monkeyp
     )
     with pytest.raises(ValueError, match="atomic indicator suffix exceeds"):
         materialize_indicator_frames(**l1)
+
+
+def test_changed_pre223_partition_uses_native_full_writer_without_suffix_allowance(
+    tmp_path, monkeypatch
+):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
+    namespace = {}
+    exec(_PRE223_INPUT_PRODUCER, owner.__dict__, namespace)
+    old_producer = namespace["_pre223_input_row_hashes"]
+    with monkeypatch.context() as producer:
+        producer.setattr(
+            owner,
+            "_indicator_input_row_hashes",
+            lambda *args, series_mode=None, **kwargs: old_producer(*args, **kwargs),
+        )
+        l1, _, raw, _, _, target = _vp_partition_fixture(tmp_path, monkeypatch)
+    before = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    DeltaTable(str(raw)).update(
+        updates={"high": "90.0"}, predicate=f"instrument_id='BR' AND ts_open='{target}'"
+    )
+    writer, builder = owner.write_indicator_frame_partition_batches, owner._build_partition_rows
+    full_writes, full_builds = [], []
+
+    def small_budget(**kwargs):
+        explicit = kwargs.get("max_rows_per_delta_write")
+        if explicit is None:
+            kwargs["max_rows_per_delta_write"] = 2
+            batches = kwargs["partition_row_batches"]
+
+            def inspect():
+                for partition, rows in batches:
+                    assert partition.instrument_id == "BR"
+                    assert partition not in kwargs.get("partition_start_ts", {})
+                    assert len(rows) in (24, 96)
+                    full_writes.append((partition.instrument_id, partition.timeframe))
+                    yield partition, rows
+
+            kwargs["partition_row_batches"] = inspect()
+        return writer(**kwargs)
+
+    def native_full(**kwargs):
+        assert kwargs["series"][0].instrument_id == "BR"
+        assert kwargs["existing_rows"] is None
+        assert kwargs["volume_profile_refresh_ts"] is None
+        rows = builder(**kwargs)
+        full_builds.append(rows)
+        return rows
+
+    monkeypatch.setattr(owner, "write_indicator_frame_partition_batches", small_budget)
+    monkeypatch.setattr(owner, "_build_partition_rows", native_full)
+    with bridge._verified_migration_scope(next(iter(bridge.LEGACY_SOURCES))):
+        result = materialize_indicator_frames(**l1)
+    assert result["migration_full_partition_count"] == 2
+    assert result["migration_full_row_count"] == 120
+    assert result["refreshed_partition_count"] == 2
+    assert result["hash_migrated_partition_count"] == 2
+    assert len(full_builds) == len(full_writes) == 2
+    after = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+
+    def values(rows, instrument):
+        return {(r.timeframe, r.ts): r.values for r in rows if r.instrument_id == instrument}
+
+    assert values(before, "SI") == values(after, "SI")
+    # Independent full numerical references for the affected partitions use no
+    # old prefix or VP values, and must match every written value/NULL.
+    expected = []
+    for timeframe in ("15m", "1h"):
+        partition = next(
+            row.partition_key(series_mode="continuous_front")
+            for row in after
+            if row.instrument_id == "BR" and row.timeframe == timeframe
+        )
+        series = owner._load_bar_partition_rows(
+            dataset_output_dir=l1["dataset_output_dir"],
+            dataset_version="vp-scope",
+            contour_id="pit_active_front",
+            partition=partition,
+        )
+        expected.extend(
+            builder(
+                dataset_version="vp-scope",
+                indicator_set_version="indicators-v1",
+                profile=l1["profile"],
+                series=series,
+                series_mode="continuous_front",
+                existing_rows=None,
+                volume_profile_raw_1m_table_path=raw,
+                volume_profile_tick_size_by_instrument=l1["volume_profile_tick_size_by_instrument"],
+                native_full_compute=True,
+            )
+        )
+    assert values(expected, "BR") == values(after, "BR")
+    assert any(value is None for row in after for value in row.values.values())
+    monkeypatch.setattr(
+        owner, "_build_partition_rows", lambda **_: pytest.fail("repeat rebuilt partition")
+    )
+    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+
+
+def test_post223_migration_retains_verified_prefix_and_small_vp_tail(tmp_path, monkeypatch):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    l1, _, raw, _, minute_rows, _ = _vp_partition_fixture(tmp_path, monkeypatch)
+    last = max(row["ts_open"] for row in minute_rows if row["instrument_id"] == "BR")
+    DeltaTable(str(raw)).update(
+        updates={"high": "90.0"}, predicate=f"instrument_id='BR' AND ts_open='{last}'"
+    )
+    writer, builder, vp = (
+        owner.write_indicator_frame_partition_batches,
+        owner._build_partition_rows,
+        owner._compute_volume_profile_columns,
+    )
+    written, volumes = [], []
+
+    def small_budget(**kwargs):
+        if "max_rows_per_delta_write" not in kwargs:
+            kwargs["max_rows_per_delta_write"] = 2
+            batches = kwargs["partition_row_batches"]
+
+            def inspect():
+                for partition, rows in batches:
+                    assert partition in kwargs["partition_start_ts"]
+                    assert len(rows) == 1 and partition.instrument_id == "BR"
+                    written.append(partition.timeframe)
+                    yield partition, rows
+
+            kwargs["partition_row_batches"] = inspect()
+        return writer(**kwargs)
+
+    def check_builder(**kwargs):
+        assert kwargs["existing_rows"] and len(kwargs["volume_profile_refresh_ts"]) == 1
+        return builder(**kwargs)
+
+    def check_vp(**kwargs):
+        volumes.append(len(kwargs["local_series"]))
+        return vp(**kwargs)
+
+    monkeypatch.setattr(owner, "write_indicator_frame_partition_batches", small_budget)
+    monkeypatch.setattr(owner, "_build_partition_rows", check_builder)
+    monkeypatch.setattr(owner, "_compute_volume_profile_columns", check_vp)
+    monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
+    with bridge._verified_migration_scope(tuple(bridge.LEGACY_SOURCES)[1]):
+        result = materialize_indicator_frames(**l1)
+    assert result["migration_full_partition_count"] == result["migration_full_row_count"] == 0
+    assert result["refreshed_partition_count"] == 2
+    assert result["hash_migrated_partition_count"] == 2
+    assert sorted(written) == ["15m", "1h"] and volumes == [1, 1]
+    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0

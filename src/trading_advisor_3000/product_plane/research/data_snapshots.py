@@ -19,6 +19,7 @@ from trading_advisor_3000.product_plane.common.data_snapshots import (
     current_snapshot,
     load_snapshot,
     materialization_snapshot_scope,
+    open_pinned_table,
     publish_snapshot,
     runtime_provenance,
     save_snapshot,
@@ -408,17 +409,73 @@ def _validate_hash_compatibility(config: Mapping, pending: Mapping, instance: An
     data = current_snapshot(parent_root)
     if (
         not data
-        or data["tables"] != old_data["tables"]
         or pending["parents"] != [data["snapshot_id"]]
         or pending["parent_manifest_sha256"] != data["manifest_sha256"]
     ):
         raise ValueError("hash compatibility Data pins changed")
-    # Only already completed native stages may have advanced their own outputs.
+    for reference in old_data["tables"].values():
+        open_pinned_table(reference)
+    # Exempt only completed, independently evidenced native stage outputs.
+    for stage, value in pending["quality_checks"].items():
+        owner = pending.get("quality_owners", {}).get(stage)
+        run = instance.get_run_by_id(owner) if owner else None
+        if (
+            value != "PASS"
+            or run is None
+            or (run.status.value != "SUCCESS" and owner != pending.get("run_id"))
+            or not any(
+                step.step_key == stage and step.status.value == "SUCCESS"
+                for step in instance.get_run_step_stats(owner)
+            )
+        ):
+            raise ValueError("hash compatibility lacks completed native stage proof")
     completed = {
         name for stage in pending["quality_checks"] for name in _STAGE_OUTPUTS.get(stage, ())
     }
+    if set(pending["tables"]) - set(data["tables"]) - set(accepted["tables"]) - completed:
+        raise ValueError("hash compatibility unaccepted Research input")
+    from .refresh_scope import _stamp, resolve_refresh_scope
+
+    scope = resolve_refresh_scope(
+        data_manifest_path=parent_root / "manifests" / f"{data['snapshot_id']}.json",
+        materialized_output_dir=Path(config["materialized_output_dir"]),
+        dataset_version=str(config["dataset_version"]),
+        timeframes=config.get("timeframes", ()),
+        configuration=config,
+        _completed_outputs=tuple(completed),
+    )
+
+    def normalized(windows):
+        required = {"instrument_id", "timeframe", "start_ts", "end_ts"}
+        result = []
+        for window in windows:
+            if set(window) != required:
+                raise ValueError("hash compatibility scope fields changed")
+            result.append(
+                (
+                    str(window["instrument_id"]),
+                    str(window["timeframe"]),
+                    _stamp(window["start_ts"]),
+                    _stamp(window["end_ts"]),
+                )
+            )
+        return sorted(result)
+
+    if (
+        scope is None
+        or scope.get("force_full_refresh") is not False
+        or scope.get("hash_compatibility") != receipt
+        or config.get("force_full_refresh") is not False
+        or config.get("refresh_scope_version") != 1
+        or normalized(scope["windows"]) != normalized(config.get("changed_windows", []))
+    ):
+        raise ValueError("hash compatibility frozen scope changed or unbounded")
     assert_tables_unchanged(
-        {name: ref for name, ref in accepted["tables"].items() if name not in completed}
+        {
+            name: ref
+            for name, ref in accepted["tables"].items()
+            if name not in old_data["tables"] and name not in completed
+        }
     )
     assert_tables_unchanged(pending["tables"])
     return accepted
@@ -481,15 +538,27 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
                     return function(context, *args, **kwargs)
             pending = _initial(context, config)
             op_context = getattr(context, "op_execution_context", context)
+            reused = (
+                _upstream_cf_result(context, config, pending)
+                if function.__name__ == "continuous_front_bars"
+                else None
+            )
             compatible = _validate_hash_compatibility(
                 config, pending, getattr(op_context, "instance", None)
             )
             if function.__name__ == "continuous_front_bars":
-                reused = _upstream_cf_result(context, config, pending)
                 if reused is not None:
                     return reused
                 if compatible is not None:
-                    return _accepted_cf_result(context, config, pending, compatible)
+                    parent_root = Path(config["canonical_output_dir"]) / ".data_snapshots"
+                    old_data = load_snapshot(
+                        parent_root / "manifests" / f"{compatible['parents'][0]}.json"
+                    )
+                    if all(
+                        pending["tables"].get(name) == ref
+                        for name, ref in old_data["tables"].items()
+                    ):
+                        return _accepted_cf_result(context, config, pending, compatible)
             root = Path(config["materialized_output_dir"])
             writable = [root / f"{name}.delta" for name in output_tables]
             inputs = {

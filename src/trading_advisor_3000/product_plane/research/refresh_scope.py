@@ -62,6 +62,7 @@ def resolve_refresh_scope(
     dataset_version: str,
     timeframes: Sequence[str],
     configuration: Mapping | None = None,
+    _completed_outputs: Sequence[str] = (),
 ) -> dict | None:
     """Return one frozen scope before either Dagster sensor can decide NOOP."""
     data = load_snapshot(data_manifest_path)
@@ -110,13 +111,24 @@ def resolve_refresh_scope(
                 return {**full, "reason": "data_ancestry_unavailable"}
             if (
                 not compatible_provenance(old, runtime_provenance())
-                or data["tables"] != parent["tables"]
                 or not REQUIRED_QUALITY.issubset(research["quality_checks"])
                 or any(research["quality_checks"][key] != "PASS" for key in REQUIRED_QUALITY)
             ):
                 return {**full, "reason": "research_semantics_changed"}
             try:
-                assert_tables_unchanged(research["tables"])
+                if any(
+                    research["tables"].get(name) != ref for name, ref in parent["tables"].items()
+                ):
+                    return {**full, "reason": "accepted_data_inputs_mismatch"}
+                for reference in parent["tables"].values():
+                    open_pinned_table(reference)
+                assert_tables_unchanged(
+                    {
+                        name: ref
+                        for name, ref in research["tables"].items()
+                        if name not in parent["tables"] and name not in _completed_outputs
+                    }
+                )
             except (ValueError, OSError, SnapshotUnavailableError):
                 return {**full, "reason": "accepted_research_outputs_changed"}
             compatibility = {
@@ -160,6 +172,24 @@ def resolve_refresh_scope(
             if len(cursor["parents"]) != 1:
                 return {**full, "reason": "missing_data_ancestry"}
             parent = load_snapshot(root / "manifests" / f"{cursor['parents'][0]}.json")
+            if compatibility:
+                if set(cursor["tables"]) != set(parent["tables"]):
+                    return {**full, "reason": "data_table_set_changed"}
+                for name, reference in cursor["tables"].items():
+                    previous = parent["tables"][name]
+                    if any(
+                        reference.get(key) != previous.get(key)
+                        for key in (
+                            "table_path",
+                            "table_id",
+                            "schema_hash",
+                            "layout_version",
+                            "partition_columns",
+                        )
+                    ):
+                        return {**full, "reason": f"data_contract_changed:{name}"}
+                    open_pinned_table(reference)
+                    open_pinned_table(previous)
             for name in cursor["tables"].keys() | parent["tables"].keys():
                 if not (
                     name.startswith("canonical_")
@@ -192,7 +222,10 @@ def resolve_refresh_scope(
         reference for manifest in (data, research) for reference in manifest["tables"].values()
     ]
     try:
-        references.extend(capture_table(path) for path in materialized_output_dir.glob("*.delta"))
+        if not compatibility:
+            references.extend(
+                capture_table(path) for path in materialized_output_dir.glob("*.delta")
+            )
         tails = [value for reference in references if (value := _tail(reference)) is not None]
         tails.extend(_stamp(window["end_ts"]) for window in windows)
         if not tails:
