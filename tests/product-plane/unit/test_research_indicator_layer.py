@@ -125,7 +125,11 @@ EXPECTED_WIDE_TECHNICAL_GOLD_V2_BASE_COLUMNS = {
 
 
 def _view(*, ts_index: int, close: float, volume: int = 1000) -> ResearchBarView:
-    ts = f"2026-03-16T{9 + (ts_index // 4):02d}:{(ts_index % 4) * 15:02d}:00Z"
+    ts = (
+        (datetime.fromisoformat("2026-03-16T09:00:00+00:00") + timedelta(minutes=15 * ts_index))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     return ResearchBarView(
         dataset_version="dataset-v3",
         contract_id="BR-6.26",
@@ -865,14 +869,9 @@ def test_indicator_store_contract_contains_stage3_metadata_columns() -> None:
         "null_warmup_span",
         "created_at",
         "output_columns_hash",
+        "source_snapshot_hash",
     } <= set(columns)
-    assert contract["research_indicator_frames"]["partition_by"] == [
-        "dataset_version",
-        "contour_id",
-        "indicator_set_version",
-        "instrument_id",
-        "timeframe",
-    ]
+    assert contract["research_indicator_frames"]["partition_by"] == ["ts_close_year"]
     assert (
         "unique(dataset_version, contour_id, series_mode, series_id, "
         "indicator_set_version, timeframe, ts)"
@@ -1043,3 +1042,59 @@ def test_indicator_build_produces_wide_v2_tail_values_after_full_warmup() -> Non
         "volume_oi_ratio",
     ):
         assert tail.values[column] is not None
+
+
+@pytest.mark.parametrize("change", ["append", "correction", "insertion", "deletion"])
+def test_native_window_compute_continues_verified_prefix(change, monkeypatch):
+    from trading_advisor_3000.product_plane.research.indicators import materialize as module
+
+    monkeypatch.setitem(module.ta.Imports, "talib", False)
+    profile = IndicatorProfile(
+        version="checkpoint_native_test",
+        description="native hash and proven continuation",
+        indicators=(
+            _sma2_profile().indicators[0],
+            *(
+                IndicatorSpec(
+                    indicator_id=f"{operation}_3",
+                    category="trend",
+                    operation_key=operation,
+                    parameters=(IndicatorParameter("length", 3),),
+                    required_input_columns=("close",),
+                    output_columns=(f"{operation}_3",),
+                    warmup_bars=3,
+                )
+                for operation in ("ema", "rsi")
+            ),
+        ),
+    )
+    bars = [_view(ts_index=i, close=100 + i * 0.2 + math.sin(i)) for i in range(20)]
+    original = [bar for i, bar in enumerate(bars) if change != "insertion" or i != 18]
+    options = dict(
+        dataset_version="dataset-v3",
+        indicator_set_version="checkpoint_native_test",
+        profile=profile,
+        series_mode="contract",
+        native_full_compute=True,
+    )
+    existing = module._build_partition_rows(series=original, **options)
+    if change == "append":
+        bars.append(_view(ts_index=20, close=104.5))
+    elif change == "correction":
+        bars[18] = _view(ts_index=18, close=107.0)
+    elif change == "deletion":
+        bars.pop(18)
+    diagnostics = {}
+    continued = module._build_partition_rows(
+        series=bars,
+        existing_rows=existing,
+        compute_diagnostics=diagnostics,
+        **options,
+    )
+    reference = module._build_partition_rows(series=bars, **options)
+    assert diagnostics["reused_prefix_row_count"] >= 18
+    assert diagnostics.get("continued_ema_count", 0) == 1
+    assert "rsi" in diagnostics.get("full_history_operations", [])
+    for actual, expected in zip(continued, reference, strict=True):
+        assert actual.values == pytest.approx(expected.values, rel=1e-12, abs=1e-12)
+        assert actual.source_bars_hash == expected.source_bars_hash

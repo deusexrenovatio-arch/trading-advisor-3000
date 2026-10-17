@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 from dataclasses import replace
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -135,6 +136,18 @@ def materialize_research_dataset(
             instrument_id=bar.instrument_id,
             timeframe=timeframe,
             ts=bar.ts,
+            bar_end_ts=(
+                datetime.fromisoformat(bar.ts.replace("Z", "+00:00"))
+                + timedelta(
+                    **{
+                        {"m": "minutes", "h": "hours", "d": "days", "w": "weeks"}[
+                            timeframe[-1]
+                        ]: int(timeframe[:-1])
+                    }
+                )
+            )
+            .isoformat()
+            .replace("+00:00", "Z"),
             open=bar.open,
             high=bar.high,
             low=bar.low,
@@ -779,8 +792,8 @@ def test_indicator_materialization_streams_fresh_partitions_into_writer(
 
     def capture_writer(*args: object, **kwargs: object) -> tuple[dict[str, str], int, int]:
         loaded_at_writer_entry.extend(loaded_partitions)
-        row_batches = iter(kwargs["row_batches"])
-        first_batch = next(row_batches)
+        row_batches = iter(kwargs["partition_row_batches"])
+        _, first_batch = next(row_batches)
         loaded_after_first_batch.extend(loaded_partitions)
         return (
             {"research_indicator_frames": (indicator_dir / "stub.delta").as_posix()},
@@ -800,7 +813,7 @@ def test_indicator_materialization_streams_fresh_partitions_into_writer(
     )
     monkeypatch.setattr(
         materialize_module,
-        "write_indicator_frame_batches",
+        "write_indicator_frame_partition_batches",
         capture_writer,
     )
 
@@ -1277,9 +1290,11 @@ def test_continuous_front_profile_extension_recomputes_existing_columns(
     assert second_rows[-1].values["ema_10"] is not None
 
 
+@pytest.mark.parametrize("with_volume_profile", [False, True])
 def test_continuous_front_full_reuse_skips_bar_partition_scan(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    with_volume_profile: bool,
 ) -> None:
     import trading_advisor_3000.product_plane.research.indicators.materialize as materialize_module
 
@@ -1328,6 +1343,47 @@ def test_continuous_front_full_reuse_skips_bar_partition_scan(
         roll_map=roll_map,
         output_dir=dataset_dir,
     )
+    options = {}
+    if with_volume_profile:
+        from trading_advisor_3000.product_plane.research.indicators import (
+            build_indicator_profile_registry,
+        )
+
+        vp = next(
+            spec
+            for spec in build_indicator_profile_registry().get("core_v1").indicators
+            if spec.operation_key == "volume_profile"
+        )
+        profile = replace(profile, indicators=(*profile.indicators, vp))
+        raw_path = tmp_path / "raw_1m.delta"
+        write_delta_table_rows(
+            table_path=raw_path,
+            columns={
+                "contract_id": "string",
+                "instrument_id": "string",
+                "timeframe": "string",
+                "ts_open": "timestamp",
+                "low": "double",
+                "high": "double",
+                "volume": "bigint",
+            },
+            rows=[
+                {
+                    "contract_id": bar.contract_id,
+                    "instrument_id": bar.instrument_id,
+                    "timeframe": "1m",
+                    "ts_open": bar.ts,
+                    "low": bar.low,
+                    "high": bar.high,
+                    "volume": 10,
+                }
+                for bar in bars
+            ],
+        )
+        options = {
+            "volume_profile_raw_1m_table_path": raw_path,
+            "volume_profile_tick_size_by_instrument": {"BR": 0.01},
+        }
     materialize_indicator_frames(
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
@@ -1335,8 +1391,11 @@ def test_continuous_front_full_reuse_skips_bar_partition_scan(
         indicator_set_version="indicators-v1",
         contour_id="pit_active_front",
         profile=profile,
+        **options,
     )
 
+    original_counts = materialize_module._load_bar_partition_counts
+    original_rows = materialize_module._load_bar_partition_rows
     monkeypatch.setattr(
         materialize_module,
         "_load_bar_partition_counts",
@@ -1355,12 +1414,61 @@ def test_continuous_front_full_reuse_skips_bar_partition_scan(
         indicator_set_version="indicators-v1",
         contour_id="pit_active_front",
         profile=profile,
+        changed_windows=[
+            {
+                "instrument_id": "BR",
+                "timeframe": "15m",
+                "start_ts": bars[-1].ts,
+                "end_ts": bars[-1].ts,
+            }
+        ],
+        **options,
     )
 
     assert report["refreshed_partition_count"] == 0
     assert report["reused_partition_count"] == 1
     assert report["recomputed_partition_count"] == 0
     assert report["write_batch_count"] == 0
+    if with_volume_profile:
+        from deltalake import DeltaTable
+
+        monkeypatch.setattr(materialize_module, "_load_bar_partition_counts", original_counts)
+        monkeypatch.setattr(materialize_module, "_load_bar_partition_rows", original_rows)
+        DeltaTable(str(raw_path)).update(updates={"volume": "volume + 1"})
+        changed = materialize_indicator_frames(
+            dataset_output_dir=dataset_dir,
+            indicator_output_dir=indicator_dir,
+            dataset_version="dataset-cf-full-reuse-fast-path-v1",
+            indicator_set_version="indicators-v1",
+            contour_id="pit_active_front",
+            profile=profile,
+            changed_windows=[],
+            **options,
+        )
+        assert changed["refreshed_partition_count"] == 1
+        persisted = reload_indicator_frames(
+            indicator_output_dir=indicator_dir,
+            dataset_version="dataset-cf-full-reuse-fast-path-v1",
+            indicator_set_version="indicators-v1",
+            contour_id="pit_active_front",
+        )
+        assert all(row.source_snapshot_hash for row in persisted)
+        assert all("source_snapshot_hash" not in row.values for row in persisted)
+        # A legacy checkpoint cannot authorize metadata-only reuse.
+        DeltaTable(str(indicator_dir / "research_indicator_frames.delta")).update(
+            updates={"source_snapshot_hash": "NULL"}
+        )
+        legacy = materialize_indicator_frames(
+            dataset_output_dir=dataset_dir,
+            indicator_output_dir=indicator_dir,
+            dataset_version="dataset-cf-full-reuse-fast-path-v1",
+            indicator_set_version="indicators-v1",
+            contour_id="pit_active_front",
+            profile=profile,
+            changed_windows=[],
+            **options,
+        )
+        assert legacy["refreshed_partition_count"] == 1
 
 
 def test_indicator_reuse_ignores_stale_partitions_outside_dataset_manifest_timeframes(
@@ -1485,7 +1593,9 @@ def test_indicator_reuse_ignores_stale_partitions_outside_dataset_manifest_timef
         profile=profile,
     )
 
-    assert report["reuse_plan_mode"] == "metadata_fast_path"
+    # An unrelated append invalidates the coarse Delta snapshot fingerprint;
+    # scoped content reuse still excludes the stale timeframe.
+    assert report.get("reuse_plan_mode") != "metadata_fast_path"
     assert report["refreshed_partition_count"] == 0
     assert report["reused_partition_count"] == 1
     assert report["write_batch_count"] == 0

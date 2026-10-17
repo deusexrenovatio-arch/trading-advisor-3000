@@ -19,6 +19,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
     delta_table_identity,
+    delta_table_version,
     iter_delta_table_row_batches,
     read_delta_table_arrow,
     read_delta_table_rows,
@@ -1575,8 +1576,14 @@ def _metadata_fast_reuse_report(
     output_paths: dict[str, str],
     resolved_profile: IndicatorProfile,
     adjustment_ladder_rows: tuple[dict[str, object], ...],
+    source_snapshot_hash: str,
+    volume_profile_raw_1m_table_path: Path | None = None,
+    volume_profile_tick_size_by_instrument: Mapping[str, float] | None = None,
 ) -> dict[str, object] | None:
-    if _profile_has_volume_profile_spec(resolved_profile):
+    if (
+        _profile_has_volume_profile_spec(resolved_profile)
+        and volume_profile_raw_1m_table_path is None
+    ):
         return None
     if not current_dataset_bars_hash or not existing_by_partition:
         return None
@@ -1587,6 +1594,8 @@ def _metadata_fast_reuse_report(
         source_hash = str(metadata.get("source_bars_hash") or "")
         if (
             not source_hash
+            or not source_snapshot_hash
+            or metadata.get("source_snapshot_hash") != source_snapshot_hash
             or row_count < 0
             or str(metadata.get("source_dataset_bars_hash") or "") != current_dataset_bars_hash
             or not _existing_partition_matches(
@@ -1607,9 +1616,9 @@ def _metadata_fast_reuse_report(
                     )
                     if partition.series_mode == "continuous_front"
                     else (),
-                    raw_1m_path=None,
+                    raw_1m_path=volume_profile_raw_1m_table_path,
                     source_rows=None,
-                    tick_sizes=None,
+                    tick_sizes=volume_profile_tick_size_by_instrument,
                 ),
             )
         ):
@@ -1669,6 +1678,7 @@ def _build_partition_rows(
     precomputed_source_hash: str | None = None,
     native_full_compute: bool = False,
     volume_profile_refresh_ts: set[str] | None = None,
+    source_snapshot_hash: str = "",
 ) -> list[IndicatorFrameRow]:
     frame = pd.DataFrame([row.to_dict() for row in series])
     compute_profile = compute_profile or profile
@@ -1716,7 +1726,9 @@ def _build_partition_rows(
     )
     cached_rows = sorted(existing_rows or [], key=lambda row: row.ts)
     prefix_length = 0
-    if not native_full_compute and series_mode != "continuous_front" and compute_profile == profile:
+    # Native source-hash format is independent of whether a verified prefix
+    # can continue computation. Unsupported specs still use full history.
+    if series_mode != "continuous_front" and compute_profile == profile:
         for original, cached, row_hash in zip(series, cached_rows, input_row_hashes):
             if (
                 cached.ts != original.ts
@@ -1892,6 +1904,7 @@ def _build_partition_rows(
                 compute_contract_hash=compute_contract_hash,
                 input_row_hash=input_row_hashes[index],
                 refresh_context_hash=refresh_context_hash,
+                source_snapshot_hash=source_snapshot_hash,
                 volume_profile_input_hash=volume_profile_hashes.get(original.ts, ""),
             )
         )
@@ -2049,6 +2062,12 @@ def _materialize_indicator_frames_unlocked(
     current_dataset_created_at = str(dataset_manifest.get("created_at") or "")
     registry: IndicatorProfileRegistry = build_indicator_profile_registry()
     resolved_profile = profile or registry.get(profile_version or "core_v1")
+    source_snapshot_hash = _source_snapshot_hash(
+        dataset_output_dir / "research_bar_views.delta",
+        volume_profile_raw_1m_table_path
+        if _profile_has_volume_profile_spec(resolved_profile)
+        else None,
+    )
     scoped_timeframes = frozenset(str(item).strip() for item in timeframes if str(item).strip())
     scoped_instruments = frozenset(
         str(item).strip() for item in dataset_instrument_ids if str(item).strip()
@@ -2083,12 +2102,12 @@ def _materialize_indicator_frames_unlocked(
     existing_by_partition = _group_existing_partition_metadata(
         rows=existing_metadata, series_mode=series_mode
     )
-    if active_timeframes:
-        existing_by_partition = {
-            key: metadata
-            for key, metadata in existing_by_partition.items()
-            if key.timeframe in active_timeframes
-        }
+    existing_by_partition = {
+        key: metadata
+        for key, metadata in existing_by_partition.items()
+        if (not active_timeframes or key.timeframe in active_timeframes)
+        and _partition_in_requested_scope(key)
+    }
     target_output_columns = resolved_profile.expected_output_columns()
     target_output_columns_hash = indicator_output_columns_hash(target_output_columns)
     existing_output_columns = (
@@ -2133,15 +2152,11 @@ def _materialize_indicator_frames_unlocked(
             output_paths=output_paths,
             resolved_profile=resolved_profile,
             adjustment_ladder_rows=adjustment_ladder_rows,
+            volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
+            volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+            source_snapshot_hash=source_snapshot_hash,
         )
-        if refresh_windows is None
-        and not (
-            _profile_requires_volume_profile(resolved_profile)
-            and (
-                volume_profile_source_rows is not None
-                or volume_profile_raw_1m_table_path is not None
-            )
-        )
+        if volume_profile_source_rows is None
         else None
     )
     if fast_reuse_report is not None:
@@ -2152,6 +2167,10 @@ def _materialize_indicator_frames_unlocked(
         ]
         if active_timeframes:
             coverage_filters.append(("timeframe", "in", tuple(sorted(active_timeframes))))
+        if scoped_timeframes:
+            coverage_filters.append(("timeframe", "in", tuple(sorted(scoped_timeframes))))
+        if scoped_instruments:
+            coverage_filters.append(("instrument_id", "in", tuple(sorted(scoped_instruments))))
         expected_row_count = count_delta_table_rows(
             dataset_output_dir / "research_bar_views.delta", filters=coverage_filters
         )
@@ -2276,6 +2295,7 @@ def _materialize_indicator_frames_unlocked(
                     series=series,
                     series_mode=series_mode,
                     source_dataset_bars_hash=current_dataset_bars_hash,
+                    source_snapshot_hash=source_snapshot_hash,
                     output_columns_hash=target_output_columns_hash,
                     compute_profile=resolved_profile,
                     existing_rows=None,
@@ -2361,6 +2381,7 @@ def _materialize_indicator_frames_unlocked(
             windows=refresh_windows,
             adjustment_ladder_rows=adjustment_ladder_rows,
             source_dataset_bars_hash=current_dataset_bars_hash,
+            source_snapshot_hash=source_snapshot_hash,
             volume_profile_source_rows=volume_profile_source_rows,
             volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
             volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
@@ -2407,7 +2428,12 @@ def _materialize_indicator_frames_unlocked(
                 and _timestamp_after(current_dataset_created_at, existing_materialized_at)
             )
             source_changed = (
-                source_row_count != row_count or not source_hash or dataset_may_have_changed
+                source_row_count != row_count
+                or not source_hash
+                or dataset_may_have_changed
+                or existing_partition_metadata.get("source_snapshot_hash") != source_snapshot_hash
+                if existing_partition_metadata
+                else True
             )
             if source_changed:
                 series = _load_bar_partition_rows(
@@ -2480,7 +2506,7 @@ def _materialize_indicator_frames_unlocked(
                 ),
                 compute_contract_hash=_indicator_compute_contract_hash(resolved_profile),
                 refresh_context_hash=current_refresh_context,
-            ):
+            ) and existing_partition_metadata.get("source_snapshot_hash"):
                 reused_partitions += 1
                 continue
 
@@ -2560,6 +2586,7 @@ def _materialize_indicator_frames_unlocked(
                 series=series,
                 series_mode=series_mode,
                 source_dataset_bars_hash=current_dataset_bars_hash,
+                source_snapshot_hash=source_snapshot_hash,
                 output_columns_hash=target_output_columns_hash,
                 compute_profile=compute_profile,
                 existing_rows=existing_rows,
@@ -2991,6 +3018,15 @@ def _normalize_indicator_windows(
     return tuple(normalized)
 
 
+def _source_snapshot_hash(bar_path: Path, raw_1m_path: Path | None) -> str:
+    """Exact inputs for no-op only; stable checkpoint context stays version-free."""
+    sources = [bar_path, *([raw_1m_path] if raw_1m_path is not None else [])]
+    payload = [
+        {**delta_table_identity(path), "version": delta_table_version(path)} for path in sources
+    ]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
 def _materialize_indicator_window_tails(
     *,
     dataset_output_dir: Path,
@@ -3001,6 +3037,7 @@ def _materialize_indicator_window_tails(
     windows: tuple[dict[str, object], ...],
     adjustment_ladder_rows: tuple[dict[str, object], ...],
     source_dataset_bars_hash: str,
+    source_snapshot_hash: str,
     volume_profile_source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None,
     volume_profile_raw_1m_table_path: Path | None,
     volume_profile_tick_size_by_instrument: Mapping[str, float] | None,
@@ -3059,6 +3096,15 @@ def _materialize_indicator_window_tails(
                     )
                 )
             ]
+            snapshot_matches = (
+                bool(metadata) and metadata.get("source_snapshot_hash") == source_snapshot_hash
+            )
+            # Minute changes have no per-bar provenance in the caller's L0
+            # windows. Refresh all VP inputs before certifying the new snapshot.
+            if not snapshot_matches and _profile_has_volume_profile_spec(profile):
+                compatible = False
+            if not snapshot_matches and not selected_windows:
+                compatible = False
             if compatible and not selected_windows and int(metadata.get("row_count", -1)) == count:
                 reused += 1
                 continue
@@ -3093,6 +3139,21 @@ def _materialize_indicator_window_tails(
                     for window in selected_windows
                 )
             }
+            if compatible and not _profile_has_volume_profile_spec(profile):
+                input_hashes = _indicator_input_row_hashes(
+                    series,
+                    compute_contract_hash=_indicator_compute_contract_hash(profile),
+                    volume_profile_source_rows=None,
+                    tick_size_by_instrument=None,
+                    has_volume_profile=False,
+                    required_columns=profile.required_input_columns(),
+                )
+                changed_ts.update(
+                    row.ts
+                    for row, row_hash in zip(series, input_hashes)
+                    if row.ts not in existing_by_ts
+                    or existing_by_ts[row.ts].input_row_hash != row_hash
+                )
             if not compatible:
                 start = series[0].ts
                 changed_ts = {row.ts for row in series}
@@ -3112,6 +3173,7 @@ def _materialize_indicator_window_tails(
                 series=series,
                 series_mode=partition.series_mode,
                 source_dataset_bars_hash=source_dataset_bars_hash,
+                source_snapshot_hash=source_snapshot_hash,
                 existing_rows=existing,
                 adjustment_ladder_rows=adjustment_ladder_rows,
                 volume_profile_source_rows=volume_profile_source_rows,

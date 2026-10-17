@@ -54,6 +54,7 @@ INDICATOR_PARTITION_METADATA_COLUMNS = (
     "output_columns_hash",
     "compute_contract_hash",
     "refresh_context_hash",
+    "source_snapshot_hash",
 )
 INDICATOR_RESERVED_COLUMNS = {
     "ts_close_year",
@@ -77,6 +78,7 @@ INDICATOR_RESERVED_COLUMNS = {
     "compute_contract_hash",
     "input_row_hash",
     "refresh_context_hash",
+    "source_snapshot_hash",
     "volume_profile_input_hash",
 }
 INDICATOR_FRAME_LOGICAL_KEY = (
@@ -157,6 +159,7 @@ class IndicatorFrameRow:
     compute_contract_hash: str = ""
     input_row_hash: str = ""
     refresh_context_hash: str = ""
+    source_snapshot_hash: str = ""
     volume_profile_input_hash: str = ""
     bar_end_ts: str | None = field(default=None, compare=False, repr=False)
 
@@ -195,6 +198,7 @@ class IndicatorFrameRow:
             "compute_contract_hash": self.compute_contract_hash,
             "input_row_hash": self.input_row_hash,
             "refresh_context_hash": self.refresh_context_hash,
+            "source_snapshot_hash": self.source_snapshot_hash,
             "volume_profile_input_hash": self.volume_profile_input_hash,
         }
 
@@ -236,6 +240,7 @@ class IndicatorFrameRow:
             compute_contract_hash=str(payload.get("compute_contract_hash") or ""),
             input_row_hash=str(payload.get("input_row_hash") or ""),
             refresh_context_hash=str(payload.get("refresh_context_hash") or ""),
+            source_snapshot_hash=str(payload.get("source_snapshot_hash") or ""),
             volume_profile_input_hash=str(payload.get("volume_profile_input_hash") or ""),
         )
 
@@ -274,6 +279,7 @@ def indicator_store_contract(
         "compute_contract_hash": "string",
         "input_row_hash": "string",
         "refresh_context_hash": "string",
+        "source_snapshot_hash": "string",
         "volume_profile_input_hash": "string",
     }
     contracts = {
@@ -727,6 +733,7 @@ def load_indicator_partition_rows(
                 "compute_contract_hash",
                 "input_row_hash",
                 "refresh_context_hash",
+                "source_snapshot_hash",
                 "volume_profile_input_hash",
             )
         )
@@ -778,6 +785,7 @@ def load_indicator_frames(
                     "compute_contract_hash",
                     "input_row_hash",
                     "refresh_context_hash",
+                    "source_snapshot_hash",
                     "volume_profile_input_hash",
                 )
             )
