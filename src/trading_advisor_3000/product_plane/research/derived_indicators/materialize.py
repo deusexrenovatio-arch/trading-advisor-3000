@@ -620,13 +620,18 @@ def _indicator_hash(
             "instrument_id": row.instrument_id,
             "timeframe": row.timeframe,
             "ts": row.ts,
-            "source_bars_hash": row.source_bars_hash,
-            "row_count": row.row_count,
             "values": {column: row.values.get(column) for column in value_columns},
         }
         for row in rows
     ]
-    normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    # Bars, count and MTF content have separate guards. L1 provenance is not
+    # a consumed indicator value (e.g. a VP-only refresh must not invalidate EMA).
+    normalized = json.dumps(
+        {"indicator_content_version": 2, "rows": payload},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16].upper()
 
 

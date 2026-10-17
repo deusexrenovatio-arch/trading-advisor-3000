@@ -165,11 +165,13 @@ def _window_kwargs(tmp_path):
                 "row_count": 1,
                 "refresh_context_hash": _context(profile),
                 "compute_contract_hash": owner._indicator_compute_contract_hash(profile),
+                "source_snapshot_hash": "SNAPSHOT",
             }
         },
         windows=(),
         adjustment_ladder_rows=(),
         source_dataset_bars_hash="BARS",
+        source_snapshot_hash="SNAPSHOT",
         volume_profile_source_rows=None,
         volume_profile_raw_1m_table_path=None,
         volume_profile_tick_size_by_instrument=None,
@@ -213,7 +215,18 @@ def test_changed_window_owner_keeps_native_compute_and_only_writes_suffix(tmp_pa
     kwargs = _window_kwargs(tmp_path)
     key = next(iter(kwargs["partition_counts"]))
     bars = [_view(ts_index=i, close=80.0 + i) for i in range(3)]
-    rows = [replace(_sma2_indicator_row(), ts=bar.ts, row_count=3) for bar in bars]
+    hashes = owner._indicator_input_row_hashes(
+        bars,
+        compute_contract_hash=owner._indicator_compute_contract_hash(kwargs["profile"]),
+        volume_profile_source_rows=None,
+        tick_size_by_instrument=None,
+        has_volume_profile=False,
+        required_columns=kwargs["profile"].required_input_columns(),
+    )
+    rows = [
+        replace(_sma2_indicator_row(), ts=bar.ts, row_count=3, input_row_hash=value)
+        for bar, value in zip(bars, hashes)
+    ]
     kwargs["partition_counts"] = {key: 3}
     kwargs["existing_by_partition"][key]["row_count"] = 3
     kwargs["windows"] = owner._normalize_indicator_windows(
@@ -337,3 +350,25 @@ def test_metadata_selects_one_latest_physical_carrier_including_null_guard(tmp_p
     assert metadata[0]["row_count"] == 3
     assert metadata[0]["refresh_context_hash"] is None
     assert metadata[0]["compute_contract_hash"] is None
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("native_close", 99.0), ("roll_epoch", 1), ("session_close_ts", "2026-03-16T23:00:00Z")],
+)
+def test_effective_cf_input_proof_covers_legacy_row_native_and_projection_fields(field, value):
+    bar = _view(ts_index=0, close=80.0)
+    kwargs = dict(
+        compute_contract_hash="same",
+        volume_profile_source_rows=None,
+        tick_size_by_instrument=None,
+        has_volume_profile=False,
+        required_columns=("close",),
+        series_mode="continuous_front",
+    )
+    before = owner._indicator_input_row_hashes([bar], **kwargs)
+    assert owner._indicator_input_row_hashes([replace(bar, **{field: value})], **kwargs) != before
+    kwargs["series_mode"] = "contract"
+    assert owner._indicator_input_row_hashes([bar], **kwargs) == owner._indicator_input_row_hashes(
+        [replace(bar, **{field: value})], **kwargs
+    )

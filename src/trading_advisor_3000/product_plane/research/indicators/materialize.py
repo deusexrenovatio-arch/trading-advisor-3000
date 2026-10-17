@@ -6,7 +6,7 @@ import math
 import os
 from bisect import bisect_right
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from importlib.metadata import version as distribution_version
 from pathlib import Path
 from typing import AbstractSet
@@ -1721,6 +1721,7 @@ def _build_partition_rows(
         tick_size_by_instrument=volume_profile_tick_size_by_instrument,
         has_volume_profile=_profile_has_volume_profile_spec(profile),
         required_columns=profile.required_input_columns(),
+        series_mode=series_mode,
         cached_volume_profile_hashes=cached_volume_profile_hashes,
         volume_profile_hashes=volume_profile_hashes,
     )
@@ -2730,6 +2731,7 @@ def _indicator_input_row_hashes(
     tick_size_by_instrument: Mapping[str, float] | None,
     has_volume_profile: bool,
     required_columns: tuple[str, ...],
+    series_mode: str = "contract",
     cached_volume_profile_hashes: Mapping[str, str] | None = None,
     volume_profile_hashes: dict[str, str] | None = None,
 ) -> list[str]:
@@ -2752,6 +2754,12 @@ def _indicator_input_row_hashes(
             "bar": {key: value for key, value in row.to_dict().items() if key in input_columns},
             "compute": compute_contract_hash,
         }
+        if series_mode == "continuous_front" or row.series_mode == "continuous_front":
+            # CF math consumes native OHLC, roll epochs and session projections,
+            # beyond a profile's declared public-price columns. Old partial row
+            # proofs must not certify reuse after a native/projection correction.
+            payload["cf_input_version"] = 2
+            payload["bar"] = row.to_dict()
         if has_volume_profile and (cached_volume_profile_hashes or {}).get(row.ts):
             payload["volume_profile"] = cached_volume_profile_hashes[row.ts]
         elif has_volume_profile:
@@ -3046,11 +3054,22 @@ def _materialize_indicator_window_tails(
 ) -> dict[str, object]:
     starts: dict[IndicatorFramePartitionKey, str] = {}
     diagnostics: dict[str, object] = {}
-    refreshed = reused = missing_source = 0
+    refreshed = reused = missing_source = metadata_rebased = 0
+    has_volume_profile = _profile_has_volume_profile_spec(profile)
     columns = profile.expected_output_columns()
 
+    def assert_source_stable() -> None:
+        if (
+            has_volume_profile
+            and _source_snapshot_hash(
+                dataset_output_dir / "research_bar_views.delta", volume_profile_raw_1m_table_path
+            )
+            != source_snapshot_hash
+        ):
+            raise ValueError("L1 inputs changed during partition proof")
+
     def batches() -> Iterator[tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]]:
-        nonlocal refreshed, reused, missing_source
+        nonlocal refreshed, reused, missing_source, metadata_rebased
         for partition, count in sorted(
             partition_counts.items(),
             key=lambda item: (
@@ -3099,13 +3118,17 @@ def _materialize_indicator_window_tails(
             snapshot_matches = (
                 bool(metadata) and metadata.get("source_snapshot_hash") == source_snapshot_hash
             )
-            # Minute changes have no per-bar provenance in the caller's L0
-            # windows. Refresh all VP inputs before certifying the new snapshot.
-            if not snapshot_matches and _profile_has_volume_profile_spec(profile):
+            # A global Delta version change is not a partition content change.
+            # Legacy carriers cannot authorize selective reuse, even with matching context.
+            if not snapshot_matches and not (metadata or {}).get("source_snapshot_hash"):
                 compatible = False
-            if not snapshot_matches and not selected_windows:
-                compatible = False
-            if compatible and not selected_windows and int(metadata.get("row_count", -1)) == count:
+            if (
+                compatible
+                and snapshot_matches
+                and volume_profile_source_rows is None
+                and not selected_windows
+                and int(metadata.get("row_count", -1)) == count
+            ):
                 reused += 1
                 continue
             series = _load_bar_partition_rows(
@@ -3139,20 +3162,33 @@ def _materialize_indicator_window_tails(
                     for window in selected_windows
                 )
             }
-            if compatible and not _profile_has_volume_profile_spec(profile):
+            resolved_minutes = volume_profile_source_rows
+            if compatible and has_volume_profile and resolved_minutes is None:
+                if volume_profile_raw_1m_table_path is not None:
+                    resolved_minutes = _load_volume_profile_source_rows(
+                        raw_1m_table_path=volume_profile_raw_1m_table_path, local_series=series
+                    )
+            if compatible:
+                if has_volume_profile:
+                    # Exact content proof supersedes potentially overbroad L0 hints.
+                    changed_ts.clear()
+                # Prove consumed inputs, including minute-only corrections/deletions
+                # absent from caller L0 windows. Never use cached VP hashes as proof.
                 input_hashes = _indicator_input_row_hashes(
                     series,
                     compute_contract_hash=_indicator_compute_contract_hash(profile),
-                    volume_profile_source_rows=None,
-                    tick_size_by_instrument=None,
-                    has_volume_profile=False,
+                    volume_profile_source_rows=resolved_minutes,
+                    tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+                    has_volume_profile=has_volume_profile,
                     required_columns=profile.required_input_columns(),
+                    series_mode=partition.series_mode,
                 )
                 changed_ts.update(
                     row.ts
                     for row, row_hash in zip(series, input_hashes)
                     if row.ts not in existing_by_ts
                     or existing_by_ts[row.ts].input_row_hash != row_hash
+                    or (has_volume_profile and not existing_by_ts[row.ts].volume_profile_input_hash)
                 )
             if not compatible:
                 start = series[0].ts
@@ -3161,6 +3197,31 @@ def _materialize_indicator_window_tails(
                 candidates = [*changed_ts, *[row.ts for row in existing if row.ts not in source_ts]]
                 if not candidates:
                     reused += 1
+                    if not snapshot_matches:
+                        # Advance one complete carrier after actual content proof;
+                        # preserve every earlier row and all numerical values.
+                        carrier = existing_by_ts[series[-1].ts]
+                        stamp = max(
+                            pd.Timestamp.now(tz="UTC"),
+                            _utc_timestamp(str(metadata.get("created_at") or carrier.created_at))
+                            + pd.Timedelta(1, unit="us"),
+                        )
+                        starts[partition] = carrier.ts
+                        assert_source_stable()
+                        yield (
+                            partition,
+                            [
+                                replace(
+                                    carrier,
+                                    source_snapshot_hash=source_snapshot_hash,
+                                    source_dataset_bars_hash=source_dataset_bars_hash,
+                                    row_count=count,
+                                    bar_end_ts=series[-1].bar_end_ts,
+                                    created_at=stamp.isoformat().replace("+00:00", "Z"),
+                                )
+                            ],
+                        )
+                        metadata_rebased += 1
                     continue
                 # When the old last bar was deleted, rewrite the last surviving
                 # bar as the metadata carrier for the smaller current series.
@@ -3176,7 +3237,7 @@ def _materialize_indicator_window_tails(
                 source_snapshot_hash=source_snapshot_hash,
                 existing_rows=existing,
                 adjustment_ladder_rows=adjustment_ladder_rows,
-                volume_profile_source_rows=volume_profile_source_rows,
+                volume_profile_source_rows=resolved_minutes,
                 volume_profile_raw_1m_table_path=volume_profile_raw_1m_table_path,
                 volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
                 compute_diagnostics=diagnostics,
@@ -3187,6 +3248,7 @@ def _materialize_indicator_window_tails(
                 volume_profile_source_rows is None and volume_profile_raw_1m_table_path is None
             ):
                 missing_source += 1
+            assert_source_stable()
             refreshed += 1
             yield (
                 partition,
@@ -3202,6 +3264,7 @@ def _materialize_indicator_window_tails(
         profile=profile,
         partition_start_ts=starts,
     )
+    assert_source_stable()
     record_stage_timing(
         stage_timings,
         "write_indicator_frames",
@@ -3220,6 +3283,7 @@ def _materialize_indicator_window_tails(
         "recomputed_partition_count": refreshed,
         "deleted_partition_count": len(deleted_partitions),
         "write_batch_count": batch_count,
+        "metadata_rebased_partition_count": metadata_rebased,
         "profile_version": profile.version,
         "output_columns_hash": indicator_output_columns_hash(columns),
         "volume_profile_missing_source_partition_count": missing_source,
