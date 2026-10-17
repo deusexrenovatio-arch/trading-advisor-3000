@@ -9,6 +9,7 @@ from itertools import chain
 from pathlib import Path
 
 import pyarrow as pa
+import pyarrow.compute as pc
 from deltalake import DeltaTable
 
 from trading_advisor_3000.product_plane.common.table_layout import (
@@ -22,7 +23,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
     ensure_delta_table_columns,
     has_delta_log,
-    iter_delta_table_row_batches,
+    read_delta_table_arrow,
     read_delta_table_rows,
     write_delta_table_row_batches,
 )
@@ -51,8 +52,12 @@ DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS = (
     "source_indicator_output_columns_hash",
     "source_indicator_columns_hash",
     "mtf_source_family_hash",
+    "source_snapshot_hash",
+    "compute_contract_hash",
     "row_count",
+    "warmup_span",
     "output_columns_hash",
+    "created_at",
 )
 DERIVED_INDICATOR_RESERVED_COLUMNS = {
     "ts_close_year",
@@ -74,6 +79,8 @@ DERIVED_INDICATOR_RESERVED_COLUMNS = {
     "source_indicator_output_columns_hash",
     "source_indicator_columns_hash",
     "mtf_source_family_hash",
+    "source_snapshot_hash",
+    "compute_contract_hash",
     "row_count",
     "warmup_span",
     "null_warmup_span",
@@ -135,6 +142,8 @@ def _derived_indicator_frame_columns(
         "source_indicator_output_columns_hash": "string",
         "source_indicator_columns_hash": "string",
         "mtf_source_family_hash": "string",
+        "source_snapshot_hash": "string",
+        "compute_contract_hash": "string",
         "row_count": "int",
         "warmup_span": "int",
         "null_warmup_span": "int",
@@ -214,6 +223,8 @@ class DerivedIndicatorFrameRow:
     source_indicator_output_columns_hash: str = ""
     source_indicator_columns_hash: str = ""
     mtf_source_family_hash: str = ""
+    source_snapshot_hash: str = ""
+    compute_contract_hash: str = ""
     contour_id: str = "native_tradable"
     series_mode: str = "contract"
     series_id: str = ""
@@ -254,6 +265,8 @@ class DerivedIndicatorFrameRow:
             "source_indicator_output_columns_hash": self.source_indicator_output_columns_hash,
             "source_indicator_columns_hash": self.source_indicator_columns_hash,
             "mtf_source_family_hash": self.mtf_source_family_hash,
+            "source_snapshot_hash": self.source_snapshot_hash,
+            "compute_contract_hash": self.compute_contract_hash,
             "row_count": self.row_count,
             "warmup_span": self.warmup_span,
             "null_warmup_span": self.null_warmup_span,
@@ -283,6 +296,8 @@ class DerivedIndicatorFrameRow:
             "source_indicator_output_columns_hash",
             "source_indicator_columns_hash",
             "mtf_source_family_hash",
+            "source_snapshot_hash",
+            "compute_contract_hash",
             "row_count",
             "warmup_span",
             "null_warmup_span",
@@ -326,6 +341,8 @@ class DerivedIndicatorFrameRow:
             ),
             source_indicator_columns_hash=str(payload.get("source_indicator_columns_hash") or ""),
             mtf_source_family_hash=str(payload.get("mtf_source_family_hash") or ""),
+            source_snapshot_hash=str(payload.get("source_snapshot_hash") or ""),
+            compute_contract_hash=str(payload.get("compute_contract_hash") or ""),
             row_count=int(payload["row_count"]),
             warmup_span=int(payload["warmup_span"]),
             null_warmup_span=int(payload["null_warmup_span"]),
@@ -530,7 +547,6 @@ def load_derived_indicator_partition_metadata(
         for column in DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS
         if column in existing_columns
     ]
-    metadata_by_partition: dict[tuple[object, ...], dict[str, object]] = {}
     filters = _filters_for_existing_columns(
         path,
         [
@@ -540,27 +556,37 @@ def load_derived_indicator_partition_metadata(
             ("derived_indicator_set_version", "=", derived_indicator_set_version),
         ],
     )
-    for batch in iter_delta_table_row_batches(
-        path,
-        columns=read_columns,
-        filters=filters,
-    ):
-        for row in batch:
-            for column in DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS:
-                row.setdefault(column, None)
-            key = (
-                row.get("dataset_version"),
-                row.get("contour_id", "native_tradable"),
-                row.get("series_mode", "contract"),
-                row.get("series_id", ""),
-                row.get("indicator_set_version"),
-                row.get("derived_indicator_set_version"),
-                row.get("contract_id"),
-                row.get("instrument_id"),
-                row.get("timeframe"),
-            )
-            metadata_by_partition.setdefault(key, row)
-    return list(metadata_by_partition.values())
+    keys = [
+        column
+        for column in (
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "indicator_set_version",
+            "derived_indicator_set_version",
+            "contract_id",
+            "instrument_id",
+            "timeframe",
+        )
+        if column in read_columns
+    ]
+    table = read_delta_table_arrow(path, columns=read_columns, filters=filters)
+    if not table.num_rows:
+        return []
+    if "created_at" in read_columns:
+        table = table.sort_by([("created_at", "descending")])
+    values = [column for column in read_columns if column not in keys]
+    grouped = table.group_by(keys, use_threads=False).aggregate(
+        [(column, "first", pc.ScalarAggregateOptions(skip_nulls=False)) for column in values]
+    )
+    return [
+        {
+            column: row.get(column if column in keys else column + "_first")
+            for column in DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS
+        }
+        for row in grouped.to_pylist()
+    ]
 
 
 def _filters_for_existing_columns(
@@ -630,6 +656,8 @@ def load_derived_indicator_partition_rows(
                 "source_indicator_output_columns_hash",
                 "source_indicator_columns_hash",
                 "mtf_source_family_hash",
+                "source_snapshot_hash",
+                "compute_contract_hash",
                 "row_count",
                 "warmup_span",
                 "null_warmup_span",
@@ -688,6 +716,8 @@ def load_derived_indicator_frames(
                     "source_indicator_output_columns_hash",
                     "source_indicator_columns_hash",
                     "mtf_source_family_hash",
+                    "source_snapshot_hash",
+                    "compute_contract_hash",
                     "row_count",
                     "warmup_span",
                     "null_warmup_span",

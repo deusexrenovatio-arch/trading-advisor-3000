@@ -41,6 +41,20 @@ def _angle_slope(current: float, previous: float, *, length: int) -> float:
     return math.degrees(math.atan((current - previous) / float(length)))
 
 
+def test_derived_native_contract_tracks_ladder_and_mtf_policy(monkeypatch) -> None:
+    from trading_advisor_3000.product_plane.research.derived_indicators import materialize
+
+    ladder = ({"roll_seq": 1, "offset": 2.0}, {"roll_seq": 2, "offset": 3.0})
+    original = materialize._derived_compute_contract_hash(ladder)
+    assert materialize._derived_compute_contract_hash(tuple(reversed(ladder))) == original
+    assert (
+        materialize._derived_compute_contract_hash((dict(ladder[0], offset=2.1), ladder[1]))
+        != original
+    )
+    monkeypatch.setattr(materialize, "MTF_MAPPINGS", (("1h", "15m"),))
+    assert materialize._derived_compute_contract_hash(ladder) != original
+
+
 def _view(*, ts_index: int, close: float, timeframe: str = "15m") -> ResearchBarView:
     start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
     if timeframe == "15m":
@@ -58,6 +72,9 @@ def _view(*, ts_index: int, close: float, timeframe: str = "15m") -> ResearchBar
         instrument_id="BR",
         timeframe=timeframe,
         ts=ts_text,
+        bar_end_ts=(ts + timedelta(minutes={"15m": 15, "1h": 60, "4h": 240}[timeframe]))
+        .isoformat()
+        .replace("+00:00", "Z"),
         open=close - 0.3,
         high=close + 0.6,
         low=close - 0.7,
@@ -131,13 +148,7 @@ def test_derived_source_frame_store_contract_is_internal_l2_join_layer() -> None
     columns = table["columns"]
 
     assert table["format"] == "delta"
-    assert table["partition_by"] == [
-        "dataset_version",
-        "contour_id",
-        "indicator_set_version",
-        "instrument_id",
-        "timeframe",
-    ]
+    assert table["partition_by"] == ["ts_close_year"]
     assert (
         "unique(dataset_version, contour_id, series_mode, series_id, "
         "indicator_set_version, timeframe, ts)" in table["constraints"]
@@ -245,6 +256,8 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
             "source_indicator_output_columns_hash",
             "source_indicator_columns_hash",
             "mtf_source_family_hash",
+            "source_snapshot_hash",
+            "compute_contract_hash",
             "row_count",
             "warmup_span",
             "null_warmup_span",
@@ -252,14 +265,8 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
             "output_columns_hash",
         }
     )
-    assert contract["research_derived_indicator_frames"]["partition_by"] == [
-        "dataset_version",
-        "contour_id",
-        "indicator_set_version",
-        "derived_indicator_set_version",
-        "instrument_id",
-        "timeframe",
-    ]
+    assert contract["research_derived_indicator_frames"]["partition_by"] == ["ts_close_year"]
+    assert {"source_snapshot_hash", "compute_contract_hash"} <= set(columns)
     assert (
         "unique(dataset_version, contour_id, series_mode, series_id, "
         "indicator_set_version, derived_indicator_set_version, timeframe, ts)"

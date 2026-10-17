@@ -90,6 +90,7 @@ def test_cf_materialization_releases_finished_source_families(monkeypatch, tmp_p
         owner.cf_input_projection, "load_adjustment_ladder_rows", lambda **kwargs: ()
     )
     monkeypatch.setattr(owner, "_source_indicator_columns_for_profile", lambda profile: ("adx_14",))
+    monkeypatch.setattr(owner, "_delta_source_refs", lambda paths: [{"fixture": "stable"}])
     monkeypatch.setattr(owner, "existing_indicator_value_columns", lambda **kwargs: ("adx_14",))
     monkeypatch.setattr(
         owner,
