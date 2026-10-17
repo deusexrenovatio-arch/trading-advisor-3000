@@ -3354,6 +3354,10 @@ def _materialize_indicator_window_tails(
         started,
         refreshed_row_count=row_count,
         write_batch_count=batch_count,
+        refreshed_partition_count=refreshed,
+        reused_partition_count=reused,
+        hash_migrated_partition_count=migrated,
+        hash_migrated_row_count=migration_rows,
     )
     return {
         "indicator_row_count": sum(partition_counts.values()),

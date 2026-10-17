@@ -2767,6 +2767,8 @@ def materialize_derived_indicator_frames(
         extended_partition_count=extended_partitions,
         recomputed_partition_count=recomputed_partitions,
         deleted_partition_count=len(deleted_partitions),
+        hash_migrated_partition_count=hash_migrated_partitions,
+        metadata_rebased_partition_count=len(metadata_rebase_plan),
         loaded_source_frame_partition_count=(
             len(loaded_cf_source_keys)
             if series_mode == "continuous_front"
