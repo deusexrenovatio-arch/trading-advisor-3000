@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from contextlib import ExitStack
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -788,11 +789,17 @@ def _build_spark_native_tables(
         timeframes=scoped_timeframes,
         start_ts=None if refresh_windows else start_ts,
         end_ts=None if refresh_windows else end_ts,
-        refresh_windows=refresh_windows,
+        # Roll numbering and predecessor state require the causal prefix. A
+        # correction can also change later rolls, so filter only the outputs.
+        refresh_windows=tuple(
+            replace(window, start_ts=None, end_ts=None) for window in refresh_windows
+        ),
     )
     bars = _filter_policy_session(raw_bars, policy)
     calendar_bars = None
-    if policy.roll_policy_mode == "calendar_expiry_v1":
+    if policy.roll_policy_mode == "calendar_expiry_v1" and refresh_windows:
+        calendar_bars = bars
+    elif policy.roll_policy_mode == "calendar_expiry_v1":
         calendar_raw_bars = _load_filtered_bars(
             spark=spark,
             canonical_bars_path=canonical_bars_path,
@@ -1252,12 +1259,22 @@ def _build_spark_native_tables(
         )
         .drop("output_duplicate_key_count")
     )
-    return {
+    tables = {
         "continuous_front_bars": continuous_bars,
         "continuous_front_roll_events": roll_events,
         "continuous_front_adjustment_ladder": ladder,
         "continuous_front_qc_report": qc,
     }
+    if refresh_windows:
+        tail_windows = tuple(replace(window, end_ts=None) for window in refresh_windows)
+        for name in CONTINUOUS_FRONT_TABLES:
+            if name != "continuous_front_qc_report":
+                tables[name] = _filter_to_refresh_windows(
+                    tables[name],
+                    tail_windows,
+                    ts_column="ts" if name == "continuous_front_bars" else "effective_ts",
+                )
+    return tables
 
 
 def _cast_dataframe_to_contract(dataframe, manifest_entry: dict[str, object]):
@@ -1382,7 +1399,9 @@ def run_continuous_front_spark_job(
     spec = ContinuousFrontSparkJobSpec()
     resolved_policy = policy or ContinuousFrontPolicy()
     _require_spark_native_policy(resolved_policy)
-    normalized_refresh_windows = _normalize_refresh_windows(refresh_windows)
+    normalized_refresh_windows = tuple(
+        replace(window, end_ts=None) for window in _normalize_refresh_windows(refresh_windows)
+    )
     scoped_instrument_ids = (
         _unique_scope_values(normalized_refresh_windows, "instrument_id")
         if normalized_refresh_windows
@@ -1401,6 +1420,7 @@ def run_continuous_front_spark_job(
     stage_timings: StageTimings = {}
     stage_started = stage_timer()
     spark = spark_factory(spec.app_name, spark_master)
+    cache_cleanup = ExitStack()
     record_stage_timing(stage_timings, "start_spark", stage_started, master=spark_master)
     try:
         stage_started = stage_timer()
@@ -1443,6 +1463,11 @@ def run_continuous_front_spark_job(
             end_ts=end_ts,
             refresh_windows=normalized_refresh_windows,
         )
+        from pyspark import StorageLevel
+
+        for dataframe in tables.values():
+            dataframe.persist(StorageLevel.DISK_ONLY)
+            cache_cleanup.callback(dataframe.unpersist)
         record_stage_timing(stage_timings, "build_spark_native_tables", stage_started)
 
         staging_dir = output_dir / "_staging" / "continuous_front_spark" / run_id
@@ -1553,6 +1578,9 @@ def run_continuous_front_spark_job(
             },
         }
     finally:
-        stop = getattr(spark, "stop", None)
-        if callable(stop):
-            stop()
+        try:
+            cache_cleanup.close()
+        finally:
+            stop = getattr(spark, "stop", None)
+            if callable(stop):
+                stop()
