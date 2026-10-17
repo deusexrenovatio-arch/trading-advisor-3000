@@ -2443,3 +2443,373 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
             )
             assert len(repaired) == len({row.ts for row in repaired}) == len(bars)
             assert repeated["refreshed_row_count"] == len(bars)
+
+
+def _vp_partition_fixture(tmp_path, monkeypatch):
+    from datetime import UTC
+
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.research.datasets.bar_usage import (
+        bar_usage_flags_for_profile,
+    )
+
+    monkeypatch.setattr(
+        derived_materialize_module,
+        "DERIVED_SOURCE_INDICATOR_COLUMNS",
+        ("ema_20", "ema_50", "adx_14", "rsi_14"),
+    )
+    start = datetime(2026, 3, 1, 9, tzinfo=UTC)
+
+    def stamp(value):
+        return value.isoformat().replace("+00:00", "Z")
+
+    bars = []
+    for instrument in ("BR", "SI"):
+        for timeframe, step in (("15m", 15), ("1h", 60)):
+            for index in range(24 * 60 // step):
+                row = _canonical_bar(
+                    instrument_id=instrument,
+                    contract_id=f"{instrument}-6.26",
+                    index=0,
+                    close=80 + index * 0.1,
+                ).to_dict()
+                row.update(
+                    timeframe=timeframe,
+                    ts=stamp(start + timedelta(minutes=index * step)),
+                    volume=step * 10,
+                )
+                bars.append(CanonicalBar.from_dict(row))
+    calendars = [
+        SessionCalendarEntry(instrument, timeframe, day, day + "T00:00:00Z", day + "T23:59:59Z")
+        for instrument in ("BR", "SI")
+        for timeframe in ("15m", "1h")
+        for day in ("2026-03-01", "2026-03-02")
+    ]
+    dataset, indicator, derived = (tmp_path / name for name in ("dataset", "indicator", "derived"))
+    materialize_research_dataset(
+        manifest_seed=ResearchDatasetManifest(
+            dataset_version="vp-scope",
+            universe_id="moex-futures",
+            timeframes=("15m", "1h"),
+            contour_id="pit_active_front",
+            series_mode="continuous_front",
+            continuous_front_policy=ContinuousFrontPolicy.from_config({}),
+            warmup_bars=0,
+            split_method="full",
+        ),
+        bars=bars,
+        session_calendar=calendars,
+        roll_map=[
+            RollMapEntry(instrument, day, f"{instrument}-6.26", "test")
+            for instrument in ("BR", "SI")
+            for day in ("2026-03-01", "2026-03-02")
+        ],
+        output_dir=dataset,
+    )
+    DeltaTable(str(dataset / "research_bar_views.delta")).update(
+        updates={
+            "native_open": "open",
+            "native_high": "high",
+            "native_low": "low",
+            "native_close": "close",
+            "bar_usage_profile": "'regular_trading'",
+            "bar_usage_flags": str(bar_usage_flags_for_profile("regular_trading")),
+        }
+    )
+    raw = tmp_path / "raw.delta"
+    minute_rows = [
+        dict(
+            instrument_id=instrument,
+            contract_id=f"{instrument}-6.26",
+            timeframe="1m",
+            ts_open=stamp(start + timedelta(minutes=index)),
+            low=80.0,
+            high=80.01,
+            volume=10,
+        )
+        for instrument in ("BR", "SI")
+        for index in range(24 * 60)
+    ]
+    columns = dict(
+        instrument_id="string",
+        contract_id="string",
+        timeframe="string",
+        ts_open="timestamp",
+        low="double",
+        high="double",
+        volume="bigint",
+    )
+    write_delta_table_rows(table_path=raw, rows=minute_rows, columns=columns)
+    profile = replace(
+        default_indicator_profile(),
+        version="vp_scope_test",
+        indicators=tuple(
+            spec
+            for spec in default_indicator_profile().indicators
+            if spec.indicator_id in ("ema_20", "ema_50", "adx_14", "rsi_14", "volume_profile")
+        ),
+    )
+    l1 = dict(
+        dataset_output_dir=dataset,
+        indicator_output_dir=indicator,
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=profile,
+        changed_windows=[],
+        volume_profile_raw_1m_table_path=raw,
+        volume_profile_tick_size_by_instrument={"BR": 0.01, "SI": 0.01},
+    )
+    l2 = dict(
+        dataset_output_dir=dataset,
+        indicator_output_dir=indicator,
+        derived_indicator_output_dir=derived,
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+        profile=DerivedIndicatorProfile(
+            version="vp_scope_l2",
+            description="registered EMA MTF consumer",
+            output_columns=("mtf_1h_to_15m_ema_20",),
+            warmup_bars=0,
+        ),
+    )
+    materialize_indicator_frames(**l1)
+    materialize_derived_indicator_frames(**l2)
+    return l1, l2, raw, columns, minute_rows, stamp(start + timedelta(hours=21, minutes=1))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "minute_correct",
+        "minute_delete",
+        "unrelated_hint",
+        "other_contract",
+        "outside_interval",
+        "higher_tf",
+        "native_only",
+        "roll_epoch",
+        "tick",
+        "legacy",
+        "concurrent",
+    ],
+)
+def test_vp_partition_invalidation_preserves_unrelated_l1_l2(tmp_path, monkeypatch, change):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.research.derived_indicators.store import (
+        load_derived_indicator_frames,
+    )
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    l1, l2, raw, columns, minute_rows, target_ts = _vp_partition_fixture(tmp_path, monkeypatch)
+    before = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    predicate = f"instrument_id = 'BR' AND contract_id = 'BR-6.26' AND ts_open = '{target_ts}'"
+    if change in ("minute_correct", "concurrent", "unrelated_hint"):
+        DeltaTable(str(raw)).update(updates={"high": "90.0"}, predicate=predicate)
+    elif change == "minute_delete":
+        DeltaTable(str(raw)).delete(predicate)
+    elif change in ("other_contract", "outside_interval"):
+        row = dict(minute_rows[0])
+        row.update(
+            contract_id="OTHER" if change == "other_contract" else row["contract_id"],
+            ts_open=row["ts_open"] if change == "other_contract" else "2026-03-02T09:00:00Z",
+        )
+        from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+            append_delta_table_rows,
+        )
+
+        append_delta_table_rows(table_path=raw, rows=[row], columns=columns)
+    elif change in ("higher_tf", "native_only", "roll_epoch"):
+        DeltaTable(str(l1["dataset_output_dir"] / "research_bar_views.delta")).update(
+            updates=(
+                {"close": "close + 4", "native_close": "native_close + 4"}
+                if change == "higher_tf"
+                else (
+                    {"native_close": "native_close + 4"}
+                    if change == "native_only"
+                    else {"roll_epoch": "1"}
+                )
+            ),
+            predicate="instrument_id = 'BR' AND timeframe = '1h' AND ts = '2026-03-02T06:00:00Z'",
+        )
+    elif change == "tick":
+        l1["volume_profile_tick_size_by_instrument"] = {"BR": 0.02, "SI": 0.01}
+    else:
+        DeltaTable(str(l1["indicator_output_dir"] / "research_indicator_frames.delta")).update(
+            updates={"source_snapshot_hash": "NULL"}, predicate="instrument_id = 'BR'"
+        )
+    if change == "unrelated_hint":
+        l1["changed_windows"] = [
+            dict(instrument_id="SI", timeframe="15m", start_ts=target_ts, end_ts=target_ts)
+        ]
+    original_build = owner._build_partition_rows
+    computed = []
+
+    def observe(**kwargs):
+        computed.append((kwargs["series"][0].instrument_id, kwargs["series"][0].timeframe))
+        return original_build(**kwargs)
+
+    monkeypatch.setattr(owner, "_build_partition_rows", observe)
+    if change == "concurrent":
+        load_minutes = owner._load_volume_profile_source_rows
+
+        def race(**kwargs):
+            result = load_minutes(**kwargs)
+            DeltaTable(str(raw)).update(updates={"high": "91.0"}, predicate=predicate)
+            return result
+
+        monkeypatch.setattr(owner, "_load_volume_profile_source_rows", race)
+        with pytest.raises(ValueError, match="inputs changed"):
+            materialize_indicator_frames(**l1)
+        return
+    if change == "roll_epoch":
+        with pytest.raises(ValueError, match="requires adjustment ladder rows"):
+            materialize_indicator_frames(**l1)
+        assert ("BR", "1h") in computed
+        return
+    report = materialize_indicator_frames(**l1)
+    expected = (
+        {("BR", "1h")}
+        if change in ("higher_tf", "native_only", "roll_epoch")
+        else (
+            {("BR", "15m"), ("BR", "1h")}
+            if change in ("minute_correct", "minute_delete", "unrelated_hint", "tick", "legacy")
+            else set()
+        )
+    )
+    assert set(computed) == expected
+    assert report["refreshed_partition_count"] == len(expected)
+    assert report["reused_partition_count"] == 4 - len(expected)
+    after = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    old_by_key = {(row.instrument_id, row.timeframe, row.ts): row for row in before}
+    for row in after:
+        if (row.instrument_id, row.timeframe) not in expected:
+            old = old_by_key[(row.instrument_id, row.timeframe, row.ts)]
+            assert row.values == old.values
+            if row.ts != max(
+                item.ts
+                for item in before
+                if item.instrument_id == row.instrument_id and item.timeframe == row.timeframe
+            ):
+                assert row.created_at == old.created_at
+    if change in ("minute_correct", "minute_delete", "higher_tf", "native_only", "roll_epoch"):
+        for key in expected:
+            partition = next(
+                row for row in after if (row.instrument_id, row.timeframe) == key
+            ).partition_key(series_mode="continuous_front")
+            series = owner._load_bar_partition_rows(
+                dataset_output_dir=l1["dataset_output_dir"],
+                dataset_version="vp-scope",
+                contour_id="pit_active_front",
+                partition=partition,
+            )
+            reference = original_build(
+                dataset_version="vp-scope",
+                indicator_set_version="indicators-v1",
+                profile=l1["profile"],
+                series=series,
+                series_mode="continuous_front",
+                volume_profile_raw_1m_table_path=raw,
+                volume_profile_tick_size_by_instrument=l1["volume_profile_tick_size_by_instrument"],
+                native_full_compute=True,
+            )
+            assert [
+                (row.ts, row.values) for row in after if (row.instrument_id, row.timeframe) == key
+            ] == [(row.ts, row.values) for row in reference]
+    before_l2 = load_derived_indicator_frames(
+        output_dir=l2["derived_indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    l2_computed = []
+    build_l2 = derived_materialize_module._build_partition_rows
+
+    def observe_l2(**kwargs):
+        first = kwargs["local_series"][0]
+        l2_computed.append((first.instrument_id, first.timeframe))
+        return build_l2(**kwargs)
+
+    monkeypatch.setattr(derived_materialize_module, "_build_partition_rows", observe_l2)
+    second = materialize_derived_indicator_frames(**l2)
+    expected_l2 = {("BR", "15m"), ("BR", "1h")} if change in ("higher_tf", "native_only") else set()
+    assert set(l2_computed) == expected_l2
+    assert second["refreshed_partition_count"] == len(expected_l2)
+    assert second["reused_partition_count"] == 4 - len(expected_l2)
+    if expected_l2:
+        after_l2 = load_derived_indicator_frames(
+            output_dir=l2["derived_indicator_output_dir"],
+            dataset_version="vp-scope",
+            indicator_set_version="indicators-v1",
+            contour_id="pit_active_front",
+        )
+        old_l2 = {(row.instrument_id, row.timeframe, row.ts): row.values for row in before_l2}
+        assert any(
+            row.values != old_l2[(row.instrument_id, row.timeframe, row.ts)]
+            for row in after_l2
+            if row.instrument_id == "BR" and row.timeframe == "15m"
+        )
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("repeat must use exact metadata noop without numerical input loads")
+
+    monkeypatch.setattr(owner, "_load_bar_partition_rows", forbidden)
+    monkeypatch.setattr(owner, "_load_volume_profile_source_rows", forbidden)
+    monkeypatch.setattr(
+        derived_materialize_module, "run_research_derived_source_frames_spark_job", forbidden
+    )
+    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+    assert materialize_derived_indicator_frames(**l2)["refreshed_partition_count"] == 0
+
+
+def test_l2_indicator_hash_tracks_consumed_values_and_keys_only():
+    from trading_advisor_3000.product_plane.research.indicators.store import IndicatorFrameRow
+
+    row = IndicatorFrameRow(
+        dataset_version="test",
+        indicator_set_version="test",
+        profile_version="test",
+        contract_id="BR1",
+        instrument_id="BR",
+        timeframe="15m",
+        ts="2026-03-16T09:00:00Z",
+        values={"sma_2": 80.0},
+        source_bars_hash="old",
+        row_count=1,
+        warmup_span=0,
+        null_warmup_span=0,
+        created_at="2026-03-16T09:00:00Z",
+    )
+    content = derived_materialize_module._indicator_hash([row], value_columns=("sma_2",))
+    assert (
+        derived_materialize_module._indicator_hash(
+            [replace(row, source_bars_hash="other-vp-partition-hash", row_count=999)],
+            value_columns=("sma_2",),
+        )
+        == content
+    )
+    assert (
+        derived_materialize_module._indicator_hash(
+            [replace(row, values={"sma_2": 999.0})], value_columns=("sma_2",)
+        )
+        != content
+    )
+    assert (
+        derived_materialize_module._indicator_hash(
+            [replace(row, ts="2026-03-16T10:00:00Z")], value_columns=("sma_2",)
+        )
+        != content
+    )
