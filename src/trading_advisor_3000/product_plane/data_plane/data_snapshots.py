@@ -43,6 +43,73 @@ def data_input_snapshot(*, tables: Mapping, run_id: str) -> dict[str, Any]:
     )
 
 
+def _downstream_scope(*, report: Mapping, tables: Mapping) -> dict:
+    """Bind each producer's dirty range only to its exact published outputs."""
+    cf = report.get("cf_catch_up") or {}
+    windows = [dict(window) for window in cf.get("windows", [])]
+    covered = {}
+    economics = report.get("economics_refresh") or {}
+    economics_scope = economics.get("downstream_scope") or {}
+    sidecar = report.get("canonical_report", {}).get("sidecar_refresh")
+    sidecar_scope = sidecar.get("dependency_scope", {}) if isinstance(sidecar, Mapping) else {}
+    for scope, bindings, names in (
+        (
+            economics_scope,
+            economics.get("output_references", {}),
+            {
+                "canonical_contract_economics",
+                "canonical_fx_rates",
+                "canonical_asset_risk_parameters",
+            },
+        ),
+        (
+            sidecar_scope,
+            sidecar_scope.get("output_delta_versions", {}),
+            {"canonical_session_calendar", "canonical_roll_map"},
+        ),
+    ):
+        if scope.get("version") != 1 or scope.get("full_refresh"):
+            continue
+        for name in names:
+            reference, actual = bindings.get(name), tables.get(name)
+            if (
+                reference
+                and actual
+                and all(reference[key] == actual[key] for key in ("table_id", "delta_version"))
+            ):
+                covered[name] = {key: actual[key] for key in ("table_id", "delta_version")}
+        for window in scope.get("windows", []):
+            for timeframe in (
+                [window["timeframe"]] if "timeframe" in window else cf.get("target_timeframes", [])
+            ):
+                windows.append({**window, "timeframe": timeframe})
+    # OHLC/provenance scopes come from the canonical owner's raw window set,
+    # with bindings captured by that same publisher, never from a calendar range.
+    if cf.get("windows"):
+        bindings = sidecar_scope.get("output_delta_versions", {})
+        for name in ("canonical_bars", "canonical_bar_provenance"):
+            reference, actual = bindings.get(name), tables.get(name)
+            if (
+                reference
+                and actual
+                and all(reference[key] == actual[key] for key in ("table_id", "delta_version"))
+            ):
+                covered[name] = {key: actual[key] for key in ("table_id", "delta_version")}
+        for name, reference in report.get("windowed_input_references", {}).items():
+            actual = tables.get(name)
+            if actual and all(
+                reference[key] == actual[key] for key in ("table_id", "delta_version")
+            ):
+                covered[name] = {key: actual[key] for key in ("table_id", "delta_version")}
+    return {
+        "version": 1,
+        "full_refresh": False,
+        "covered_tables": covered,
+        "windows": windows,
+        "effective_intervals": economics_scope.get("effective_intervals", []),
+    }
+
+
 def publish_data_snapshot(
     *,
     inputs: Mapping,
@@ -58,6 +125,12 @@ def publish_data_snapshot(
     if runtime_provenance() != provenance:
         raise ValueError("Data snapshot code/dependencies changed during calculation")
     tables = {**inputs, **capture_data_inputs(canonical_paths, canonical_roots)}
+    for name, reference in report["economics_refresh"].get("output_references", {}).items():
+        actual = tables.get(name)
+        if actual is None or any(
+            actual[key] != reference[key] for key in ("table_id", "delta_version", "table_path")
+        ):
+            raise ValueError(f"Economics publication output changed: {name}")
     required = [path.stem for path in canonical_paths]
     required.extend(name for name in inputs if name.startswith("raw_"))
     if not any(name.startswith("raw_") for name in inputs):
@@ -74,10 +147,12 @@ def publish_data_snapshot(
         run_id=str(report["run_id"]),
         code_version="moex-baseline-update",
         quality_checks=checks,
+        parents=[expected_current_id] if expected_current_id else [],
         parameters={
             "runtime_provenance": dict(provenance),
             "refresh_window_days": report["refresh_window_days"],
             "changed_windows": report["cf_catch_up"]["source_changed_windows"],
+            "downstream_scope": _downstream_scope(report=report, tables=tables),
             "economics_mode": report["economics_mode"],
             "economics_stage_inputs": dict(
                 report["economics_refresh"].get("snapshot_inputs") or {}

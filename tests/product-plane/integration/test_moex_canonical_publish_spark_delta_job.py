@@ -39,6 +39,76 @@ SESSION_INTERVAL_COLUMNS: dict[str, str] = {
 }
 
 
+def test_native_sidecar_reuse_preserves_nulls_deletions_and_scope(tmp_path, monkeypatch):
+    if _windows_hadoop_nativeio_unavailable():
+        pytest.skip("Native Spark/Delta fixture runs in the Docker/Linux proof profile")
+    from pyspark.sql import functions as F
+
+    from trading_advisor_3000.spark_jobs.canonical_bars_job import _create_spark_session
+
+    monkeypatch.setenv("SPARK_LOCAL_IP", "127.0.0.1")
+    spark = _create_spark_session("canonical-sidecar-changed-only", "local[2]")
+    path = tmp_path / "sidecar.delta"
+    try:
+        original = spark.createDataFrame([(1, None), (2, 7.0)], "id int, value double")
+        original.write.format("delta").save(str(path))
+        publish_job._merge_upsert_delta_dataframe(
+            spark=spark, table_path=path, dataframe=original, key_columns=("id",)
+        )
+        assert DeltaTable(str(path)).version() == 0
+        changed = spark.createDataFrame([(1, 3.0), (2, None)], "id int, value double")
+        publish_job._merge_upsert_delta_dataframe(
+            spark=spark, table_path=path, dataframe=changed, key_columns=("id",)
+        )
+        rows = {
+            row["id"]: row["value"] for row in DeltaTable(str(path)).to_pyarrow_table().to_pylist()
+        }
+        assert rows == {1: 3.0, 2: None}
+        stale = tmp_path / "stale.delta"
+        spark.createDataFrame([(2,)], "id int").write.format("delta").save(str(stale))
+        publish_job._merge_replace_delta_dataframe(
+            spark=spark,
+            table_path=path,
+            staged_dataframe=changed.where("id = 1"),
+            stale_keys_path=stale,
+            stale_key_count=1,
+            key_columns=("id",),
+            functions=F,
+        )
+        assert DeltaTable(str(path)).to_pyarrow_table()["id"].to_pylist() == [1]
+        sessions = spark.createDataFrame(
+            [("BR", "2026-06-05"), ("BR", "2026-06-01")],
+            "instrument_id string, session_date string",
+        ).withColumn("session_date", F.to_date("session_date"))
+        scope = publish_job._sidecar_dependency_scope(
+            sessions=publish_job._expand_sidecar_sessions(
+                affected_sessions_df=sessions, functions=F
+            ),
+            mode="scoped",
+            functions=F,
+            table_paths={"canonical_session_calendar": path},
+        )
+        assert scope == {
+            "version": 1,
+            "full_refresh": False,
+            "output_delta_versions": {
+                "canonical_session_calendar": {
+                    "table_id": DeltaTable(str(path)).metadata().id,
+                    "delta_version": DeltaTable(str(path)).version(),
+                }
+            },
+            "windows": [
+                {
+                    "instrument_id": "BR",
+                    "start_ts": "2026-05-30T00:00:00Z",
+                    "end_ts": "2026-06-07T00:00:00Z",
+                }
+            ],
+        }
+    finally:
+        spark.stop()
+
+
 def _windows_hadoop_nativeio_unavailable() -> bool:
     if os.name != "nt":
         return False
@@ -374,7 +444,7 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     write_delta_table_rows(
         table_path=target_provenance_path,
         rows=[
-            _provenance(source_run_id="old"),
+            _provenance(source_run_id="old", source_ts_open_first="2026-03-29T10:00:00Z"),
             _provenance(
                 ts="2026-04-02T10:05:00Z",
                 source_run_id="stale",
@@ -398,6 +468,14 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     write_delta_table_rows(
         table_path=session_calendar_path,
         rows=[
+            {
+                "instrument_id": "FUT_BR",
+                "timeframe": "5m",
+                "session_date": "2026-03-29",
+                "session_open_ts": "2026-03-29T00:00:00Z",
+                "session_close_ts": "2026-03-29T00:00:00Z",
+                "session_class": "regular",
+            },
             {
                 "instrument_id": "FUT_BR",
                 "timeframe": "5m",
@@ -428,6 +506,12 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     write_delta_table_rows(
         table_path=roll_map_path,
         rows=[
+            {
+                "instrument_id": "FUT_BR",
+                "session_date": "2026-03-29",
+                "active_contract_id": "STALE",
+                "reason": "moved-surviving-key",
+            },
             {
                 "instrument_id": "FUT_BR",
                 "session_date": "2026-04-01",
@@ -498,8 +582,15 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
     sidecar_report = report["sidecar_refresh"]
     assert sidecar_report["mode"] == "scoped"
     assert sidecar_report["overlap_policy"] == SIDECAR_OVERLAP_POLICY
-    assert sidecar_report["affected_session_rows"] == 2
-    assert sidecar_report["overlap_session_rows"] == 6
+    assert sidecar_report["affected_session_rows"] == 3
+    assert sidecar_report["overlap_session_rows"] == 9
+    assert sidecar_report["dependency_scope"]["windows"] == [
+        {
+            "instrument_id": "FUT_BR",
+            "start_ts": "2026-03-27T00:00:00Z",
+            "end_ts": "2026-04-07T00:00:00Z",
+        }
+    ]
     assert count_delta_table_rows(session_calendar_path) == 2
     assert count_delta_table_rows(roll_map_path) == 2
     assert not any(

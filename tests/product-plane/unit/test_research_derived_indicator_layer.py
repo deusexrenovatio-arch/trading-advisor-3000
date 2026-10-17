@@ -41,6 +41,133 @@ def _angle_slope(current: float, previous: float, *, length: int) -> float:
     return math.degrees(math.atan((current - previous) / float(length)))
 
 
+def test_derived_native_contract_tracks_ladder_and_mtf_policy(monkeypatch) -> None:
+    from trading_advisor_3000.product_plane.research.derived_indicators import materialize
+
+    ladder = ({"roll_seq": 1, "offset": 2.0}, {"roll_seq": 2, "offset": 3.0})
+    original = materialize._derived_compute_contract_hash(ladder)
+    assert materialize._derived_compute_contract_hash(tuple(reversed(ladder))) == original
+    assert (
+        materialize._derived_compute_contract_hash((dict(ladder[0], offset=2.1), ladder[1]))
+        != original
+    )
+    monkeypatch.setattr(materialize, "MTF_MAPPINGS", (("1h", "15m"),))
+    assert materialize._derived_compute_contract_hash(ladder) != original
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "correction",
+        "append",
+        "insertion",
+        "deletion",
+        "roll",
+        "year",
+        "metadata",
+        "legacy",
+        "large",
+    ],
+)
+def test_derived_atomic_tail_preserves_complete_native_partition(tmp_path, monkeypatch, change):
+    from trading_advisor_3000.product_plane.research.derived_indicators import materialize
+    from trading_advisor_3000.product_plane.research.derived_indicators.store import (
+        load_derived_indicator_partition_metadata,
+        load_derived_indicator_partition_rows,
+    )
+
+    bars = [_view(ts_index=i, close=80 + i * 0.25) for i in range(32)]
+    native = build_derived_indicator_frames(
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        bar_views=bars,
+        indicator_rows=[_indicator_row(ts_index=i, close=bar.close) for i, bar in enumerate(bars)],
+    )
+    native = [
+        replace(
+            row,
+            contour_id="pit_active_front",
+            series_mode="continuous_front",
+            series_id="BR",
+            source_snapshot_hash="old",
+            compute_contract_hash="same",
+        )
+        for row in native
+    ]
+    if change == "year":
+        native[-1] = replace(
+            native[-1], ts="2026-12-31T23:30:00Z", bar_end_ts="2026-12-31T23:45:00Z"
+        )
+    seed = [row for i, row in enumerate(native) if change != "insertion" or i != 30]
+    seed = [replace(row, row_count=len(seed)) for row in seed]
+    write_derived_indicator_frame_batches(output_dir=tmp_path, row_batches=(seed,))
+    partition = native[0].partition_key(series_mode="continuous_front")
+    existing = load_derived_indicator_partition_rows(
+        output_dir=tmp_path,
+        partition=partition,
+        value_columns=tuple(native[0].values),
+    )
+    current = [replace(row, source_snapshot_hash="new") for row in native]
+    if change == "correction":
+        current[30] = replace(current[30], values={**current[30].values, "session_vwap": 999.0})
+    elif change == "append":
+        current.append(
+            replace(current[-1], ts="2026-03-16T17:00:00Z", bar_end_ts="2026-03-16T17:15:00Z")
+        )
+    elif change == "deletion":
+        current.pop()
+    elif change == "roll":
+        current[30:] = [replace(row, contract_id="BR-9.26") for row in current[30:]]
+    elif change == "year":
+        current[-1] = replace(current[-1], bar_end_ts="2027-01-01T00:00:00Z")
+    elif change == "legacy":
+        existing = [replace(row, stored_close_year=None) for row in existing]
+    elif change == "large":
+        monkeypatch.setattr(materialize, "DEFAULT_DERIVED_INDICATOR_WRITE_BATCH_ROWS", 1)
+        current[0] = replace(current[0], values={**current[0].values, "session_vwap": 999.0})
+    current = [replace(row, row_count=len(current)) for row in current]
+    start, tail = materialize._changed_partition_tail(current, existing)
+    if change in {"legacy", "large"}:
+        assert start is None and len(tail) == len(current)
+    else:
+        assert len(tail) <= 2
+        expected_start = (
+            current[-1].ts
+            if change in {"append", "deletion", "year", "metadata"}
+            else current[30].ts
+        )
+        assert start == expected_start
+    write_derived_indicator_frame_batches(
+        output_dir=tmp_path,
+        row_batches=(tail,),
+        replace_partitions=(partition,),
+        partition_start_ts={partition: start} if start is not None else None,
+    )
+    loaded = load_derived_indicator_partition_rows(
+        output_dir=tmp_path,
+        partition=partition,
+        value_columns=tuple(native[0].values),
+    )
+    assert [(row.ts, row.contract_id, row.values) for row in loaded] == [
+        (row.ts, row.contract_id, row.values) for row in current
+    ]
+    for row in loaded:
+        if start is not None and row.ts < start:
+            old = next(old for old in existing if old.ts == row.ts)
+            assert row.created_at == old.created_at and row.source_snapshot_hash == "old"
+    if change == "year":
+        assert loaded[-1].stored_close_year == 2027
+    metadata = load_derived_indicator_partition_metadata(
+        output_dir=tmp_path,
+        dataset_version="dataset-v5",
+        indicator_set_version="indicators-v1",
+        derived_indicator_set_version="derived-v1",
+        contour_id="pit_active_front",
+    )
+    assert len(metadata) == 1 and metadata[0]["source_snapshot_hash"] == "new"
+
+
 def _view(*, ts_index: int, close: float, timeframe: str = "15m") -> ResearchBarView:
     start = datetime(2026, 3, 16, 9, 0, tzinfo=UTC)
     if timeframe == "15m":
@@ -58,6 +185,9 @@ def _view(*, ts_index: int, close: float, timeframe: str = "15m") -> ResearchBar
         instrument_id="BR",
         timeframe=timeframe,
         ts=ts_text,
+        bar_end_ts=(ts + timedelta(minutes={"15m": 15, "1h": 60, "4h": 240}[timeframe]))
+        .isoformat()
+        .replace("+00:00", "Z"),
         open=close - 0.3,
         high=close + 0.6,
         low=close - 0.7,
@@ -131,13 +261,7 @@ def test_derived_source_frame_store_contract_is_internal_l2_join_layer() -> None
     columns = table["columns"]
 
     assert table["format"] == "delta"
-    assert table["partition_by"] == [
-        "dataset_version",
-        "contour_id",
-        "indicator_set_version",
-        "instrument_id",
-        "timeframe",
-    ]
+    assert table["partition_by"] == ["ts_close_year"]
     assert (
         "unique(dataset_version, contour_id, series_mode, series_id, "
         "indicator_set_version, timeframe, ts)" in table["constraints"]
@@ -245,6 +369,8 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
             "source_indicator_output_columns_hash",
             "source_indicator_columns_hash",
             "mtf_source_family_hash",
+            "source_snapshot_hash",
+            "compute_contract_hash",
             "row_count",
             "warmup_span",
             "null_warmup_span",
@@ -252,14 +378,8 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
             "output_columns_hash",
         }
     )
-    assert contract["research_derived_indicator_frames"]["partition_by"] == [
-        "dataset_version",
-        "contour_id",
-        "indicator_set_version",
-        "derived_indicator_set_version",
-        "instrument_id",
-        "timeframe",
-    ]
+    assert contract["research_derived_indicator_frames"]["partition_by"] == ["ts_close_year"]
+    assert {"source_snapshot_hash", "compute_contract_hash"} <= set(columns)
     assert (
         "unique(dataset_version, contour_id, series_mode, series_id, "
         "indicator_set_version, derived_indicator_set_version, timeframe, ts)"

@@ -1251,6 +1251,63 @@ def test_research_data_prep_sensor_skips_moex_baseline_noop(tmp_path: Path) -> N
     )
 
 
+@pytest.mark.parametrize("force_full", [False, True])
+def test_modern_backlog_is_resolved_before_noop_and_handed_off_unchanged(
+    tmp_path, monkeypatch, force_full
+):
+    frozen = {
+        "refresh_scope_version": 1,
+        "force_full_refresh": force_full,
+        "windows": []
+        if force_full
+        else [
+            {
+                "instrument_id": "BR",
+                "timeframe": "15m",
+                "start_ts": "2026-01-01T00:00:00Z",
+                "end_ts": "2026-01-20T00:00:00Z",
+            }
+        ],
+    }
+    monkeypatch.setattr(research_assets, "resolve_refresh_scope", lambda **kwargs: frozen)
+    context = _baseline_update_sensor_context(
+        tmp_path=tmp_path,
+        run_id="raw-noop-backlog",
+        report={
+            "status": "PASS",
+            "publish_decision": "publish",
+            "cf_catch_up": {"status": "NOOP", "windows": []},
+            "data_snapshot": {"snapshot_manifest_path": str(tmp_path / "frozen-data.json")},
+        },
+    )
+    request = _single_sensor_run_request(
+        research_assets.moex_cf_catch_up_after_moex_baseline_sensor, context
+    )
+    config = request.run_config["ops"]["continuous_front_bars"]["config"]
+    assert config["start_ts"] == config["end_ts"] == ""
+    assert config["dataset_instrument_ids"] == []
+    handoff = _single_sensor_run_request(
+        research_assets.research_data_prep_after_moex_cf_catch_up_sensor,
+        SimpleNamespace(
+            dagster_run=SimpleNamespace(
+                run_id="cf-frozen", run_config=request.run_config, tags=request.tags
+            )
+        ),
+    )
+    for op in handoff.run_config["ops"].values():
+        downstream = op["config"]
+        for key in (
+            "changed_windows",
+            "refresh_scope_version",
+            "force_full_refresh",
+            "data_snapshot_manifest_path",
+            "timeframes",
+            "start_ts",
+            "end_ts",
+        ):
+            assert downstream[key] == config[key]
+
+
 def test_moex_cf_catch_up_sensor_starts_windowed_job_after_moex_baseline_change(
     tmp_path: Path,
 ) -> None:
@@ -2199,3 +2256,232 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     assert candidate_rows
     assert all(float(row["score"]) > 0.0 for row in candidate_rows)
     assert all(str(row["campaign_run_id"]).startswith("crun_") for row in candidate_rows)
+
+
+@requires_spark_delta_runtime
+def test_l0_suffix_matches_full_metrics_and_repairs_missing_prefix(tmp_path):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.spark_jobs import research_bar_views_job as owner
+
+    spark = owner._create_spark_session("l0-suffix-value-proof", "local[2]")
+    path = tmp_path / "research_bar_views.delta"
+    columns = list(research_dataset_store_contract()["research_bar_views"]["columns"])
+    records = []
+    for instrument, timeframe in (("A", "15m"), ("A", "1h"), ("B", "15m"), ("B", "1h")):
+        for day in range(1, 11):
+            row = dict.fromkeys([*columns, "ts_close_year"])
+            row.update(
+                dataset_version="suffix-proof",
+                contour_id="native_tradable",
+                contract_id=f"{instrument}-old",
+                instrument_id=instrument,
+                series_mode="contract",
+                series_id=f"{instrument}-old",
+                timeframe=timeframe,
+                ts=datetime(2026, 1, day, tzinfo=UTC),
+                bar_end_ts=datetime(2026, 1, day, 1, tzinfo=UTC),
+                open=float(day),
+                high=float(day + 2),
+                low=float(day - 1),
+                close=float(day + 1),
+            )
+            records.append(row)
+
+    def frame(rows, start=None):
+        return owner._with_l0_metrics(
+            spark.createDataFrame(rows, owner._schema_from_contract("research_bar_views")),
+            series_columns=("contour_id", "series_id", "timeframe"),
+            start_ts=start,
+            warmup_bars=2,
+        )
+
+    def write(current, windows=(), start=None):
+        effective = (
+            owner._l0_persistence_windows(
+                dataframe=current,
+                table_path=path,
+                dataset_version="suffix-proof",
+                contours=("native_tradable",),
+                windows=windows,
+                start_ts=start,
+                end_ts=None,
+            )
+            if windows
+            else ()
+        )
+        source = current.where(owner._l0_window_condition(effective)) if effective else current
+        owner._write_spark_delta_table(
+            dataframe=source,
+            table_path=path,
+            table_name="research_bar_views",
+            replace_scope=[("dataset_version", "=", "suffix-proof")],
+            refresh_windows=effective,
+        )
+        expected = owner._cast_to_contract(current, "research_bar_views")
+        actual = spark.read.format("delta").load(str(path)).select(*expected.columns)
+        assert expected.exceptAll(actual).count() == 0
+        assert actual.exceptAll(expected).count() == 0
+        return effective
+
+    def window(instrument="A", timeframe="15m", day=7):
+        return {
+            "instrument_id": instrument,
+            "timeframe": timeframe,
+            "start_ts": f"2026-01-{day:02d}T00:00:00Z",
+        }
+
+    try:
+        write(frame(records))
+        old = DeltaTable(str(path))
+        old_version, table_id = old.version(), old.metadata().id
+        old_rows = old.to_pyarrow_table().to_pylist()
+        records = [
+            dict(row, close=row["close"] + 0.5)
+            if (row["instrument_id"], row["timeframe"], row["ts"].day)
+            in {("A", "15m", 8), ("B", "1h", 7)}
+            else row
+            for row in records
+        ]
+        effective = write(frame(records), (window(day=8), window("B", "1h")))
+        assert all(item["start_ts"] is not None for item in effective)
+        # Insertion and deletion propagate native lag/index changes through tail.
+        inserted = dict(
+            records[0],
+            ts=datetime(2026, 1, 7, 12, tzinfo=UTC),
+            bar_end_ts=datetime(2026, 1, 7, 13, tzinfo=UTC),
+        )
+        records.append(inserted)
+        records = [
+            row
+            for row in records
+            if not (
+                row["instrument_id"] == "A" and row["timeframe"] == "15m" and row["ts"].day == 9
+            )
+        ]
+        write(frame(records), (window(),))
+        # A new contract in an existing pair requires its missing older prefix.
+        records.extend(
+            dict(row, contract_id="A-new", series_id="A-new")
+            for row in list(records)
+            if row["instrument_id"] == "A" and row["timeframe"] == "15m"
+        )
+        assert write(frame(records), (window(),))[0]["start_ts"] is None
+        # Complete series deletion must remove old prefix as well as its suffix.
+        records = [
+            row
+            for row in records
+            if not (row["instrument_id"] == "A" and row["timeframe"] == "15m")
+        ]
+        assert write(frame(records), (window(),))[0]["start_ts"] is None
+        assert DeltaTable(str(path)).metadata().id == table_id
+        assert DeltaTable(str(path), version=old_version).to_pyarrow_table().to_pylist() == old_rows
+
+        # Bounded analysis always replaces complete affected domain, including
+        # former warmup rows whose membership/index changed before analysis.
+        records = [
+            row for row in records if row["instrument_id"] == "B" and row["timeframe"] == "1h"
+        ]
+        write(frame(records, "2026-01-05T00:00:00Z"))
+        warmup_insert = dict(
+            records[0],
+            ts=datetime(2026, 1, 4, 12, tzinfo=UTC),
+            bar_end_ts=datetime(2026, 1, 4, 13, tzinfo=UTC),
+        )
+        records.append(warmup_insert)
+        assert (
+            write(
+                frame(records, "2026-01-05T00:00:00Z"),
+                (window("B", "1h", 4),),
+                "2026-01-05T00:00:00Z",
+            )[0]["start_ts"]
+            is None
+        )
+        records.remove(warmup_insert)
+        write(
+            frame(records, "2026-01-05T00:00:00Z"), (window("B", "1h", 4),), "2026-01-05T00:00:00Z"
+        )
+    finally:
+        spark.stop()
+
+
+@requires_spark_delta_runtime
+def test_l0_windowed_job_keeps_global_indices_and_full_tree(tmp_path):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.spark_jobs import research_bar_views_job as owner
+
+    canonical = tmp_path / "canonical"
+    output = tmp_path / "research"
+    _write_rich_stage7_canonical_context(canonical)
+    options = dict(
+        canonical_bars_path=canonical / "canonical_bars.delta",
+        canonical_bar_provenance_path=canonical / "canonical_bar_provenance.delta",
+        canonical_session_intervals_path=canonical / "canonical_session_intervals.delta",
+        canonical_session_calendar_path=canonical / "canonical_session_calendar.delta",
+        canonical_roll_map_path=canonical / "canonical_roll_map.delta",
+        continuous_front_bars_path=output / "continuous_front_bars.delta",
+        output_dir=output,
+        dataset_version="window-job",
+        timeframes=("15m",),
+        contours=("native_tradable",),
+    )
+    owner.run_research_bar_views_spark_job(**options)
+    path = output / "research_bar_views.delta"
+    previous = DeltaTable(str(path)).to_pyarrow_table().to_pylist()
+    DeltaTable(str(canonical / "canonical_bars.delta")).update(
+        updates={"close": "close + 0.01", "high": "high + 0.01"},
+        predicate="instrument_id = 'BR' AND ts = '2026-03-16T22:00:00Z'",
+    )
+    report = owner.run_research_bar_views_spark_job(
+        **options,
+        refresh_windows=(
+            {
+                "instrument_id": "BR",
+                "timeframe": "15m",
+                "start_ts": "2026-03-16T22:00:00Z",
+                "end_ts": "2026-03-16T22:00:00Z",
+            },
+        ),
+    )
+    actual = DeltaTable(str(path)).to_pyarrow_table().to_pylist()
+    assert len(actual) == len(previous) == 120
+    assert sorted(
+        [row for row in actual if row["instrument_id"] == "Si"], key=lambda row: row["ts"]
+    ) == sorted(
+        [row for row in previous if row["instrument_id"] == "Si"], key=lambda row: row["ts"]
+    )
+    later = next(
+        row
+        for row in actual
+        if row["instrument_id"] == "BR" and str(row["ts"]).startswith("2026-03-16 22:15")
+    )
+    assert later["bar_index"] == 53
+    old_prior = next(
+        row
+        for row in previous
+        if row["instrument_id"] == "BR" and str(row["ts"]).startswith("2026-03-16 22:00")
+    )
+    assert later["ret_1"] == pytest.approx(later["close"] / (old_prior["close"] + 0.01) - 1)
+    assert report["stage_timings"]["write_research_bar_views"]["refresh_window_count"] == 1
+    tree = DeltaTable(str(output / "research_instrument_tree.delta")).to_pyarrow_table().to_pylist()
+    assert {row["instrument_id"] for row in tree} == {"BR", "Si"}
+    versions = {
+        name: DeltaTable(str(output / f"{name}.delta")).version()
+        for name in ("research_bar_views", "research_instrument_tree")
+    }
+    repeated = owner.run_research_bar_views_spark_job(
+        **options,
+        refresh_windows=(
+            {
+                "instrument_id": "BR",
+                "timeframe": "15m",
+                "start_ts": "2026-03-16T22:00:00Z",
+                "end_ts": "2026-03-16T22:00:00Z",
+            },
+        ),
+    )
+    assert repeated["stage_timings"]["write_research_bar_views"]["reused_equal_rows"] is True
+    assert {
+        name: DeltaTable(str(output / f"{name}.delta")).version() for name in versions
+    } == versions

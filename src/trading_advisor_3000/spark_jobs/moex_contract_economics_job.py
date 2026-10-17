@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
+from trading_advisor_3000.product_plane.common.data_snapshots import (
+    SnapshotUnavailableError,
+    open_pinned_table,
+    read_spark_delta,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     has_delta_log,
@@ -239,6 +243,7 @@ def _write_spark_delta_table(dataframe, *, table_path: Path, table_name: str) ->
         return 0
 
     casted = casted.cache()
+    changed = None
     try:
         if casted.limit(1).count() == 0:
             return 0
@@ -260,11 +265,30 @@ def _write_spark_delta_table(dataframe, *, table_path: Path, table_name: str) ->
             )
             if obsolete_rows:
                 return obsolete_rows
+        if set(casted.columns) <= set(target.columns):
+            from pyspark import StorageLevel  # type: ignore[import-not-found]
+            from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+            same = F.lit(True)
+            for column in casted.columns:
+                if column != "created_at":
+                    same = same & F.col(f"source.{column}").eqNullSafe(F.col(f"target.{column}"))
+            changed = (
+                casted.alias("source")
+                .join(target.alias("target"), same, "left_anti")
+                .persist(StorageLevel.DISK_ONLY)
+            )
+            if changed.count() == 0:
+                return 0
+            source = changed
+        else:
+            # Existing schema/model migrations retain their complete repair path.
+            source = casted
         condition = " AND ".join(f"target.{column} <=> source.{column}" for column in key_columns)
         (
             DeltaTable.forPath(casted.sparkSession, str(table_path))
             .alias("target")
-            .merge(casted.alias("source"), condition)
+            .merge(source.alias("source"), condition)
             .withSchemaEvolution()
             .whenMatchedUpdateAll()
             .whenNotMatchedInsertAll()
@@ -272,7 +296,160 @@ def _write_spark_delta_table(dataframe, *, table_path: Path, table_name: str) ->
         )
         return 0
     finally:
+        if changed is not None:
+            changed.unpersist()
         casted.unpersist()
+
+
+def _economics_downstream_scope(
+    *,
+    spark,
+    table_path: Path,
+    previous_reference: Mapping[str, object] | None,
+    canonical_bars_path: Path | None,
+    output_reference: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Union accepted/current effective ranges, including retained output rows.
+
+    Comparing the actual merged output avoids inventing deletions from partial
+    source responses and survives a previous failed Data publication.
+    """
+    from deltalake import DeltaTable
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
+
+    full = {"version": 1, "full_refresh": True, "windows": []}
+    if previous_reference is None:
+        return {**full, "reason": "missing_accepted_economics"}
+    if Path(str(previous_reference["table_path"])).resolve() != table_path.resolve():
+        return {**full, "reason": "economics_owner_root_changed"}
+    try:
+        previous = open_pinned_table(previous_reference)
+    except SnapshotUnavailableError:
+        return {**full, "reason": "accepted_economics_pin_unavailable"}
+    current = DeltaTable(str(table_path))
+    if output_reference is not None and (
+        current.metadata().id != output_reference["table_id"]
+        or current.version() != output_reference["delta_version"]
+    ):
+        raise ValueError("Economics output changed before scope calculation")
+    if (previous.metadata().id, previous.version()) == (current.metadata().id, current.version()):
+        return {"version": 1, "full_refresh": False, "windows": []}
+    if canonical_bars_path is None or not has_delta_log(canonical_bars_path):
+        return {**full, "reason": "canonical_bar_scope_unavailable"}
+    old = _cast_to_contract(
+        read_spark_delta(spark, str(previous_reference["table_path"]), version=previous.version()),
+        "canonical_contract_economics",
+    )
+    new = _cast_to_contract(
+        read_spark_delta(spark, str(table_path), version=current.version()),
+        "canonical_contract_economics",
+    )
+    columns = [column for column in new.columns if column != "created_at"]
+    old, new = old.select(*columns), new.select(*columns)
+    dirty = (
+        old.exceptAll(new)
+        .unionByName(new.exceptAll(old))
+        .select("contract_id", "instrument_id", "effective_from_ts", "effective_to_ts")
+        .distinct()
+        .cache()
+    )
+    try:
+        if dirty.limit(1).count() == 0:
+            return {"version": 1, "full_refresh": False, "windows": []}
+        if dirty.where(F.col("effective_from_ts").isNull()).limit(1).count():
+            return {**full, "reason": "unbounded_accepted_effective_start"}
+        # Retain the complete old/new interval envelope even when current bars
+        # have no coverage. Research also owns historical rows absent upstream.
+        intervals = (
+            dirty.groupBy("contract_id", "instrument_id")
+            .agg(
+                F.min("effective_from_ts").alias("effective_from_ts"),
+                F.when(
+                    F.max(F.col("effective_to_ts").isNull().cast("int")) == 0,
+                    F.max("effective_to_ts"),
+                ).alias("effective_to_ts"),
+            )
+            .select(
+                "contract_id",
+                "instrument_id",
+                F.date_format("effective_from_ts", "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'").alias(
+                    "effective_from_ts"
+                ),
+                F.date_format("effective_to_ts", "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'").alias(
+                    "effective_to_ts"
+                ),
+            )
+            .orderBy("contract_id", "instrument_id")
+        )
+        effective_intervals = [row.asDict() for row in intervals.collect()]
+        bars = read_spark_delta(spark, str(canonical_bars_path)).select(
+            F.regexp_replace(F.col("contract_id"), "@MOEX$", "").alias("contract_id"),
+            "instrument_id",
+            "timeframe",
+            F.col("ts").cast("timestamp").alias("ts"),
+        )
+        coverage = bars.groupBy("contract_id", "instrument_id", "timeframe").agg(
+            F.min("ts").alias("first_ts"),
+            F.max("ts").alias("last_ts"),
+        )
+        units = F.create_map(
+            *[
+                F.lit(value)
+                for pair in (("m", 60), ("h", 3600), ("d", 86400), ("w", 604800))
+                for value in pair
+            ]
+        )
+        duration = F.regexp_extract("timeframe", r"^(\d+)[mhdw]$", 1).cast("long") * F.element_at(
+            units, F.regexp_extract("timeframe", r"^\d+([mhdw])$", 1)
+        )
+        coverage = coverage.withColumn("duration_seconds", duration)
+        if coverage.where(F.col("duration_seconds").isNull()).limit(1).count():
+            return {**full, "reason": "unknown_bar_period"}
+        # Consumers join normalized contract identity. Use the actual bar
+        # instrument identity even for legacy economics instrument labels.
+        changed_intervals = dirty.drop("instrument_id").withColumn(
+            "contract_id", F.regexp_replace(F.col("contract_id"), "@MOEX$", "")
+        )
+        joined = coverage.join(changed_intervals, ["contract_id"], "inner")
+        start = F.greatest(
+            "first_ts",
+            F.timestamp_seconds(
+                F.col("effective_from_ts").cast("double") - F.col("duration_seconds")
+            ),
+        )
+        last_close = F.timestamp_seconds(
+            F.col("last_ts").cast("double") + F.col("duration_seconds")
+        )
+        windows = (
+            joined.where(
+                (F.col("effective_from_ts") <= last_close)
+                & (
+                    F.col("effective_to_ts").isNull()
+                    | (F.col("effective_to_ts") > F.col("first_ts"))
+                )
+            )
+            .groupBy("contract_id", "instrument_id", "timeframe")
+            .agg(
+                F.min(start).alias("start_ts"),
+                F.max("last_ts").alias("end_ts"),
+            )
+            .select(
+                "contract_id",
+                "instrument_id",
+                "timeframe",
+                F.date_format("start_ts", "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'").alias("start_ts"),
+                F.date_format("end_ts", "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'").alias("end_ts"),
+            )
+            .orderBy("instrument_id", "timeframe", "contract_id", "start_ts")
+        )
+        return {
+            "version": 1,
+            "full_refresh": False,
+            "windows": [row.asDict() for row in windows.collect()],
+            "effective_intervals": effective_intervals,
+        }
+    finally:
+        dirty.unpersist()
 
 
 def _json_safe_value(value: object) -> object:
@@ -1694,6 +1871,8 @@ def run_moex_contract_economics_spark_job(
     report_path: Path | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
+    previous_economics_reference: Mapping[str, object] | None = None,
+    canonical_bars_path: Path | None = None,
 ) -> dict[str, object]:
     if type(allow_calibrated_latest_margin) is not bool:
         raise TypeError("allow_calibrated_latest_margin must be bool")
@@ -1782,20 +1961,41 @@ def run_moex_contract_economics_spark_job(
             "canonical_asset_risk_parameters": output_dir / "canonical_asset_risk_parameters.delta",
             "canonical_contract_economics": output_dir / "canonical_contract_economics.delta",
         }
+        from deltalake import DeltaTable
+
+        output_versions = {}
+
+        def bind_output(name):
+            table = DeltaTable(str(output_paths[name]))
+            output_versions[name] = {
+                "table_id": table.metadata().id,
+                "delta_version": table.version(),
+            }
+
         _write_spark_delta_table(
             fx_rates,
             table_path=output_paths["canonical_fx_rates"],
             table_name="canonical_fx_rates",
         )
+        bind_output("canonical_fx_rates")
         _write_spark_delta_table(
             risk_parameters,
             table_path=output_paths["canonical_asset_risk_parameters"],
             table_name="canonical_asset_risk_parameters",
         )
+        bind_output("canonical_asset_risk_parameters")
         obsolete_model_rows_replaced = _write_spark_delta_table(
             economics,
             table_path=output_paths["canonical_contract_economics"],
             table_name="canonical_contract_economics",
+        )
+        bind_output("canonical_contract_economics")
+        downstream_scope = _economics_downstream_scope(
+            spark=spark,
+            table_path=output_paths["canonical_contract_economics"],
+            previous_reference=previous_economics_reference,
+            canonical_bars_path=canonical_bars_path,
+            output_reference=output_versions["canonical_contract_economics"],
         )
 
         from pyspark.sql import functions as F  # type: ignore[import-not-found]
@@ -1850,6 +2050,8 @@ def run_moex_contract_economics_spark_job(
             "formula_margin_dominates_rows": formula_rows,
             **margin_calibration_report,
             "affected_downstream_partitions": affected_rows,
+            "downstream_scope": downstream_scope,
+            "output_delta_versions": output_versions,
             "canonical_session_calendar_path": canonical_session_calendar_path.as_posix()
             if canonical_session_calendar_path is not None
             else "",
@@ -1866,6 +2068,13 @@ def run_moex_contract_economics_spark_job(
                 "buffer_policy_version": spec.buffer_policy_version,
             },
         }
+        for name, reference in output_versions.items():
+            table = DeltaTable(str(output_paths[name]))
+            if (table.metadata().id, table.version()) != (
+                reference["table_id"],
+                reference["delta_version"],
+            ):
+                raise ValueError(f"Economics output changed during calculation: {name}")
         if report_path is not None:
             report["report_path"] = report_path.as_posix()
             report_path.parent.mkdir(parents=True, exist_ok=True)

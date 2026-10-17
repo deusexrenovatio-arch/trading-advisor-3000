@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -393,7 +394,12 @@ def test_l2_dependency_metadata_is_reserved_and_legacy_nullable(tmp_path: Path) 
         "created_at": "2026-03-02T09:00:00Z",
         "mtf_1h_to_15m_adx_14": None,
     }
-    for field in ("source_indicator_columns_hash", "mtf_source_family_hash"):
+    for field in (
+        "source_indicator_columns_hash",
+        "mtf_source_family_hash",
+        "source_snapshot_hash",
+        "compute_contract_hash",
+    ):
         assert field in DERIVED_INDICATOR_RESERVED_COLUMNS
         assert (
             research_derived_indicator_store_contract()["research_derived_indicator_frames"][
@@ -405,8 +411,15 @@ def test_l2_dependency_metadata_is_reserved_and_legacy_nullable(tmp_path: Path) 
     assert legacy.source_indicator_columns_hash == ""
     assert legacy.mtf_source_family_hash == ""
     current = DerivedIndicatorFrameRow.from_dict(
-        {**payload, "source_indicator_columns_hash": "ABCD", "mtf_source_family_hash": "EFGH"}
+        {
+            **payload,
+            "source_indicator_columns_hash": "ABCD",
+            "mtf_source_family_hash": "EFGH",
+            "source_snapshot_hash": "snapshot",
+            "compute_contract_hash": "compute",
+        }
     )
+    current = replace(current, bar_end_ts="2026-03-02T09:15:00Z")
     assert current.values == legacy.values
     assert current.to_dict()["source_indicator_columns_hash"] == "ABCD"
     assert current.to_dict()["mtf_source_family_hash"] == "EFGH"
@@ -436,6 +449,8 @@ def test_l2_dependency_metadata_is_reserved_and_legacy_nullable(tmp_path: Path) 
         assert len(loaded) == 1
         assert loaded[0].source_indicator_columns_hash == "ABCD"
         assert loaded[0].mtf_source_family_hash == "EFGH"
+        assert loaded[0].source_snapshot_hash == "snapshot"
+        assert loaded[0].compute_contract_hash == "compute"
         assert loaded[0].values == current.values
     assert not {"source_indicator_columns_hash", "mtf_source_family_hash"} & set(
         existing_derived_indicator_value_columns(output_dir=tmp_path)

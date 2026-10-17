@@ -196,15 +196,32 @@ def test_pr_gate_fails_closed_without_explicit_markers_on_policy_critical_diff()
 
 
 def test_nightly_gate_docs_smoke() -> None:
-    result = _run(
-        [
-            sys.executable,
-            "scripts/run_nightly_gate.py",
-            "--changed-files",
-            "docs/README.md",
-        ]
+    # This real CLI emits repository reports. Restore its own generated outputs
+    # so a smoke test does not change the inputs of its enclosing quick gate.
+    generated = (
+        "artifacts/autonomy-kpi-report.md",
+        "artifacts/dev-loop-baseline.md",
+        "artifacts/governance-dashboard.json",
+        "artifacts/governance-dashboard.md",
+        "artifacts/harness-baseline-metrics.json",
+        "artifacts/process-improvement-report.md",
+        "memory/agent_memory.yaml",
+        "memory/decisions/index.yaml",
+        "memory/incidents/index.yaml",
+        "memory/patterns/index.yaml",
+        "plans/PLANS.yaml",
+        "plans/items/index.yaml",
     )
-    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    before = {ROOT / name: (ROOT / name).read_bytes() for name in generated}
+    try:
+        result = _run(
+            [sys.executable, "scripts/run_nightly_gate.py", "--changed-files", "docs/README.md"]
+        )
+        assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    finally:
+        for path, content in before.items():
+            path.write_bytes(content)
+    assert all(path.read_bytes() == content for path, content in before.items())
 
 
 def test_scope_validate_command_uses_stdin_for_legacy_namespace_growth() -> None:

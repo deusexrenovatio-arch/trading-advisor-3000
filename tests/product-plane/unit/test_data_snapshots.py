@@ -75,6 +75,30 @@ def _append(path):
     )
 
 
+def test_data_publication_rejects_advanced_economics_output(source, monkeypatch):
+    from trading_advisor_3000.product_plane.data_plane import data_snapshots as owner
+
+    reference = snapshots.capture_table(source)
+    report = {
+        "status": "PASS",
+        "publish_decision": "publish",
+        "economics_refresh": {"output_references": {"snapshot_stats": reference}},
+    }
+    provenance = {"fixture": "stable"}
+    monkeypatch.setattr(owner, "runtime_provenance", lambda: provenance)
+    _append(source)
+    with pytest.raises(ValueError, match="Economics publication output changed"):
+        owner.publish_data_snapshot(
+            inputs={},
+            canonical_paths=[source],
+            canonical_roots=[],
+            report=report,
+            expected_current_id=None,
+            provenance=provenance,
+        )
+    assert snapshots.current_snapshot(source.parent / ".data_snapshots") is None
+
+
 def _read(reader, path, filters):
     if reader == "count":
         return delta_runtime.count_delta_table_rows(path, filters=filters)
@@ -704,10 +728,10 @@ def test_materialization_process_mapping_preserves_pins_and_checks_digest(source
         snapshots.load_process_snapshot(path, mapping_path)
 
 
-def test_materialization_research_direct_context_keeps_legacy_contract():
+def test_materialization_research_direct_context_keeps_legacy_contract(tmp_path):
     from trading_advisor_3000.product_plane.research.data_snapshots import snapshot_materialization
 
-    context = SimpleNamespace(op_config={})
+    context = SimpleNamespace(run_id="legacy", op_config={"materialized_output_dir": str(tmp_path)})
 
     @snapshot_materialization(("research_datasets",))
     def existing_owner(actual):
@@ -774,7 +798,8 @@ def test_materialization_failed_status_never_captures_or_stamps_old_outputs(
         owner, "capture_table", lambda *_: pytest.fail("failed stage captured old output")
     )
     context = SimpleNamespace(
-        op_config={"data_snapshot_enabled": True, "materialized_output_dir": str(tmp_path)}
+        run_id="test",
+        op_config={"data_snapshot_enabled": True, "materialized_output_dir": str(tmp_path)},
     )
 
     @owner.snapshot_materialization(("old_output",))

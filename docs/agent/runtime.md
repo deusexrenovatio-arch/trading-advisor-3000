@@ -63,6 +63,13 @@ Allowed engines are the native Delta/Arrow/Spark read paths used by the Product 
   - `python scripts/truth_recomposition.py build --followup-contract <path> --merged-surface <surface> --candidate-surface <surface> --output <path>`
   - `python scripts/truth_recomposition.py validate --report <path>`
 
+## Status observation
+- `python scripts/watch_task_status.py --status-file <path>` observes a JSON producer.
+- `python scripts/watch_task_status.py --command gh run view <id> --json status,conclusion`
+  observes an existing CI run. Options precede `--command`; unchanged statuses stay quiet.
+- The watcher does not launch, restart or cancel work. Model intervention follows a
+  state change or terminal event, rather than every internal poll.
+
 ## Hook runtime policy
 - Main protection is implemented in `.githooks/pre-push`.
 - Codex app-level hooks are not part of the ordinary TA3000 route. Keep local

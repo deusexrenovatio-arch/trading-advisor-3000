@@ -90,6 +90,7 @@ from trading_advisor_3000.product_plane.research.indicators import (
     indicator_store_contract,
     materialize_indicator_frames,
 )
+from trading_advisor_3000.product_plane.research.refresh_scope import resolve_refresh_scope
 from trading_advisor_3000.product_plane.research.registry_store import (
     build_campaign_id,
     build_campaign_run_id,
@@ -735,6 +736,8 @@ def _research_config_schema() -> dict[str, object]:
         "dataset_contract_ids": [str],
         "dataset_instrument_ids": [str],
         "changed_windows": Field([dict], default_value=[], is_required=False),
+        "refresh_scope_version": Field(int, default_value=0, is_required=False),
+        "force_full_refresh": Field(bool, default_value=False, is_required=False),
         "canonical_contract_economics_path": Field(str, default_value="", is_required=False),
         "data_snapshot_enabled": Field(bool, default_value=False, is_required=False),
         "data_snapshot_raw_output_dir": Field(str, default_value="", is_required=False),
@@ -2688,6 +2691,12 @@ def research_datasets(context) -> dict[str, object]:
             contours=research_l0_contours,
             canonical_contract_economics_path=_canonical_contract_economics_path(config),
             execution_economics_required=True,
+            refresh_windows=(
+                tuple(_changed_windows_from_research_config(config))
+                if int(_config_value(config, "refresh_scope_version", 0)) == 1
+                and not bool(_config_value(config, "force_full_refresh", False))
+                else ()
+            ),
             spark_master=str(_config_value(config, "spark_master", "")) or DEFAULT_SPARK_MASTER,
         )
     optimizer_policy = _optimizer_policy_from_research_config(config)
@@ -4554,6 +4563,8 @@ def build_research_data_prep_run_config(
     continuous_front_policy: dict[str, object] | None = None,
     dataset_instrument_ids: Sequence[str] | None = None,
     changed_windows: Sequence[Mapping[str, object]] | None = None,
+    refresh_scope_version: int = 0,
+    force_full_refresh: bool = False,
     campaign_run_id: str = "research_data_prep_scheduled",
     indicator_set_version: str = "indicators-v1",
     indicator_profile_version: str = "core_v1",
@@ -4654,6 +4665,8 @@ def build_research_data_prep_run_config(
         combination_count=0,
     )
     research_config["data_snapshot_enabled"] = True
+    research_config["refresh_scope_version"] = refresh_scope_version
+    research_config["force_full_refresh"] = force_full_refresh
     research_config["data_snapshot_raw_output_dir"] = (
         data_snapshot_raw_output_dir.resolve().as_posix() if data_snapshot_raw_output_dir else ""
     )
@@ -4716,13 +4729,26 @@ def _build_moex_cf_catch_up_run_config(
     data_snapshot_raw_output_dir: str = "",
     window: Mapping[str, object] | None = None,
     windows: Sequence[Mapping[str, object]] | None = None,
+    refresh_scope_version: int = 0,
+    force_full_refresh: bool = False,
 ) -> dict[str, object]:
     selected_windows = windows if windows is not None else ((window,) if window is not None else ())
-    normalized_windows = _normalize_cf_catch_up_windows(tuple(selected_windows))
+    normalized_windows = (
+        _normalize_cf_catch_up_windows(tuple(selected_windows)) if selected_windows else ()
+    )
+    if not normalized_windows and not force_full_refresh:
+        raise ValueError("cf_catch_up requires windows or explicit full refresh")
     instrument_ids = _unique_texts([str(item["instrument_id"]) for item in normalized_windows])
     timeframes = _unique_texts([str(item["timeframe"]) for item in normalized_windows])
-    start_ts = min(str(item["start_ts"]) for item in normalized_windows)
-    end_ts = max(str(item["end_ts"]) for item in normalized_windows)
+    start_ts = min((str(item["start_ts"]) for item in normalized_windows), default="")
+    end_ts = max((str(item["end_ts"]) for item in normalized_windows), default="")
+    if refresh_scope_version == 1:
+        # Dirty ranges never redefine the stable dataset analysis domain.
+        instrument_ids, start_ts, end_ts = (), "", ""
+        timeframes = _split_env_csv(
+            os.environ.get(RESEARCH_DATA_PREP_TIMEFRAMES_ENV, ""),
+            default=DEFAULT_RESEARCH_DATA_PREP_TIMEFRAMES,
+        )
     resolved_materialized_output_dir = _env_path(
         RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV,
         _default_research_materialized_output_dir(),
@@ -4762,8 +4788,18 @@ def _build_moex_cf_catch_up_run_config(
         combination_count=0,
     )
     research_config["data_snapshot_enabled"] = bool(data_snapshot_manifest_path)
-    research_config["data_snapshot_manifest_path"] = data_snapshot_manifest_path
-    research_config["data_snapshot_raw_output_dir"] = data_snapshot_raw_output_dir
+    research_config["refresh_scope_version"] = refresh_scope_version
+    research_config["force_full_refresh"] = force_full_refresh
+    research_config["data_snapshot_manifest_path"] = (
+        Path(data_snapshot_manifest_path).resolve().as_posix()
+        if data_snapshot_manifest_path
+        else ""
+    )
+    research_config["data_snapshot_raw_output_dir"] = (
+        Path(data_snapshot_raw_output_dir).resolve().as_posix()
+        if data_snapshot_raw_output_dir
+        else ""
+    )
     return {"ops": {"continuous_front_bars": {"config": research_config}}}
 
 
@@ -4790,8 +4826,6 @@ def _cf_catch_up_windows_hash(windows: Sequence[Mapping[str, object]]) -> str:
 )
 def moex_cf_catch_up_after_moex_baseline_sensor(context):
     windows = _cf_catch_up_windows_from_moex_baseline_update(context.dagster_run.run_config)
-    if not windows:
-        return None
     payload = _baseline_update_report_payload_from_run_config(context.dagster_run.run_config) or {}
     cf_catch_up = payload.get("cf_catch_up", {})
     cf_catch_up_payload = cf_catch_up if isinstance(cf_catch_up, Mapping) else {}
@@ -4808,8 +4842,47 @@ def moex_cf_catch_up_after_moex_baseline_sensor(context):
         RESEARCH_DATA_PREP_DATASET_VERSION_ENV,
         DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION,
     )
+    data_manifest_path = str(
+        dict(payload.get("data_snapshot") or {}).get("snapshot_manifest_path") or ""
+    )
+    resolved = (
+        resolve_refresh_scope(
+            data_manifest_path=Path(data_manifest_path),
+            materialized_output_dir=_env_path(
+                RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV,
+                _default_research_materialized_output_dir(),
+            ),
+            dataset_version=dataset_version,
+            timeframes=_split_env_csv(
+                os.environ.get(RESEARCH_DATA_PREP_TIMEFRAMES_ENV, ""),
+                default=DEFAULT_RESEARCH_DATA_PREP_TIMEFRAMES,
+            ),
+            configuration=_build_moex_cf_catch_up_run_config(
+                canonical_output_dir=canonical_output_dir,
+                dataset_version=dataset_version,
+                campaign_run_id="scope-admission",
+                windows=[],
+                refresh_scope_version=1,
+                force_full_refresh=True,
+                data_snapshot_manifest_path=data_manifest_path,
+                data_snapshot_raw_output_dir=str(
+                    Path(str(payload["raw_table_path"])).parent
+                    if payload.get("raw_table_path")
+                    else ""
+                ),
+            )["ops"]["continuous_front_bars"]["config"],
+        )
+        if data_manifest_path
+        else None
+    )
+    if resolved is not None:
+        windows = resolved["windows"]
+    if not windows and not (resolved or {}).get("force_full_refresh"):
+        return None
     windows_hash = str(cf_catch_up_payload.get("windows_hash_sha256") or "").strip()
-    if not windows_hash:
+    if resolved is not None:
+        windows_hash = hashlib.sha256(json.dumps(resolved, sort_keys=True).encode()).hexdigest()
+    elif not windows_hash:
         windows_hash = _required_window_text(windows[0], "window_hash_sha256")
     overlap_minutes = str(cf_catch_up_payload.get("overlap_minutes") or "").strip()
     return [
@@ -4820,6 +4893,8 @@ def moex_cf_catch_up_after_moex_baseline_sensor(context):
                 dataset_version=dataset_version,
                 campaign_run_id=f"cf_catch_up_after_{upstream_run_id}_{windows_hash[:12]}",
                 windows=windows,
+                refresh_scope_version=(resolved or {}).get("refresh_scope_version", 0),
+                force_full_refresh=(resolved or {}).get("force_full_refresh", False),
                 data_snapshot_manifest_path=str(
                     dict(payload.get("data_snapshot") or {}).get("snapshot_manifest_path") or ""
                 ),
@@ -4877,9 +4952,10 @@ def research_data_prep_after_moex_cf_catch_up_sensor(context):
             "series_mode=continuous_front"
         )
     changed_windows = _changed_windows_from_research_config(cf_config)
-    if not changed_windows:
+    force_full_refresh = bool(cf_config.get("force_full_refresh", False))
+    if not changed_windows and not force_full_refresh:
         return None
-    windows = _normalize_cf_catch_up_windows(changed_windows)
+    windows = _normalize_cf_catch_up_windows(changed_windows) if changed_windows else ()
 
     upstream_run_id = str(context.dagster_run.run_id)
     tags = getattr(context.dagster_run, "tags", {}) or {}
@@ -4922,6 +4998,8 @@ def research_data_prep_after_moex_cf_catch_up_sensor(context):
             continuous_front_policy=dict(_config_value(cf_config, "continuous_front_policy", {})),
             dataset_instrument_ids=dataset_instrument_ids,
             changed_windows=windows,
+            refresh_scope_version=int(cf_config.get("refresh_scope_version", 0)),
+            force_full_refresh=force_full_refresh,
             indicator_set_version=str(_config_value(cf_config, "indicator_set_version")),
             indicator_profile_version=str(_config_value(cf_config, "indicator_profile_version")),
             derived_indicator_set_version=str(

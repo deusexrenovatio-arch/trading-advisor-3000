@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from trading_advisor_3000.product_plane.common.data_snapshots import (
+    SnapshotUnavailableError,
     assert_tables_unchanged,
     atomic_json,
     capture_table,
@@ -102,6 +103,8 @@ def _parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "dataset_contract_ids",
         "dataset_instrument_ids",
         "changed_windows",
+        "refresh_scope_version",
+        "force_full_refresh",
         "continuous_front_policy",
         "indicator_set_version",
         "indicator_profile_version",
@@ -269,6 +272,93 @@ def _assert_current_data_parent(config: Mapping[str, Any], pending: Mapping[str,
         raise ValueError("accepted Data parent changed during research calculation")
 
 
+def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) -> dict | None:
+    """Reuse only the exact outputs of the successful native upstream CF owner."""
+    op_context = getattr(context, "op_execution_context", context)
+    run = getattr(op_context, "dagster_run", None)
+    tags = getattr(run, "tags", {}) or {}
+    if tags.get("ta3000/upstream_job") != "moex_cf_catch_up_job":
+        return None
+    source_id = tags.get("ta3000/upstream_run_id")
+    if not source_id or config.get("series_mode") != "continuous_front":
+        return None
+    instance = op_context.instance
+    source_run = instance.get_run_by_id(source_id)
+    if (
+        source_run is None
+        or source_run.job_name != "moex_cf_catch_up_job"
+        or source_run.status.value != "SUCCESS"
+        or not any(
+            step.step_key == "continuous_front_bars" and step.status.value == "SUCCESS"
+            for step in instance.get_run_step_stats(source_id)
+        )
+    ):
+        return None
+    source_path = _pending_path(context, config, source_id)
+    if not source_path.exists():
+        return None
+    try:
+        source = json.loads(source_path.read_text(encoding="utf-8"))
+        semantic_keys = (
+            "dataset_version",
+            "series_mode",
+            "canonical_output_dir",
+            "materialized_output_dir",
+            "timeframes",
+            "dataset_instrument_ids",
+            "start_ts",
+            "end_ts",
+            "changed_windows",
+            "refresh_scope_version",
+            "force_full_refresh",
+            "continuous_front_policy",
+            "canonical_contract_economics_path",
+        )
+        if (
+            source["run_id"] != source_id
+            or source["runtime_provenance"] != pending["runtime_provenance"]
+            or source["parents"] != pending["parents"]
+            or source["parent_manifest_sha256"] != pending["parent_manifest_sha256"]
+            or source["quality_checks"].get("continuous_front_bars") != "PASS"
+            or source.get("quality_owners", {}).get("continuous_front_bars") != source_id
+            or any(
+                source["parameters"].get(key) != pending["parameters"].get(key)
+                for key in semantic_keys
+            )
+        ):
+            return None
+        evidence = source["quality_evidence"]["continuous_front_bars"]
+        result = evidence.get("cf_result")
+        outputs = _STAGE_OUTPUTS["continuous_front_bars"]
+        if (
+            not isinstance(result, dict)
+            or result.get("status") != "PASS"
+            or set(result.get("output_paths", {})) != set(outputs)
+            or set(result.get("rows_by_table", {})) != set(outputs)
+            or result.get("dataset_version") != pending["dataset_version"]
+            or any(source["tables"][name] != pending["tables"].get(name) for name in outputs)
+            or any(
+                Path(result["output_paths"][name]).resolve()
+                != Path(source["tables"][name]["table_path"]).resolve()
+                for name in outputs
+            )
+            or any(row.get("status") != "PASS" for row in result.get("qc_rows", ()))
+        ):
+            return None
+        # Do not turn a newer current table into a certified producer output.
+        assert_tables_unchanged(source["tables"])
+    except (KeyError, TypeError, ValueError, AttributeError, OSError, SnapshotUnavailableError):
+        return None
+    pending["quality_checks"]["continuous_front_bars"] = "PASS"
+    pending.setdefault("quality_owners", {})["continuous_front_bars"] = source_id
+    pending["quality_evidence"]["continuous_front_bars"] = evidence
+    for name in outputs:
+        pending["tables"][name] = source["tables"][name]
+    assert_tables_unchanged(pending["tables"])
+    atomic_json(_pending_path(context, config), pending)
+    return {**result, "status": "PASS-NOOP", "stage_timings": {}, "reused_from_run_id": source_id}
+
+
 def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
     """Pin upstream inputs and checkpoint completed outputs after each owning asset."""
 
@@ -290,6 +380,10 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
                 ):
                     return function(context, *args, **kwargs)
             pending = _initial(context, config)
+            if function.__name__ == "continuous_front_bars":
+                reused = _upstream_cf_result(context, config, pending)
+                if reused is not None:
+                    return reused
             root = Path(config["materialized_output_dir"])
             writable = [root / f"{name}.delta" for name in output_tables]
             inputs = {
@@ -355,6 +449,20 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
                     for key in ("status", "success", "row_count", "report_path")
                     if key in result
                 }
+                if function.__name__ == "continuous_front_bars" and result.get("status") == "PASS":
+                    pending["quality_evidence"][function.__name__]["cf_result"] = {
+                        key: result[key]
+                        for key in (
+                            "materialized_output_dir",
+                            "dataset_version",
+                            "status",
+                            "output_paths",
+                            "rows_by_table",
+                            "qc_rows",
+                            "spark_profile",
+                        )
+                        if key in result
+                    }
                 sidecar = result.get("sidecar_result", {})
                 pending["quality_evidence"][function.__name__].update(
                     {

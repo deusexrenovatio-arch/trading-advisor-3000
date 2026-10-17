@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import chain
 from pathlib import Path
 
 import pyarrow as pa
+import pyarrow.compute as pc
 from deltalake import DeltaTable
 
 from trading_advisor_3000.product_plane.common.table_layout import (
@@ -19,12 +20,14 @@ from trading_advisor_3000.product_plane.common.table_layout import (
     with_arrow_close_year,
 )
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    delete_delta_table_rows,
     delta_table_columns,
     ensure_delta_table_columns,
     has_delta_log,
-    iter_delta_table_row_batches,
+    read_delta_table_arrow,
     read_delta_table_rows,
     write_delta_table_row_batches,
+    write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.research.derived_indicators.registry import (
     DerivedIndicatorProfile,
@@ -51,8 +54,12 @@ DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS = (
     "source_indicator_output_columns_hash",
     "source_indicator_columns_hash",
     "mtf_source_family_hash",
+    "source_snapshot_hash",
+    "compute_contract_hash",
     "row_count",
+    "warmup_span",
     "output_columns_hash",
+    "created_at",
 )
 DERIVED_INDICATOR_RESERVED_COLUMNS = {
     "ts_close_year",
@@ -74,6 +81,8 @@ DERIVED_INDICATOR_RESERVED_COLUMNS = {
     "source_indicator_output_columns_hash",
     "source_indicator_columns_hash",
     "mtf_source_family_hash",
+    "source_snapshot_hash",
+    "compute_contract_hash",
     "row_count",
     "warmup_span",
     "null_warmup_span",
@@ -135,6 +144,8 @@ def _derived_indicator_frame_columns(
         "source_indicator_output_columns_hash": "string",
         "source_indicator_columns_hash": "string",
         "mtf_source_family_hash": "string",
+        "source_snapshot_hash": "string",
+        "compute_contract_hash": "string",
         "row_count": "int",
         "warmup_span": "int",
         "null_warmup_span": "int",
@@ -214,11 +225,14 @@ class DerivedIndicatorFrameRow:
     source_indicator_output_columns_hash: str = ""
     source_indicator_columns_hash: str = ""
     mtf_source_family_hash: str = ""
+    source_snapshot_hash: str = ""
+    compute_contract_hash: str = ""
     contour_id: str = "native_tradable"
     series_mode: str = "contract"
     series_id: str = ""
     # Physical layout input only: excluded from business payloads and hashes.
     bar_end_ts: str | None = None
+    stored_close_year: int | None = field(default=None, compare=False, repr=False)
 
     def partition_key(self, *, series_mode: str) -> DerivedIndicatorFramePartitionKey:
         return DerivedIndicatorFramePartitionKey(
@@ -254,6 +268,8 @@ class DerivedIndicatorFrameRow:
             "source_indicator_output_columns_hash": self.source_indicator_output_columns_hash,
             "source_indicator_columns_hash": self.source_indicator_columns_hash,
             "mtf_source_family_hash": self.mtf_source_family_hash,
+            "source_snapshot_hash": self.source_snapshot_hash,
+            "compute_contract_hash": self.compute_contract_hash,
             "row_count": self.row_count,
             "warmup_span": self.warmup_span,
             "null_warmup_span": self.null_warmup_span,
@@ -283,6 +299,8 @@ class DerivedIndicatorFrameRow:
             "source_indicator_output_columns_hash",
             "source_indicator_columns_hash",
             "mtf_source_family_hash",
+            "source_snapshot_hash",
+            "compute_contract_hash",
             "row_count",
             "warmup_span",
             "null_warmup_span",
@@ -326,11 +344,16 @@ class DerivedIndicatorFrameRow:
             ),
             source_indicator_columns_hash=str(payload.get("source_indicator_columns_hash") or ""),
             mtf_source_family_hash=str(payload.get("mtf_source_family_hash") or ""),
+            source_snapshot_hash=str(payload.get("source_snapshot_hash") or ""),
+            compute_contract_hash=str(payload.get("compute_contract_hash") or ""),
             row_count=int(payload["row_count"]),
             warmup_span=int(payload["warmup_span"]),
             null_warmup_span=int(payload["null_warmup_span"]),
             created_at=str(payload["created_at"]),
             output_columns_hash=str(payload.get("output_columns_hash") or ""),
+            stored_close_year=int(payload[YEAR_PARTITION_COLUMN])
+            if payload.get(YEAR_PARTITION_COLUMN) is not None
+            else None,
         )
 
 
@@ -432,7 +455,10 @@ def write_derived_indicator_frame_batches(
     max_rows_per_delta_write: int = DEFAULT_DERIVED_INDICATOR_WRITE_BATCH_ROWS,
     replace_partitions: tuple[DerivedIndicatorFramePartitionKey, ...] | None = None,
     profile: DerivedIndicatorProfile | None = None,
+    partition_start_ts: Mapping[DerivedIndicatorFramePartitionKey, str] | None = None,
 ) -> tuple[dict[str, str], int, int]:
+    if max_rows_per_delta_write <= 0:
+        raise ValueError("max_rows_per_delta_write must be > 0")
     contract = research_derived_indicator_store_contract(profile=profile)
     path = output_dir / "research_derived_indicator_frames.delta"
     table_contract = contract["research_derived_indicator_frames"]
@@ -493,15 +519,63 @@ def write_derived_indicator_frame_batches(
     first = next(validated, [])
     if has_delta_log(path):
         ensure_delta_table_columns(table_path=path, columns=dict(columns))
-    row_count, batch_count = write_delta_table_row_batches(
-        table_path=path,
-        row_batches=chain((first,), validated),
-        columns=columns,
-        max_rows_per_delta_write=max_rows_per_delta_write,
-        replace_predicate=replace_predicate,
-        preserve_existing_table=replace_partitions is not None,
-        partition_by=(YEAR_PARTITION_COLUMN,),
-    )
+    if partition_start_ts is None:
+        row_count, batch_count = write_delta_table_row_batches(
+            table_path=path,
+            row_batches=chain((first,), validated),
+            columns=columns,
+            max_rows_per_delta_write=max_rows_per_delta_write,
+            replace_predicate=replace_predicate,
+            preserve_existing_table=replace_partitions is not None,
+            partition_by=(YEAR_PARTITION_COLUMN,),
+        )
+    else:
+        # Consume one computed partition at a time. A bounded suffix is one
+        # Delta overwrite transaction; unsupported/large partitions stay full.
+        row_count = batch_count = 0
+        written: set[DerivedIndicatorFramePartitionKey] = set()
+        for rows in chain((first,), validated):
+            if not rows:
+                continue
+            matches = [part for part in replace_partitions or () if part.matches_row(rows[0])]
+            if len(matches) != 1 or matches[0] in written:
+                raise ValueError("derived suffix writer requires one unique declared partition")
+            partition = matches[0]
+            if not all(partition.matches_row(row) for row in rows):
+                raise ValueError("derived suffix writer received mixed partition rows")
+            written.add(partition)
+            predicate = _partition_delete_predicate(partition)
+            start = partition_start_ts.get(partition)
+            if start is not None:
+                if len(rows) > max_rows_per_delta_write:
+                    raise ValueError("atomic derived suffix exceeds max_rows_per_delta_write")
+                predicate = f"({predicate}) AND ts >= {_quote_delta_sql_string(start)}"
+                write_delta_table_rows(
+                    table_path=path,
+                    rows=rows,
+                    columns=columns,
+                    replace_predicate=predicate,
+                    partition_by=(YEAR_PARTITION_COLUMN,),
+                    compact=False,
+                )
+                count, batches = len(rows), 1
+            else:
+                count, batches = write_delta_table_row_batches(
+                    table_path=path,
+                    row_batches=(rows,),
+                    columns=columns,
+                    max_rows_per_delta_write=max_rows_per_delta_write,
+                    replace_predicate=predicate,
+                    preserve_existing_table=True,
+                    partition_by=(YEAR_PARTITION_COLUMN,),
+                )
+            row_count += count
+            batch_count += batches
+        for partition in replace_partitions or ():
+            if partition not in written:
+                delete_delta_table_rows(
+                    table_path=path, predicate=_partition_delete_predicate(partition)
+                )
 
     table = DeltaTable(str(path))
     if original_id is not None and table.metadata().id != original_id:
@@ -530,7 +604,6 @@ def load_derived_indicator_partition_metadata(
         for column in DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS
         if column in existing_columns
     ]
-    metadata_by_partition: dict[tuple[object, ...], dict[str, object]] = {}
     filters = _filters_for_existing_columns(
         path,
         [
@@ -540,27 +613,51 @@ def load_derived_indicator_partition_metadata(
             ("derived_indicator_set_version", "=", derived_indicator_set_version),
         ],
     )
-    for batch in iter_delta_table_row_batches(
-        path,
-        columns=read_columns,
-        filters=filters,
-    ):
-        for row in batch:
-            for column in DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS:
-                row.setdefault(column, None)
-            key = (
-                row.get("dataset_version"),
-                row.get("contour_id", "native_tradable"),
-                row.get("series_mode", "contract"),
-                row.get("series_id", ""),
-                row.get("indicator_set_version"),
-                row.get("derived_indicator_set_version"),
-                row.get("contract_id"),
-                row.get("instrument_id"),
-                row.get("timeframe"),
-            )
-            metadata_by_partition.setdefault(key, row)
-    return list(metadata_by_partition.values())
+    keys = [
+        column
+        for column in (
+            "dataset_version",
+            "contour_id",
+            "series_mode",
+            "series_id",
+            "indicator_set_version",
+            "derived_indicator_set_version",
+            "contract_id",
+            "instrument_id",
+            "timeframe",
+        )
+        if column in read_columns
+    ]
+    table = read_delta_table_arrow(path, columns=read_columns, filters=filters)
+    if not table.num_rows:
+        return []
+    if "created_at" in read_columns:
+        table = table.sort_by([("created_at", "descending")])
+    # CF roll contracts share one logical partition and one complete latest
+    # metadata carrier, even when old prefix provenance remains in place.
+    contract_key = "_metadata_contract_identity"
+    if {"contract_id", "series_mode"} <= set(keys):
+        table = table.append_column(
+            contract_key,
+            pc.if_else(
+                pc.equal(table.column("series_mode"), "continuous_front"),
+                pa.scalar(None, type=table.column("contract_id").type),
+                table.column("contract_id"),
+            ),
+        )
+        keys.remove("contract_id")
+        keys.append(contract_key)
+    values = [column for column in read_columns if column not in keys]
+    grouped = table.group_by(keys, use_threads=False).aggregate(
+        [(column, "first", pc.ScalarAggregateOptions(skip_nulls=False)) for column in values]
+    )
+    return [
+        {
+            column: row.get(column if column in keys else column + "_first")
+            for column in DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS
+        }
+        for row in grouped.to_pylist()
+    ]
 
 
 def _filters_for_existing_columns(
@@ -594,6 +691,7 @@ def load_derived_indicator_partition_rows(
     output_dir: Path,
     partition: DerivedIndicatorFramePartitionKey,
     value_columns: tuple[str, ...],
+    ts: str | None = None,
 ) -> list[DerivedIndicatorFrameRow]:
     path = output_dir / "research_derived_indicator_frames.delta"
     filters: list[tuple[str, str, object]] = [
@@ -608,6 +706,8 @@ def load_derived_indicator_partition_rows(
     ]
     if partition.contract_id is not None:
         filters.append(("contract_id", "=", partition.contract_id))
+    if ts is not None:
+        filters.append(("ts", "=", ts))
     requested_columns = tuple(
         dict.fromkeys(
             (
@@ -622,6 +722,7 @@ def load_derived_indicator_partition_rows(
                 "instrument_id",
                 "timeframe",
                 "ts",
+                YEAR_PARTITION_COLUMN,
                 *value_columns,
                 "source_bars_hash",
                 "source_dataset_bars_hash",
@@ -630,6 +731,8 @@ def load_derived_indicator_partition_rows(
                 "source_indicator_output_columns_hash",
                 "source_indicator_columns_hash",
                 "mtf_source_family_hash",
+                "source_snapshot_hash",
+                "compute_contract_hash",
                 "row_count",
                 "warmup_span",
                 "null_warmup_span",
@@ -680,6 +783,7 @@ def load_derived_indicator_frames(
                     "instrument_id",
                     "timeframe",
                     "ts",
+                    YEAR_PARTITION_COLUMN,
                     *value_columns,
                     "source_bars_hash",
                     "source_dataset_bars_hash",
@@ -688,6 +792,8 @@ def load_derived_indicator_frames(
                     "source_indicator_output_columns_hash",
                     "source_indicator_columns_hash",
                     "mtf_source_family_hash",
+                    "source_snapshot_hash",
+                    "compute_contract_hash",
                     "row_count",
                     "warmup_span",
                     "null_warmup_span",

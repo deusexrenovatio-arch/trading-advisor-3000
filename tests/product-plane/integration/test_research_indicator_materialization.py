@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 from dataclasses import replace
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -135,6 +136,18 @@ def materialize_research_dataset(
             instrument_id=bar.instrument_id,
             timeframe=timeframe,
             ts=bar.ts,
+            bar_end_ts=(
+                datetime.fromisoformat(bar.ts.replace("Z", "+00:00"))
+                + timedelta(
+                    **{
+                        {"m": "minutes", "h": "hours", "d": "days", "w": "weeks"}[
+                            timeframe[-1]
+                        ]: int(timeframe[:-1])
+                    }
+                )
+            )
+            .isoformat()
+            .replace("+00:00", "Z"),
             open=bar.open,
             high=bar.high,
             low=bar.low,
@@ -779,8 +792,8 @@ def test_indicator_materialization_streams_fresh_partitions_into_writer(
 
     def capture_writer(*args: object, **kwargs: object) -> tuple[dict[str, str], int, int]:
         loaded_at_writer_entry.extend(loaded_partitions)
-        row_batches = iter(kwargs["row_batches"])
-        first_batch = next(row_batches)
+        row_batches = iter(kwargs["partition_row_batches"])
+        _, first_batch = next(row_batches)
         loaded_after_first_batch.extend(loaded_partitions)
         return (
             {"research_indicator_frames": (indicator_dir / "stub.delta").as_posix()},
@@ -800,7 +813,7 @@ def test_indicator_materialization_streams_fresh_partitions_into_writer(
     )
     monkeypatch.setattr(
         materialize_module,
-        "write_indicator_frame_batches",
+        "write_indicator_frame_partition_batches",
         capture_writer,
     )
 
@@ -1277,9 +1290,11 @@ def test_continuous_front_profile_extension_recomputes_existing_columns(
     assert second_rows[-1].values["ema_10"] is not None
 
 
+@pytest.mark.parametrize("with_volume_profile", [False, True])
 def test_continuous_front_full_reuse_skips_bar_partition_scan(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    with_volume_profile: bool,
 ) -> None:
     import trading_advisor_3000.product_plane.research.indicators.materialize as materialize_module
 
@@ -1328,6 +1343,47 @@ def test_continuous_front_full_reuse_skips_bar_partition_scan(
         roll_map=roll_map,
         output_dir=dataset_dir,
     )
+    options = {}
+    if with_volume_profile:
+        from trading_advisor_3000.product_plane.research.indicators import (
+            build_indicator_profile_registry,
+        )
+
+        vp = next(
+            spec
+            for spec in build_indicator_profile_registry().get("core_v1").indicators
+            if spec.operation_key == "volume_profile"
+        )
+        profile = replace(profile, indicators=(*profile.indicators, vp))
+        raw_path = tmp_path / "raw_1m.delta"
+        write_delta_table_rows(
+            table_path=raw_path,
+            columns={
+                "contract_id": "string",
+                "instrument_id": "string",
+                "timeframe": "string",
+                "ts_open": "timestamp",
+                "low": "double",
+                "high": "double",
+                "volume": "bigint",
+            },
+            rows=[
+                {
+                    "contract_id": bar.contract_id,
+                    "instrument_id": bar.instrument_id,
+                    "timeframe": "1m",
+                    "ts_open": bar.ts,
+                    "low": bar.low,
+                    "high": bar.high,
+                    "volume": 10,
+                }
+                for bar in bars
+            ],
+        )
+        options = {
+            "volume_profile_raw_1m_table_path": raw_path,
+            "volume_profile_tick_size_by_instrument": {"BR": 0.01},
+        }
     materialize_indicator_frames(
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
@@ -1335,8 +1391,11 @@ def test_continuous_front_full_reuse_skips_bar_partition_scan(
         indicator_set_version="indicators-v1",
         contour_id="pit_active_front",
         profile=profile,
+        **options,
     )
 
+    original_counts = materialize_module._load_bar_partition_counts
+    original_rows = materialize_module._load_bar_partition_rows
     monkeypatch.setattr(
         materialize_module,
         "_load_bar_partition_counts",
@@ -1355,12 +1414,61 @@ def test_continuous_front_full_reuse_skips_bar_partition_scan(
         indicator_set_version="indicators-v1",
         contour_id="pit_active_front",
         profile=profile,
+        changed_windows=[
+            {
+                "instrument_id": "BR",
+                "timeframe": "15m",
+                "start_ts": bars[-1].ts,
+                "end_ts": bars[-1].ts,
+            }
+        ],
+        **options,
     )
 
     assert report["refreshed_partition_count"] == 0
     assert report["reused_partition_count"] == 1
     assert report["recomputed_partition_count"] == 0
     assert report["write_batch_count"] == 0
+    if with_volume_profile:
+        from deltalake import DeltaTable
+
+        monkeypatch.setattr(materialize_module, "_load_bar_partition_counts", original_counts)
+        monkeypatch.setattr(materialize_module, "_load_bar_partition_rows", original_rows)
+        DeltaTable(str(raw_path)).update(updates={"volume": "volume + 1"})
+        changed = materialize_indicator_frames(
+            dataset_output_dir=dataset_dir,
+            indicator_output_dir=indicator_dir,
+            dataset_version="dataset-cf-full-reuse-fast-path-v1",
+            indicator_set_version="indicators-v1",
+            contour_id="pit_active_front",
+            profile=profile,
+            changed_windows=[],
+            **options,
+        )
+        assert changed["refreshed_partition_count"] == 1
+        persisted = reload_indicator_frames(
+            indicator_output_dir=indicator_dir,
+            dataset_version="dataset-cf-full-reuse-fast-path-v1",
+            indicator_set_version="indicators-v1",
+            contour_id="pit_active_front",
+        )
+        assert all(row.source_snapshot_hash for row in persisted)
+        assert all("source_snapshot_hash" not in row.values for row in persisted)
+        # A legacy checkpoint cannot authorize metadata-only reuse.
+        DeltaTable(str(indicator_dir / "research_indicator_frames.delta")).update(
+            updates={"source_snapshot_hash": "NULL"}
+        )
+        legacy = materialize_indicator_frames(
+            dataset_output_dir=dataset_dir,
+            indicator_output_dir=indicator_dir,
+            dataset_version="dataset-cf-full-reuse-fast-path-v1",
+            indicator_set_version="indicators-v1",
+            contour_id="pit_active_front",
+            profile=profile,
+            changed_windows=[],
+            **options,
+        )
+        assert legacy["refreshed_partition_count"] == 1
 
 
 def test_indicator_reuse_ignores_stale_partitions_outside_dataset_manifest_timeframes(
@@ -1485,7 +1593,9 @@ def test_indicator_reuse_ignores_stale_partitions_outside_dataset_manifest_timef
         profile=profile,
     )
 
-    assert report["reuse_plan_mode"] == "metadata_fast_path"
+    # An unrelated append invalidates the coarse Delta snapshot fingerprint;
+    # scoped content reuse still excludes the stale timeframe.
+    assert report.get("reuse_plan_mode") != "metadata_fast_path"
     assert report["refreshed_partition_count"] == 0
     assert report["reused_partition_count"] == 1
     assert report["write_batch_count"] == 0
@@ -1620,7 +1730,8 @@ def test_derived_indicator_materialization_recomputes_only_affected_partitions(
         indicator_set_version="indicators-v1",
     )
     assert second_report["derived_indicator_row_count"] == len(bars_v2)
-    assert second_report["refreshed_row_count"] == 60
+    assert second_report["refreshed_row_count"] == 61  # changed BR + one Si metadata carrier
+    assert second_report["metadata_rebased_partition_count"] == 1
     assert second_report["refreshed_partition_count"] == 1
     assert second_report["reused_partition_count"] == 1
     assert second_report["deleted_partition_count"] == 0
@@ -1637,12 +1748,17 @@ def test_derived_indicator_materialization_recomputes_only_affected_partitions(
         row.ts: row.created_at for row in second_rows if row.instrument_id == "Si"
     }
     assert len(second_rows) == len(bars_v2)
-    assert first_si_created_at == second_si_created_at
+    last_si = max(first_si_created_at)
+    assert {ts: stamp for ts, stamp in first_si_created_at.items() if ts != last_si} == {
+        ts: stamp for ts, stamp in second_si_created_at.items() if ts != last_si
+    }
+    assert second_si_created_at[last_si] > first_si_created_at[last_si]
     assert first_br_created_at != second_br_created_at
 
 
 def test_derived_indicator_materialization_reuses_when_unrelated_base_indicator_is_added(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(60)]
     session_calendar = [
@@ -1737,7 +1853,26 @@ def test_derived_indicator_materialization_reuses_when_unrelated_base_indicator_
         dataset_version="dataset-derived-base-extension-v1",
         indicator_set_version="indicators-v1",
     )
-    assert {row.ts: row.created_at for row in second_rows} == first_created_at
+    assert {row.ts: row.created_at for row in second_rows[:-1]} == {
+        ts: stamp for ts, stamp in first_created_at.items() if ts != max(first_created_at)
+    }
+    assert report["refreshed_row_count"] == 1
+    assert report["metadata_rebased_partition_count"] == 1
+    monkeypatch.setattr(
+        derived_materialize_module,
+        "run_research_derived_source_frames_spark_job",
+        lambda **kwargs: pytest.fail("metadata carrier must enable pre-Spark no-op"),
+    )
+    assert (
+        materialize_derived_indicator_frames(
+            dataset_output_dir=dataset_dir,
+            indicator_output_dir=indicator_dir,
+            derived_indicator_output_dir=derived_dir,
+            dataset_version="dataset-derived-base-extension-v1",
+            indicator_set_version="indicators-v1",
+        )["refreshed_row_count"]
+        == 0
+    )
 
 
 def test_derived_indicator_materialization_fails_when_required_source_columns_are_absent(
@@ -2064,10 +2199,29 @@ def test_continuous_front_derived_profile_extension_reuses_same_profile_and_reco
     assert second_rows[-1]["profile_version"] == "core_v1_plus_new_cf_derived"
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        "unchanged",
+        "l1",
+        "tail",
+        "mtf",
+        "null_oi",
+        "warmup",
+        "runtime",
+        "legacy",
+        "missing",
+        "corrupt",
+        "scope",
+        "concurrent",
+    ],
+)
 def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
 ) -> None:
     bars = [_canonical_bar(index=index, close=80.0 + index * 0.25) for index in range(60)]
+    if change == "mtf":
+        bars.extend(replace(bar, timeframe=type(bar.timeframe)("1h")) for bar in bars[::4])
     session_calendar = [
         SessionCalendarEntry(
             "BR", "15m", "2026-03-01", "2026-03-01T09:00:00Z", "2026-03-01T20:45:00Z"
@@ -2081,6 +2235,8 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
         RollMapEntry("BR", "2026-03-02", "BR-6.26", "test"),
     ]
     dataset_dir = tmp_path / "dataset-source-frame"
+    if change == "mtf":
+        session_calendar.extend(replace(row, timeframe="1h") for row in session_calendar[:])
     indicator_dir = tmp_path / "indicators-source-frame"
     derived_dir = tmp_path / "derived-source-frame"
     materialize_research_dataset(
@@ -2088,7 +2244,7 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
             dataset_version="dataset-source-frame-v1",
             dataset_name="derived source-frame sample",
             universe_id="moex-futures",
-            timeframes=("15m",),
+            timeframes=("15m", "1h") if change == "mtf" else ("15m",),
             base_timeframe="15m",
             start_ts="2026-03-01T09:00:00Z",
             end_ts="2026-03-02T11:45:00Z",
@@ -2147,3 +2303,143 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
 
     assert report["derived_indicator_row_count"] == len(bars)
     assert report["source_frame_row_count"] == len(bars)
+
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.data_plane.delta_runtime import delta_table_version
+
+    derived_path = derived_dir / "research_derived_indicator_frames.delta"
+    persisted = reload_derived_indicator_frames(
+        derived_indicator_output_dir=derived_dir,
+        dataset_version="dataset-source-frame-v1",
+        indicator_set_version="indicators-v1",
+    )
+    assert all(row.source_snapshot_hash and row.compute_contract_hash for row in persisted)
+    assert all("source_snapshot_hash" not in row.values for row in persisted)
+    options = {}
+    if change in {"l1", "concurrent"}:
+        DeltaTable(str(indicator_dir / "research_indicator_frames.delta")).update(
+            updates={"ema_20": "coalesce(ema_20, 0) + 1"}
+        )
+    elif change == "mtf":
+        DeltaTable(str(indicator_dir / "research_indicator_frames.delta")).update(
+            updates={"ema_20": "coalesce(ema_20, 0) + 1"}, predicate="timeframe = '1h'"
+        )
+    elif change == "tail":
+        DeltaTable(str(indicator_dir / "research_indicator_frames.delta")).update(
+            updates={"ema_20": "ema_20 + 1"}, predicate="ts = '2026-03-02T11:45:00Z'"
+        )
+    elif change == "warmup":
+        options["profile"] = replace(current_derived_indicator_profile(), warmup_bars=999)
+    elif change == "null_oi":
+        DeltaTable(str(dataset_dir / "research_bar_views.delta")).update(
+            updates={"open_interest": "NULL"}
+        )
+        materialize_indicator_frames(
+            dataset_output_dir=dataset_dir,
+            indicator_output_dir=indicator_dir,
+            dataset_version="dataset-source-frame-v1",
+            indicator_set_version="indicators-v1",
+        )
+        rows = reload_indicator_frames(
+            indicator_output_dir=indicator_dir,
+            dataset_version="dataset-source-frame-v1",
+            indicator_set_version="indicators-v1",
+        )
+        assert all(row.values["oi_change_1"] is None for row in rows)
+    elif change == "runtime":
+        monkeypatch.setattr(
+            derived_materialize_module,
+            "_derived_compute_contract_hash",
+            lambda _: "changed-native-code",
+        )
+    elif change == "legacy":
+        DeltaTable(str(derived_path)).update(
+            updates={"source_snapshot_hash": "NULL", "compute_contract_hash": "NULL"}
+        )
+    elif change == "missing":
+        DeltaTable(str(derived_path)).delete("ts = '2026-03-01T09:00:00Z'")
+    elif change == "corrupt":
+        from deltalake import write_deltalake
+
+        duplicate = DeltaTable(str(derived_path)).to_pyarrow_table().slice(0, 1)
+        write_deltalake(str(derived_path), duplicate, mode="append")
+    elif change == "scope":
+        options["dataset_instrument_ids"] = ("BR",)
+
+    calls = []
+    original_version = delta_table_version(derived_path)
+    if change == "unchanged":
+        runner = _blocked_loader
+        monkeypatch.setattr(
+            derived_materialize_module, "load_derived_source_frame_partition_rows", _blocked_loader
+        )
+    else:
+
+        def runner(**kwargs):
+            calls.append("spark")
+            result = _fake_source_frame_runner(**kwargs)
+            if change == "concurrent":
+                DeltaTable(str(indicator_dir / "research_indicator_frames.delta")).update(
+                    updates={"ema_20": "coalesce(ema_20, 0) + 1"}
+                )
+            return result
+
+    monkeypatch.setattr(
+        derived_materialize_module, "run_research_derived_source_frames_spark_job", runner
+    )
+    arguments = dict(
+        dataset_output_dir=dataset_dir,
+        indicator_output_dir=indicator_dir,
+        derived_indicator_output_dir=derived_dir,
+        dataset_version="dataset-source-frame-v1",
+        indicator_set_version="indicators-v1",
+        **options,
+    )
+    if change == "concurrent":
+        with pytest.raises(ValueError, match="inputs changed during source-frame production"):
+            materialize_derived_indicator_frames(**arguments)
+        assert delta_table_version(derived_path) == original_version
+    else:
+        repeated = materialize_derived_indicator_frames(**arguments)
+        expected_refresh = 0 if change in {"unchanged", "scope"} else 2 if change == "mtf" else 1
+        assert repeated["refreshed_partition_count"] == expected_refresh
+        assert calls == ([] if change == "unchanged" else ["spark"])
+        if change == "unchanged":
+            assert repeated["loaded_source_frame_partition_count"] == 0
+        elif change == "tail":
+            assert repeated["refreshed_row_count"] == 1
+            reloaded = reload_derived_indicator_frames(
+                derived_indicator_output_dir=derived_dir,
+                dataset_version="dataset-source-frame-v1",
+                indicator_set_version="indicators-v1",
+            )
+            assert [(row.ts, row.values, row.created_at) for row in reloaded[:-1]] == [
+                (row.ts, row.values, row.created_at) for row in persisted[:-1]
+            ]
+            monkeypatch.setattr(
+                derived_materialize_module,
+                "run_research_derived_source_frames_spark_job",
+                _blocked_loader,
+            )
+            assert materialize_derived_indicator_frames(**arguments)["refreshed_row_count"] == 0
+        elif change == "null_oi":
+            final_rows = reload_derived_indicator_frames(
+                derived_indicator_output_dir=derived_dir,
+                dataset_version="dataset-source-frame-v1",
+                indicator_set_version="indicators-v1",
+            )
+            assert all(row.values["oi_change_1"] is None for row in final_rows)
+            source_rows = read_delta_table_rows(
+                derived_dir / DERIVED_SOURCE_FRAME_DELTA,
+                filters=[("dataset_version", "=", "dataset-source-frame-v1")],
+            )
+            assert all(row["open_interest"] is None for row in source_rows)
+        elif change == "corrupt":
+            repaired = reload_derived_indicator_frames(
+                derived_indicator_output_dir=derived_dir,
+                dataset_version="dataset-source-frame-v1",
+                indicator_set_version="indicators-v1",
+            )
+            assert len(repaired) == len({row.ts for row in repaired}) == len(bars)
+            assert repeated["refreshed_row_count"] == len(bars)
