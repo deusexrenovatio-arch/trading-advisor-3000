@@ -6,6 +6,11 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from trading_advisor_3000.product_plane.common.data_snapshots import (
+    SnapshotUnavailableError,
+    assert_tables_unchanged,
+    capture_table,
+)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_version,
     has_delta_log,
@@ -32,6 +37,7 @@ class EconomicsSourceUnavailable(RuntimeError):
         required_contract_ids: Sequence[str],
         missing_sources: Sequence[str],
     ) -> None:
+        self.native_history_renewal: dict[str, object] | None = None
         self.target_session_date = date.fromisoformat(str(target_session_date)[:10]).isoformat()
         self.required_contract_ids = tuple(
             sorted(
@@ -251,10 +257,26 @@ def reuse_published_economics_after_source_unavailable(
     run_id: str,
     source_error: EconomicsSourceUnavailable,
 ) -> dict[str, object]:
+    renewal = source_error.native_history_renewal
+    renewal_references = dict(renewal["tables"]) if renewal is not None else {}
+    if renewal is not None and set(renewal_references) != {"raw", "prepared", "oi"}:
+        raise ValueError("native history fallback requires exact raw/prepared/oi references")
+    # The native renewal owner returns table identity/version refs, not snapshot refs.
+    # Build validation refs separately; retain the producer's exact report payload.
+    renewal_tables = {}
+    for name, reference in renewal_references.items():
+        pinned = capture_table(
+            Path(str(reference["table_path"])), version=reference["delta_version"]
+        )
+        if pinned["table_id"] != reference["table_id"]:
+            raise SnapshotUnavailableError(f"native history renewal table identity changed: {name}")
+        renewal_tables[name] = pinned
+    assert_tables_unchanged(renewal_tables)
     coverage = _published_contract_economics_coverage(
         canonical_economics_root=canonical_economics_root,
         source_error=source_error,
     )
+    assert_tables_unchanged(renewal_tables)
     coverage_passed = coverage["status"] == "PASS"
     report_path = evidence_dir / "contract-economics-report.json"
     report: dict[str, object] = {
@@ -285,6 +307,8 @@ def reuse_published_economics_after_source_unavailable(
         "report_path": report_path.as_posix(),
         "generated_at_utc": _utc_now_iso(),
     }
+    if renewal is not None:
+        report["native_history_renewal"] = renewal
     _write_json(report_path, report)
     if not coverage_passed:
         missing = ",".join(str(item) for item in coverage["missing_contract_ids"])
