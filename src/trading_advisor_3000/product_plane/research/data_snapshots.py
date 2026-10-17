@@ -103,6 +103,8 @@ def _parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "dataset_contract_ids",
         "dataset_instrument_ids",
         "changed_windows",
+        "refresh_scope_version",
+        "force_full_refresh",
         "continuous_front_policy",
         "indicator_set_version",
         "indicator_profile_version",
@@ -307,6 +309,8 @@ def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) 
             "start_ts",
             "end_ts",
             "changed_windows",
+            "refresh_scope_version",
+            "force_full_refresh",
             "continuous_front_policy",
             "canonical_contract_economics_path",
         )

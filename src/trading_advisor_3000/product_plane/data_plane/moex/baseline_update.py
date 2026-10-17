@@ -1755,6 +1755,11 @@ def run_moex_baseline_update(
         "current_changed_windows": len(current_changed_windows),
         "effective_changed_windows": len(merged_changed_windows),
         "cf_catch_up": cf_catch_up_report,
+        "windowed_input_references": {
+            path.stem: snapshot_inputs[path.stem]
+            for path in (raw_table_path, canonical_session_intervals_path)
+            if path.stem in snapshot_inputs and merged_changed_windows
+        },
         "economics_refresh": economics_report,
         "canonical_report": {
             "status": canonical_report.get("status"),
