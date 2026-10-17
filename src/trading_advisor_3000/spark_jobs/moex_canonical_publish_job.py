@@ -277,19 +277,53 @@ def _merge_upsert_delta_dataframe(
     dataframe: Any,
     key_columns: tuple[str, ...],
 ) -> None:
-    if int(dataframe.count()) == 0:
-        return
     from delta.tables import DeltaTable  # type: ignore[import-not-found]
+    from pyspark import StorageLevel  # type: ignore[import-not-found]
+    from pyspark.sql import functions as F  # type: ignore[import-not-found]
 
     condition = " AND ".join(f"target.{column} <=> source.{column}" for column in key_columns)
-    (
-        DeltaTable.forPath(spark, str(table_path))
-        .alias("target")
-        .merge(dataframe.alias("source"), condition)
-        .whenMatchedUpdateAll()
-        .whenNotMatchedInsertAll()
-        .execute()
-    )
+    target = read_spark_delta(spark, str(table_path))
+    changed = dataframe
+    if set(dataframe.columns) <= set(target.columns):
+        # Push the source key/year envelope into the target scan before value
+        # comparison. These are native aggregate metadata, not business rows.
+        scope_columns = [*key_columns]
+        if "ts_close_year" in dataframe.columns:
+            scope_columns.append("ts_close_year")
+        bounds = dataframe.agg(
+            *[
+                expression
+                for index, column in enumerate(scope_columns)
+                for expression in (
+                    F.min(column).alias(f"lo_{index}"),
+                    F.max(column).alias(f"hi_{index}"),
+                    F.max(F.col(column).isNull().cast("int")).alias(f"null_{index}"),
+                )
+            ]
+        ).first()
+        for index, column in enumerate(scope_columns):
+            predicate = F.col(column).between(bounds[f"lo_{index}"], bounds[f"hi_{index}"])
+            if bounds[f"null_{index}"]:
+                predicate = predicate | F.col(column).isNull()
+            target = target.where(predicate)
+        equal = F.lit(True)
+        for column in dataframe.columns:
+            equal = equal & F.col(f"source.`{column}`").eqNullSafe(F.col(f"target.`{column}`"))
+        changed = dataframe.alias("source").join(target.alias("target"), equal, "left_anti")
+    changed = changed.persist(StorageLevel.DISK_ONLY)
+    try:
+        if changed.count() == 0:
+            return
+        (
+            DeltaTable.forPath(spark, str(table_path))
+            .alias("target")
+            .merge(changed.alias("source"), condition)
+            .whenMatchedUpdateAll()
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+    finally:
+        changed.unpersist()
 
 
 def _with_existing_target_close_year(
@@ -330,13 +364,12 @@ def _merge_replace_delta_dataframe(
     key_columns: tuple[str, ...],
     functions: Any,
 ) -> None:
-    if int(staged_dataframe.count()) > 0:
-        _merge_upsert_delta_dataframe(
-            spark=spark,
-            table_path=table_path,
-            dataframe=staged_dataframe,
-            key_columns=key_columns,
-        )
+    _merge_upsert_delta_dataframe(
+        spark=spark,
+        table_path=table_path,
+        dataframe=staged_dataframe,
+        key_columns=key_columns,
+    )
 
     if stale_key_count == 0:
         return
@@ -948,6 +981,39 @@ def _expand_sidecar_sessions(*, affected_sessions_df: Any, functions: Any) -> An
     return affected_sessions_df.unionByName(previous_sessions).unionByName(next_sessions).distinct()
 
 
+def _sidecar_dependency_scope(
+    *, sessions: Any, mode: str, functions: Any, table_paths: dict[str, Path] | None = None
+) -> dict:
+    from deltalake import DeltaTable as NativeDeltaTable
+
+    windows = (
+        sessions.groupBy("instrument_id")
+        .agg(
+            functions.min("session_date").alias("first_date"),
+            functions.date_add(functions.max("session_date"), 1).alias("after_last_date"),
+        )
+        .select(
+            "instrument_id",
+            functions.date_format(
+                functions.date_sub("first_date", 1), "yyyy-MM-dd'T'00:00:00'Z'"
+            ).alias("start_ts"),
+            functions.date_format("after_last_date", "yyyy-MM-dd'T'00:00:00'Z'").alias("end_ts"),
+        )
+        .orderBy("instrument_id")
+    )
+    return {
+        "version": 1,
+        "full_refresh": mode not in {"noop", "scoped"},
+        "windows": [row.asDict() for row in windows.collect()],
+        "output_delta_versions": {
+            name: {"table_id": table.metadata().id, "delta_version": table.version()}
+            for name, path in (table_paths or {}).items()
+            if has_delta_log(path)
+            for table in [NativeDeltaTable(str(path))]
+        },
+    }
+
+
 def _sessions_from_bars(*, bars_df: Any, functions: Any) -> Any:
     return (
         bars_df.select(
@@ -1181,6 +1247,16 @@ def run_moex_canonical_publish_spark_delta_job(
             _sessions_from_provenance(
                 provenance_df=staged_provenance_df,
                 functions=functions,
+            )
+            .unionByName(
+                _sessions_from_provenance(
+                    provenance_df=target_provenance_df.join(
+                        replacement_provenance_keys_df,
+                        list(CANONICAL_KEY_COLUMNS),
+                        "inner",
+                    ),
+                    functions=functions,
+                )
             )
             .unionByName(_sessions_from_bars(bars_df=stale_bars_df, functions=functions))
             .unionByName(
@@ -1607,6 +1683,17 @@ def run_moex_canonical_publish_spark_delta_job(
                 "affected_session_rows": affected_session_rows,
                 "overlap_session_rows": sidecar_scope_session_rows,
                 "overlap_policy": SIDECAR_OVERLAP_POLICY,
+                "dependency_scope": _sidecar_dependency_scope(
+                    sessions=sidecar_scope_sessions_df,
+                    mode=refresh_mode,
+                    functions=functions,
+                    table_paths={
+                        "canonical_bars": target_bars_path,
+                        "canonical_bar_provenance": target_provenance_path,
+                        "canonical_session_calendar": session_calendar_path,
+                        "canonical_roll_map": roll_map_path,
+                    },
+                ),
             },
             "target_layout": {
                 "canonical_bars": {
