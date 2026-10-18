@@ -193,6 +193,7 @@ DATA_INSPECTOR_LAYERS: dict[str, DataInspectorLayer] = {
             "distance_to_week_high",
             "distance_to_week_low",
             "source_indicators_hash",
+            "source_inputs_hash",
         ),
         options_relative_path=RESEARCH_INSTRUMENT_TREE_RELATIVE_PATH,
         options_instrument_column="instrument_id",

@@ -201,6 +201,9 @@ def _derived_payload_columns(frame: pd.DataFrame, *, existing: set[str]) -> list
         "source_bars_hash",
         "source_dataset_bars_hash",
         "source_indicators_hash",
+        "source_inputs_hash",
+        "source_mtf_hash",
+        "mtf_source_family_hash",
         "source_indicator_profile_version",
         "source_indicator_output_columns_hash",
         "row_count",
@@ -212,7 +215,9 @@ def _derived_payload_columns(frame: pd.DataFrame, *, existing: set[str]) -> list
     return [
         column
         for column in frame.columns
-        if not _is_reserved_column(column, reserved) and column not in existing
+        if not _is_reserved_column(column, reserved)
+        and not column.startswith("mtf_")
+        and column not in existing
     ]
 
 

@@ -53,7 +53,7 @@ DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS = (
     "source_indicator_profile_version",
     "source_indicator_output_columns_hash",
     "source_indicator_columns_hash",
-    "mtf_source_family_hash",
+    "source_inputs_hash",
     "source_snapshot_hash",
     "compute_contract_hash",
     "row_count",
@@ -80,7 +80,7 @@ DERIVED_INDICATOR_RESERVED_COLUMNS = {
     "source_indicator_profile_version",
     "source_indicator_output_columns_hash",
     "source_indicator_columns_hash",
-    "mtf_source_family_hash",
+    "source_inputs_hash",
     "source_snapshot_hash",
     "compute_contract_hash",
     "row_count",
@@ -88,6 +88,8 @@ DERIVED_INDICATOR_RESERVED_COLUMNS = {
     "null_warmup_span",
     "created_at",
     "output_columns_hash",
+    "source_mtf_hash",
+    "mtf_source_family_hash",
 }
 DERIVED_INDICATOR_FRAME_LOGICAL_KEY = (
     "dataset_version",
@@ -111,6 +113,8 @@ def _derived_indicator_value_columns(
     profile: DerivedIndicatorProfile | None = None,
 ) -> dict[str, str]:
     profile = profile or current_derived_indicator_profile()
+    if any(c.startswith("mtf_") or c == "source_mtf_hash" for c in profile.output_columns):
+        raise ValueError("retired derived projections cannot be written")
     int_columns = {
         column
         for column in profile.output_columns
@@ -143,7 +147,7 @@ def _derived_indicator_frame_columns(
         "source_indicator_profile_version": "string",
         "source_indicator_output_columns_hash": "string",
         "source_indicator_columns_hash": "string",
-        "mtf_source_family_hash": "string",
+        "source_inputs_hash": "string",
         "source_snapshot_hash": "string",
         "compute_contract_hash": "string",
         "row_count": "int",
@@ -224,7 +228,7 @@ class DerivedIndicatorFrameRow:
     source_indicator_profile_version: str = ""
     source_indicator_output_columns_hash: str = ""
     source_indicator_columns_hash: str = ""
-    mtf_source_family_hash: str = ""
+    source_inputs_hash: str = ""
     source_snapshot_hash: str = ""
     compute_contract_hash: str = ""
     contour_id: str = "native_tradable"
@@ -248,6 +252,8 @@ class DerivedIndicatorFrameRow:
         )
 
     def to_dict(self) -> dict[str, object]:
+        if any(c.startswith("mtf_") or c == "source_mtf_hash" for c in self.values):
+            raise ValueError("retired derived projections cannot be written")
         return {
             "dataset_version": self.dataset_version,
             "contour_id": self.contour_id,
@@ -267,7 +273,7 @@ class DerivedIndicatorFrameRow:
             "source_indicator_profile_version": self.source_indicator_profile_version,
             "source_indicator_output_columns_hash": self.source_indicator_output_columns_hash,
             "source_indicator_columns_hash": self.source_indicator_columns_hash,
-            "mtf_source_family_hash": self.mtf_source_family_hash,
+            "source_inputs_hash": self.source_inputs_hash,
             "source_snapshot_hash": self.source_snapshot_hash,
             "compute_contract_hash": self.compute_contract_hash,
             "row_count": self.row_count,
@@ -279,37 +285,10 @@ class DerivedIndicatorFrameRow:
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "DerivedIndicatorFrameRow":
-        reserved = {
-            "ts_close_year",
-            "dataset_version",
-            "contour_id",
-            "series_mode",
-            "series_id",
-            "indicator_set_version",
-            "derived_indicator_set_version",
-            "profile_version",
-            "contract_id",
-            "instrument_id",
-            "timeframe",
-            "ts",
-            "source_bars_hash",
-            "source_dataset_bars_hash",
-            "source_indicators_hash",
-            "source_indicator_profile_version",
-            "source_indicator_output_columns_hash",
-            "source_indicator_columns_hash",
-            "mtf_source_family_hash",
-            "source_snapshot_hash",
-            "compute_contract_hash",
-            "row_count",
-            "warmup_span",
-            "null_warmup_span",
-            "created_at",
-            "output_columns_hash",
-        }
+        reserved = DERIVED_INDICATOR_RESERVED_COLUMNS
         values: dict[str, float | int | None] = {}
         for key, value in payload.items():
-            if key in reserved:
+            if key in reserved or key.startswith("mtf_"):
                 continue
             if value is None:
                 values[key] = None
@@ -343,7 +322,7 @@ class DerivedIndicatorFrameRow:
                 payload.get("source_indicator_output_columns_hash") or ""
             ),
             source_indicator_columns_hash=str(payload.get("source_indicator_columns_hash") or ""),
-            mtf_source_family_hash=str(payload.get("mtf_source_family_hash") or ""),
+            source_inputs_hash=str(payload.get("source_inputs_hash") or ""),
             source_snapshot_hash=str(payload.get("source_snapshot_hash") or ""),
             compute_contract_hash=str(payload.get("compute_contract_hash") or ""),
             row_count=int(payload["row_count"]),
@@ -730,7 +709,7 @@ def load_derived_indicator_partition_rows(
                 "source_indicator_profile_version",
                 "source_indicator_output_columns_hash",
                 "source_indicator_columns_hash",
-                "mtf_source_family_hash",
+                "source_inputs_hash",
                 "source_snapshot_hash",
                 "compute_contract_hash",
                 "row_count",
@@ -791,7 +770,7 @@ def load_derived_indicator_frames(
                     "source_indicator_profile_version",
                     "source_indicator_output_columns_hash",
                     "source_indicator_columns_hash",
-                    "mtf_source_family_hash",
+                    "source_inputs_hash",
                     "source_snapshot_hash",
                     "compute_contract_hash",
                     "row_count",

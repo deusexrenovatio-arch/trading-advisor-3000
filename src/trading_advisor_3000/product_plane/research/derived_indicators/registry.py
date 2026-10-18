@@ -10,6 +10,15 @@ class DerivedIndicatorProfile:
     output_columns: tuple[str, ...]
     warmup_bars: int
 
+    def __post_init__(self) -> None:
+        retired = [
+            column
+            for column in self.output_columns
+            if column.startswith("mtf_") or column == "source_mtf_hash"
+        ]
+        if retired:
+            raise ValueError("retired derived projections: " + ", ".join(retired))
+
 
 @dataclass(frozen=True)
 class DerivedIndicatorProfileRegistry:
@@ -23,34 +32,6 @@ class DerivedIndicatorProfileRegistry:
 
     def versions(self) -> tuple[str, ...]:
         return tuple(profile.version for profile in self.profiles)
-
-
-MTF_MAPPINGS: tuple[tuple[str, str], ...] = (
-    ("1h", "15m"),
-    ("4h", "15m"),
-    ("4h", "1h"),
-    ("1d", "15m"),
-    ("1d", "1h"),
-    ("1d", "4h"),
-)
-
-MTF_TREND_CONTEXT_COLUMNS: tuple[str, ...] = ("ema_20", "ema_50", "adx_14", "rsi_14")
-
-
-def mtf_carried_columns(source_timeframe: str, target_timeframe: str) -> tuple[str, ...]:
-    return MTF_TREND_CONTEXT_COLUMNS
-
-
-def mtf_column_name(source_timeframe: str, target_timeframe: str, source_column: str) -> str:
-    return f"mtf_{source_timeframe}_to_{target_timeframe}_{source_column}"
-
-
-def mtf_projected_columns() -> tuple[str, ...]:
-    return tuple(
-        mtf_column_name(source_timeframe, target_timeframe, source_column)
-        for source_timeframe, target_timeframe in MTF_MAPPINGS
-        for source_column in mtf_carried_columns(source_timeframe, target_timeframe)
-    )
 
 
 WIDE_TECHNICAL_GOLD_V2_DERIVED_COLUMNS: tuple[str, ...] = (
@@ -148,14 +129,13 @@ WIDE_TECHNICAL_GOLD_V2_DERIVED_COLUMNS: tuple[str, ...] = (
     "divergence_price_oi_roc_10_score",
     "divergence_price_oi_z_20_score",
     "divergence_price_oi_relative_activity_20_score",
-    *mtf_projected_columns(),
 )
 
 
 def core_v1_derived_indicator_profile() -> DerivedIndicatorProfile:
     return DerivedIndicatorProfile(
         version="core_v1",
-        description="Wide Technical Gold V2 derived indicator profile over bars and base indicators.",
+        description="Native derived indicator profile over bars and base indicators.",
         output_columns=WIDE_TECHNICAL_GOLD_V2_DERIVED_COLUMNS,
         warmup_bars=300,
     )

@@ -378,32 +378,7 @@ def test_roll_rule_catalog_covers_every_base_and_derived_output() -> None:
     rules = default_indicator_roll_rules()
     columns = {rule.output_column for rule in rules}
     expected_base = set(default_indicator_profile().expected_output_columns())
-    expected_derived = set(
-        research_derived_indicator_store_contract()["research_derived_indicator_frames"]["columns"]
-    )
-    expected_derived -= {
-        "dataset_version",
-        "indicator_set_version",
-        "derived_indicator_set_version",
-        "profile_version",
-        "contract_id",
-        "instrument_id",
-        "timeframe",
-        "ts",
-        "source_bars_hash",
-        "source_dataset_bars_hash",
-        "source_indicators_hash",
-        "source_indicator_profile_version",
-        "source_indicator_output_columns_hash",
-        "row_count",
-        "warmup_span",
-        "null_warmup_span",
-        "created_at",
-        "output_columns_hash",
-        "contour_id",
-        "series_mode",
-        "series_id",
-    }
+    expected_derived = set(current_derived_indicator_profile().output_columns)
 
     assert expected_base <= columns
     assert expected_derived <= columns
@@ -902,7 +877,7 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_contract_tables(
         "base:volume_oi_ratio",
         "derived:session_vwap",
         "derived:volume_oi_corr_20",
-        "derived:mtf_1d_to_4h_rsi_14",
+        "derived:distance_to_ema_20_atr",
     ):
         assert token in checked_formula_columns
     qc_groups = {
