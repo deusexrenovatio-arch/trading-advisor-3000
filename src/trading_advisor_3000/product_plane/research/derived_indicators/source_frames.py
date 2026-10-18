@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.common.table_layout import (
@@ -66,6 +67,55 @@ class DerivedSourceFramePartitionKey:
             f"{self.dataset_version}/{self.contour_id}/{self.series_mode}/"
             f"{self.series_id}/{self.indicator_set_version}/{contract}/"
             f"{self.instrument_id}/{self.timeframe}"
+        )
+
+
+@dataclass(frozen=True)
+class NativeRefreshScope:
+    """An explicit request cannot become a Cartesian product or a family repair."""
+
+    timeframes: tuple[str, ...] = ()
+    instruments: tuple[str, ...] = ()
+    pairs: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def bounded(self) -> bool:
+        return bool(self.timeframes or self.instruments or self.pairs)
+
+    def matches(self, instrument: str, timeframe: str) -> bool:
+        return (
+            (not self.timeframes or timeframe in self.timeframes)
+            and (not self.instruments or instrument in self.instruments)
+            and (not self.pairs or (instrument, timeframe) in self.pairs)
+        )
+
+    @classmethod
+    def from_request(
+        cls,
+        *,
+        timeframes: Sequence[str] = (),
+        instruments: Sequence[str] = (),
+        refresh_windows: Sequence[Mapping[str, object]] = (),
+    ) -> NativeRefreshScope:
+        tfs = tuple(sorted({str(x).strip() for x in timeframes if str(x).strip()}))
+        ips = tuple(sorted({str(x).strip() for x in instruments if str(x).strip()}))
+        pairs = set()
+        for window in refresh_windows or ():
+            if not isinstance(window, Mapping):
+                if not is_dataclass(window) or isinstance(window, type):
+                    raise TypeError("refresh windows must be mappings or window dataclasses")
+                window = asdict(window)
+            instrument = str(window.get("instrument_id") or "").strip()
+            timeframe = str(window.get("timeframe") or "").strip()
+            if not instrument or not timeframe:
+                raise ValueError("refresh windows require instrument_id and timeframe")
+            if (tfs and timeframe not in tfs) or (ips and instrument not in ips):
+                raise ValueError("refresh window exceeds declared native scope")
+            pairs.add((instrument, timeframe))
+        return cls(
+            tuple(sorted({p[1] for p in pairs})) if pairs else tfs,
+            tuple(sorted({p[0] for p in pairs})) if pairs else ips,
+            tuple(sorted(pairs)),
         )
 
 

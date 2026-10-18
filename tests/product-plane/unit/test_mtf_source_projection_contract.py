@@ -69,12 +69,12 @@ def test_mixed_source_projection_contract_fails_before_spark(tmp_path: Path, has
             indicator_set_version="indicators-v1",
             derived_profile_version="core_v1",
             source_indicator_columns=("adx_14",),
-            timeframes=("15m",),
+            timeframes=("1h",),
             dataset_instrument_ids=("BR",),
             refresh_windows=[
                 {
                     "instrument_id": "BR",
-                    "timeframe": "15m",
+                    "timeframe": "1h",
                     "start_ts": "2026-06-10T10:00:00Z",
                     "end_ts": "2026-06-10T10:15:00Z",
                 }
@@ -84,7 +84,7 @@ def test_mixed_source_projection_contract_fails_before_spark(tmp_path: Path, has
 
 
 @pytest.mark.parametrize(
-    "kind, changed", [("current", False), ("old", True), ("null", True), ("empty", True)]
+    "kind, changed", [("current", False), ("old", True), ("null", True), ("empty", False)]
 )
 def test_native_projection_contract_distinct(tmp_path: Path, kind: str, changed: bool) -> None:
     expected = derived_source_indicator_columns_hash(("adx_14",))
@@ -190,7 +190,7 @@ def test_current_hash_with_missing_declared_source_column_fails_closed(tmp_path:
 
 
 @pytest.mark.parametrize("declared_ips", [("BR", "Si"), ()])
-def test_hash_check_includes_declared_instrument_scope_before_windows(
+def test_hash_check_respects_window_pair_inside_declared_instruments(
     tmp_path: Path, declared_ips
 ) -> None:
     expected = derived_source_indicator_columns_hash(("adx_14",))
@@ -214,14 +214,14 @@ def test_hash_check_includes_declared_instrument_scope_before_windows(
                 "contour_id": "native_tradable",
                 "indicator_set_version": "indicators-v1",
                 "instrument_id": instrument,
-                "timeframe": "1h",
+                "timeframe": "15m",
                 "source_indicator_columns_hash": hash_value,
                 "adx_14": 11.0,
             }
             for instrument, hash_value in (("BR", expected), ("Si", "old"))
         ],
     )
-    with pytest.raises(ValueError, match="mixed source projection contracts"):
+    with pytest.raises(RuntimeError, match="scoped Spark reached"):
         job.run_research_derived_source_frames_spark_job(
             bar_views_path=bars,
             indicator_frames_path=indicators,
@@ -236,8 +236,8 @@ def test_hash_check_includes_declared_instrument_scope_before_windows(
             refresh_windows=(
                 {"instrument_id": "BR", "timeframe": "15m", "start_ts": "2026-03-02T16:30:00Z"},
             ),
-            spark_session_factory=lambda *_: pytest.fail(
-                "declared mixed scope must fail before Spark"
+            spark_session_factory=lambda *_: (_ for _ in ()).throw(
+                RuntimeError("scoped Spark reached")
             ),
         )
 

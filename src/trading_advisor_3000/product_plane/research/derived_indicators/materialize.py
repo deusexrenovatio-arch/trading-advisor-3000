@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
@@ -66,6 +67,7 @@ from trading_advisor_3000.spark_jobs.research_derived_source_frames_job import (
 from .source_frames import (
     DERIVED_SOURCE_FRAME_TABLE,
     DerivedSourceFramePartitionKey,
+    NativeRefreshScope,
     derived_source_indicator_columns_hash,
     load_derived_source_frame_partition_metadata,
     load_derived_source_frame_partition_rows,
@@ -1371,6 +1373,7 @@ def _derived_projection_contract_changed(
     derived_indicator_set_version: str,
     dataset_instrument_ids: Sequence[str] = (),
     series_mode: str | None = None,
+    scope: NativeRefreshScope = NativeRefreshScope(),
 ) -> bool:
     """Detect legacy/partial L2 publication before narrowing the target scope."""
     if not has_delta_log(table_path):
@@ -1392,6 +1395,7 @@ def _derived_projection_contract_changed(
             for row in owner_metadata
             if (series_mode is None or row.get("series_mode") == series_mode)
             and (not dataset_instrument_ids or row["instrument_id"] in dataset_instrument_ids)
+            and scope.matches(row["instrument_id"], row["timeframe"])
         ]
         if owner_metadata and all(
             row.get("source_snapshot_hash") and row.get("compute_contract_hash")
@@ -1417,7 +1421,18 @@ def _derived_projection_contract_changed(
     metadata = read_delta_table_arrow(
         table_path, columns=[*partition_columns, *columns], filters=filters
     )
+    metadata = metadata.filter(
+        pa.array(
+            [
+                scope.matches(row["instrument_id"], row["timeframe"])
+                for row in metadata.select(["instrument_id", "timeframe"]).to_pylist()
+            ],
+            type=pa.bool_(),
+        )
+    )
     identities = pc.unique(metadata.column(columns[0]))
+    if len(identities) == 0:
+        return False
     if len(identities) != 1 or identities[0].as_py() != expected_hash:
         return True
     return False
@@ -1433,6 +1448,7 @@ def _derived_partition_coverage_changed(
     derived_indicator_set_version: str,
     dataset_instrument_ids: Sequence[str],
     series_mode: str,
+    scope: NativeRefreshScope = NativeRefreshScope(),
 ) -> bool:
     """Compare actual physical publication with full scoped source coverage."""
     if not has_delta_log(table_path):
@@ -1458,6 +1474,8 @@ def _derived_partition_coverage_changed(
     actual_counts: dict[DerivedIndicatorFramePartitionKey, int] = {}
     # Only native aggregated partition metadata crosses into Python, not business rows.
     for row in observed.to_pylist():
+        if not scope.matches(row["instrument_id"], row["timeframe"]):
+            continue
         key = _metadata_partition_key(
             {
                 **row,
@@ -1820,10 +1838,12 @@ def _derived_metadata_fast_reuse(
     compute_contract_hash: str,
     instruments: Sequence[str],
     timeframes: Sequence[str],
+    requested_pairs: tuple[tuple[str, str], ...] = (),
 ) -> dict[str, object] | None:
     table_path = output_dir / "research_derived_indicator_frames.delta"
     if not snapshot_hash or not has_delta_log(table_path):
         return None
+    scope = NativeRefreshScope(tuple(timeframes), tuple(instruments), requested_pairs)
     metadata = load_derived_indicator_partition_metadata(
         output_dir=output_dir,
         dataset_version=dataset_version,
@@ -1835,7 +1855,7 @@ def _derived_metadata_fast_reuse(
         row
         for row in metadata
         if row.get("series_mode") == series_mode
-        and (not instruments or row["instrument_id"] in instruments)
+        and scope.matches(row["instrument_id"], row["timeframe"])
     ]
     output_hash = derived_indicator_output_columns_hash(profile.output_columns)
     if not scoped or any(
@@ -1856,7 +1876,7 @@ def _derived_metadata_fast_reuse(
     for row in source_metadata:
         if str(row.get("series_mode") or "contract") != series_mode:
             continue
-        if instruments and row["instrument_id"] not in instruments:
+        if not scope.matches(row["instrument_id"], row["timeframe"]):
             continue
         partition = _derived_partition_key(
             dataset_version=dataset_version,
@@ -1876,6 +1896,7 @@ def _derived_metadata_fast_reuse(
         contour_id=contour_id,
         dataset_instrument_ids=instruments,
         series_mode=series_mode,
+        scope=scope,
     ):
         return None
     selected = {
@@ -1934,6 +1955,13 @@ def materialize_derived_indicator_frames(
     dataset_instrument_ids: Sequence[str] = (),
     refresh_windows: Sequence[Mapping[str, object]] = (),
 ) -> dict[str, object]:
+    requested_scope = NativeRefreshScope.from_request(
+        timeframes=timeframes,
+        instruments=dataset_instrument_ids,
+        refresh_windows=refresh_windows,
+    )
+    timeframes = requested_scope.timeframes
+    dataset_instrument_ids = requested_scope.instruments
     stage_timings: StageTimings = {}
     stage_started = stage_timer()
     dataset_manifest = _load_dataset_manifest(
@@ -2018,6 +2046,7 @@ def materialize_derived_indicator_frames(
         compute_contract_hash=compute_contract_hash,
         instruments=dataset_instrument_ids,
         timeframes=timeframes,
+        requested_pairs=requested_scope.pairs,
     )
     if reused is not None:
         if (
@@ -2039,6 +2068,18 @@ def materialize_derived_indicator_frames(
         }
     record_stage_timing(stage_timings, "reuse_decision", stage_started, reused=False)
     stage_started = stage_timer()
+    if requested_scope.bounded and _derived_projection_contract_changed(
+        table_path=derived_indicator_output_dir / "research_derived_indicator_frames.delta",
+        expected_hash=derived_source_indicator_columns_hash(required_source_indicator_columns),
+        dataset_version=dataset_version,
+        contour_id=contour_id,
+        indicator_set_version=indicator_set_version,
+        derived_indicator_set_version=derived_indicator_set_version,
+        dataset_instrument_ids=dataset_instrument_ids,
+        series_mode=series_mode,
+        scope=requested_scope,
+    ):
+        raise ValueError("native derived metadata adaptation required before scoped refresh")
     source_frame_report = run_research_derived_source_frames_spark_job(
         bar_views_path=dataset_output_dir / "research_bar_views.delta",
         indicator_frames_path=indicator_output_dir / "research_indicator_frames.delta",
@@ -2076,8 +2117,11 @@ def materialize_derived_indicator_frames(
         derived_indicator_set_version=derived_indicator_set_version,
         dataset_instrument_ids=dataset_instrument_ids,
         series_mode=series_mode,
+        scope=requested_scope,
     )
     full_family_repair = source_projection_contract_changed or derived_projection_contract_changed
+    if full_family_repair and requested_scope.bounded:
+        raise ValueError("native derived metadata adaptation required before scoped refresh")
     effective_timeframes = () if full_family_repair else timeframes
     effective_instruments = dataset_instrument_ids
     scoped_timeframes = frozenset(
@@ -2092,6 +2136,7 @@ def materialize_derived_indicator_frames(
             partition.series_mode == series_mode
             and (not scoped_timeframes or partition.timeframe in scoped_timeframes)
             and (not scoped_instruments or partition.instrument_id in scoped_instruments)
+            and requested_scope.matches(partition.instrument_id, partition.timeframe)
         )
 
     stage_started = stage_timer()
@@ -2107,6 +2152,8 @@ def materialize_derived_indicator_frames(
             continue
         series_key = _series_key_from_source_metadata(row, requested_series_mode=series_mode)
         timeframe = str(row["timeframe"])
+        if not requested_scope.matches(series_key.instrument_id, timeframe):
+            continue
         if series_key.series_mode != series_mode:
             continue
         if scoped_instruments and series_key.instrument_id not in scoped_instruments:
@@ -2134,8 +2181,9 @@ def materialize_derived_indicator_frames(
         derived_indicator_set_version=derived_indicator_set_version,
         dataset_instrument_ids=dataset_instrument_ids,
         series_mode=series_mode,
+        scope=requested_scope,
     )
-    if derived_partition_coverage_changed:
+    if derived_partition_coverage_changed and not requested_scope.bounded:
         full_family_repair = True
         scoped_timeframes = frozenset()
     record_stage_timing(
