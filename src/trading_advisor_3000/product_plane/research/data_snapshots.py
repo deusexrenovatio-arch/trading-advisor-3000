@@ -415,6 +415,26 @@ def _validate_hash_compatibility(config: Mapping, pending: Mapping, instance: An
         raise ValueError("hash compatibility Data pins changed")
     for reference in old_data["tables"].values():
         open_pinned_table(reference)
+
+    def recovered_owner(owner: str, run: Any) -> bool:
+        if run.status.value not in {"FAILURE", "CANCELED"} or owner not in pending.get(
+            "recovery_lineage", ()
+        ):
+            return False
+        # Saved lineage alone is not authority. Validate the complete native
+        # parent chain before admitting an inherited successful stage.
+        cursor = pending.get("run_id")
+        ancestors: set[str] = set()
+        while cursor:
+            if cursor in ancestors:
+                return False
+            ancestors.add(cursor)
+            ancestor = instance.get_run_by_id(cursor)
+            if ancestor is None:
+                return False
+            cursor = ancestor.parent_run_id
+        return owner in ancestors
+
     # Exempt only completed, independently evidenced native stage outputs.
     for stage, value in pending["quality_checks"].items():
         owner = pending.get("quality_owners", {}).get(stage)
@@ -422,7 +442,11 @@ def _validate_hash_compatibility(config: Mapping, pending: Mapping, instance: An
         if (
             value != "PASS"
             or run is None
-            or (run.status.value != "SUCCESS" and owner != pending.get("run_id"))
+            or (
+                run.status.value != "SUCCESS"
+                and owner != pending.get("run_id")
+                and not recovered_owner(owner, run)
+            )
             or not any(
                 step.step_key == stage and step.status.value == "SUCCESS"
                 for step in instance.get_run_step_stats(owner)

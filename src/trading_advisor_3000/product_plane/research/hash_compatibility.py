@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-_REVIEWED_CURRENT_SOURCE_SHA256 = "0ec5fab684a3a60be7658711f783ff8f03e5b78b0a3e8553655f2b49cb129635"
+_REVIEWED_CURRENT_SOURCE_SHA256 = "eefc0f7d0ec96fa404eadb699729bd56f341a6609861df0590e84205f57e02fb"
 LEGACY_SOURCES = {
     # Exact deployed raw file hashes; both changes leave numerical formulas intact.
     "6c41c2dfc0dca91d67eeb63065ccb23e6368895e511aab4c816868bfc3c4acec": (

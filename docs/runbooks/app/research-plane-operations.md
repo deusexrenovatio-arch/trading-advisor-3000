@@ -92,6 +92,21 @@ unchanged Data pins permit accepted CF reuse; bounded changes run native CF. Emp
 it does not become a fake window or full refresh. Resume, same-run CF handoff and
 publication still compare exact raw runtime provenance.
 
+
+Same-code migration recovery may retain a successful stage from a terminal
+failed/canceled owner only when saved recovery lineage and the complete native
+Dagster parent chain both prove that owner. Missing/cyclic ancestry, active
+owners or missing native step SUCCESS reject recovery; code/config/pins remain
+exact.
+
+L2 source row growth or deletion alone does not mean physical output damage.
+Only slow planning can accept previous counts, with complete known proof
+metadata, exact physical/previous counts, identical current/previous keysets and
+all changed counts inside the requested scope. Physical gaps/duplicates,
+unknown proof, changed keysets or outside-scope changes retain full-family
+repair. Fast metadata noop still requires physical/current count equality;
+per-partition value, profile and MTF guards remain authoritative.
+
 L1 migrates only an exact complete legacy bars/ladder/minute proof, row membership
 and context. It updates row input proofs while preserving every value/NULL and
 legacy source provenance. Complete metadata-only partitions use one existing atomic

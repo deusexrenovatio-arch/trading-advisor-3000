@@ -2445,7 +2445,7 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
             assert repeated["refreshed_row_count"] == len(bars)
 
 
-def _vp_partition_fixture(tmp_path, monkeypatch):
+def _vp_partition_fixture(tmp_path, monkeypatch, *, with_daily=False):
     from datetime import UTC
 
     from deltalake import DeltaTable
@@ -2464,9 +2464,10 @@ def _vp_partition_fixture(tmp_path, monkeypatch):
     def stamp(value):
         return value.isoformat().replace("+00:00", "Z")
 
+    timeframes = (("15m", 15), ("1h", 60)) + ((("1d", 1440),) if with_daily else ())
     bars = []
     for instrument in ("BR", "SI"):
-        for timeframe, step in (("15m", 15), ("1h", 60)):
+        for timeframe, step in timeframes:
             for index in range(24 * 60 // step):
                 row = _canonical_bar(
                     instrument_id=instrument,
@@ -2483,7 +2484,7 @@ def _vp_partition_fixture(tmp_path, monkeypatch):
     calendars = [
         SessionCalendarEntry(instrument, timeframe, day, day + "T00:00:00Z", day + "T23:59:59Z")
         for instrument in ("BR", "SI")
-        for timeframe in ("15m", "1h")
+        for timeframe, _ in timeframes
         for day in ("2026-03-01", "2026-03-02")
     ]
     dataset, indicator, derived = (tmp_path / name for name in ("dataset", "indicator", "derived"))
@@ -2491,7 +2492,7 @@ def _vp_partition_fixture(tmp_path, monkeypatch):
         manifest_seed=ResearchDatasetManifest(
             dataset_version="vp-scope",
             universe_id="moex-futures",
-            timeframes=("15m", "1h"),
+            timeframes=tuple(timeframe for timeframe, _ in timeframes),
             contour_id="pit_active_front",
             series_mode="continuous_front",
             continuous_front_policy=ContinuousFrontPolicy.from_config({}),
@@ -2578,6 +2579,19 @@ def _vp_partition_fixture(tmp_path, monkeypatch):
     materialize_indicator_frames(**l1)
     materialize_derived_indicator_frames(**l2)
     return l1, l2, raw, columns, minute_rows, stamp(start + timedelta(hours=21, minutes=1))
+
+
+def _vp_derived_rows(output_dir):
+    from trading_advisor_3000.product_plane.research.derived_indicators.store import (
+        load_derived_indicator_frames,
+    )
+
+    return load_derived_indicator_frames(
+        output_dir=output_dir,
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
 
 
 @pytest.mark.parametrize(
@@ -2931,12 +2945,9 @@ def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
         indicator_set_version="indicators-v1",
         contour_id="pit_active_front",
     )
-    before_l2 = reload_derived_indicator_frames(
-        derived_indicator_output_dir=l2["derived_indicator_output_dir"],
-        dataset_version="vp-scope",
-        indicator_set_version="indicators-v1",
-        derived_indicator_set_version="derived-indicators-v1",
-    )
+    before_l2 = _vp_derived_rows(l2["derived_indicator_output_dir"])
+    assert before_l2, "L2 readback must include the actual published contour"
+    assert any(value is not None for row in before_l2 for value in row.values.values())
     predicate = f"instrument_id = 'BR' AND contract_id = 'BR-6.26' AND ts_open = '{target}'"
     if change == "minute_correct":
         DeltaTable(str(raw)).update(updates={"high": "90.0"}, predicate=predicate)
@@ -2982,12 +2993,7 @@ def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
         indicator_set_version="indicators-v1",
         contour_id="pit_active_front",
     )
-    after_l2 = reload_derived_indicator_frames(
-        derived_indicator_output_dir=l2["derived_indicator_output_dir"],
-        dataset_version="vp-scope",
-        indicator_set_version="indicators-v1",
-        derived_indicator_set_version="derived-indicators-v1",
-    )
+    after_l2 = _vp_derived_rows(l2["derived_indicator_output_dir"])
 
     def values(rows, unrelated=False):
         return {
@@ -3277,3 +3283,206 @@ def test_post223_migration_retains_verified_prefix_and_small_vp_tail(tmp_path, m
     assert result["hash_migrated_partition_count"] == 2
     assert sorted(written) == ["15m", "1h"] and volumes == [1, 1]
     assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+
+
+@pytest.mark.parametrize("legacy_index", [0, 1])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "append",
+        "source_delete",
+        "higher_tf",
+        "append_outside_scope",
+        "delete_key",
+        "append_missing_row",
+        "append_duplicate_row",
+        "append_unknown_proof",
+        "append_empty_proof",
+        "append_bad_count",
+    ],
+)
+def test_legacy_l2_append_preserves_unrelated_proof_migration(
+    tmp_path, monkeypatch, legacy_index, change
+):
+    import pyarrow as pa
+    from deltalake import DeltaTable, write_deltalake
+
+    from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    source = tuple(bridge.LEGACY_SOURCES)[legacy_index]
+    monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
+    namespace = {}
+    exec(_PRE223_INPUT_PRODUCER, owner.__dict__, namespace)
+    old_producer = namespace["_pre223_input_row_hashes"]
+    compute_contract = derived_materialize_module._derived_compute_contract_hash
+    with monkeypatch.context() as producer:
+        if legacy_index == 0:
+            producer.setattr(
+                owner,
+                "_indicator_input_row_hashes",
+                lambda *args, series_mode=None, **kwargs: old_producer(*args, **kwargs),
+            )
+            producer.setattr(
+                derived_materialize_module,
+                "_indicator_hash",
+                derived_materialize_module._legacy_indicator_hash,
+            )
+        producer.setattr(
+            derived_materialize_module,
+            "_derived_compute_contract_hash",
+            lambda ladder: compute_contract(
+                ladder, implementation_sha256=bridge.LEGACY_SOURCES[source]
+            ),
+        )
+        l1, l2, raw, _, minute_rows, _ = _vp_partition_fixture(
+            tmp_path, monkeypatch, with_daily=True
+        )
+    before = _vp_derived_rows(l2["derived_indicator_output_dir"])
+    assert before, "L2 readback must include the actual published contour"
+    assert any(value is not None for row in before for value in row.values.values())
+    damage = change.startswith("append_") and change != "append_outside_scope"
+    if damage:
+        output_path = l2["derived_indicator_output_dir"] / "research_derived_indicator_frames.delta"
+        table = DeltaTable(str(output_path))
+        predicate = "instrument_id = 'SI' AND timeframe = '1d'"
+        if change == "append_missing_row":
+            table.delete(predicate)
+        elif change == "append_duplicate_row":
+            duplicate = table.to_pyarrow_table(
+                filters=[("instrument_id", "=", "SI"), ("timeframe", "=", "1d")]
+            )
+            write_deltalake(str(output_path), duplicate, mode="append")
+        else:
+            field = "row_count" if change == "append_bad_count" else "source_snapshot_hash"
+            value = (
+                "-1"
+                if change == "append_bad_count"
+                else "''"
+                if change == "append_empty_proof"
+                else "'unknown'"
+            )
+            table.update(updates={field: value}, predicate=predicate)
+    bars_path = l1["dataset_output_dir"] / "research_bar_views.delta"
+    if change.startswith("append"):
+        bars_table = DeltaTable(str(bars_path)).to_pyarrow_table(
+            filters=[("instrument_id", "=", "BR"), ("timeframe", "=", "15m")]
+        )
+        row = max(bars_table.to_pylist(), key=lambda item: item["ts"])
+        row["bar_index"] += 1
+        for field in ("ts", "bar_end_ts"):
+            value = row[field]
+            row[field] = (
+                value + timedelta(minutes=15)
+                if isinstance(value, datetime)
+                else (datetime.fromisoformat(value.replace("Z", "+00:00")) + timedelta(minutes=15))
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
+        write_deltalake(
+            str(bars_path), pa.Table.from_pylist([row], schema=bars_table.schema), mode="append"
+        )
+        raw_table = DeltaTable(str(raw)).to_pyarrow_table()
+        minute = raw_table.to_pylist()[0]
+        new_minutes = []
+        for index in range(15):
+            stamp = datetime.fromisoformat(str(row["ts"]).replace("Z", "+00:00")) + timedelta(
+                minutes=index
+            )
+            new_minutes.append(
+                {**minute, "instrument_id": "BR", "contract_id": "BR-6.26", "ts_open": stamp}
+            )
+        write_deltalake(
+            str(raw), pa.Table.from_pylist(new_minutes, schema=raw_table.schema), mode="append"
+        )
+    elif change == "source_delete":
+        DeltaTable(str(bars_path)).delete(
+            "instrument_id = 'BR' AND timeframe = '15m' AND ts = '2026-03-02T08:45:00Z'"
+        )
+    elif change == "higher_tf":
+        DeltaTable(str(bars_path)).update(
+            updates={
+                "high": "high + 4",
+                "close": "close + 3",
+                "native_high": "native_high + 4",
+                "native_close": "native_close + 3",
+            },
+            predicate="instrument_id = 'BR' AND timeframe = '1h' AND ts = '2026-03-02T07:00:00Z'",
+        )
+    elif change == "delete_key":
+        DeltaTable(str(bars_path)).delete("instrument_id = 'BR' AND timeframe = '1d'")
+    if change == "append_outside_scope":
+        l2 = {**l2, "timeframes": ("1h",)}
+    l1_builder = owner._build_partition_rows
+    l2_builder = derived_materialize_module._build_partition_rows
+    calls = []
+
+    def only_changed_l1(**kwargs):
+        key = kwargs["series"][0]
+        assert (key.instrument_id, key.timeframe) == (
+            "BR",
+            "1h" if change == "higher_tf" else "15m",
+        )
+        return l1_builder(**kwargs)
+
+    def only_changed_l2(**kwargs):
+        key = kwargs["local_series"][0]
+        if not damage and change not in {"append_outside_scope", "delete_key"}:
+            assert key.instrument_id == "BR" and key.timeframe in (
+                {"15m", "1h"} if change == "higher_tf" else {"15m"}
+            ), "unrelated L2 partition recomputed after scoped source change"
+        calls.append((key.instrument_id, key.timeframe))
+        return l2_builder(**kwargs)
+
+    monkeypatch.setattr(owner, "_build_partition_rows", only_changed_l1)
+    monkeypatch.setattr(derived_materialize_module, "_build_partition_rows", only_changed_l2)
+    with bridge._verified_migration_scope(source):
+        materialize_indicator_frames(**l1)
+        result = materialize_derived_indicator_frames(**l2)
+    refreshed = (
+        6
+        if damage or change == "append_outside_scope"
+        else 5
+        if change == "delete_key"
+        else 2
+        if change == "higher_tf"
+        else 1
+    )
+    assert result["refreshed_partition_count"] == refreshed
+    expected_reuse = (
+        0 if damage or change in {"append_outside_scope", "delete_key"} else 6 - refreshed
+    )
+    assert (
+        result["reused_partition_count"]
+        == result["hash_migrated_partition_count"]
+        == expected_reuse
+    )
+    assert len(calls) == refreshed
+    after = _vp_derived_rows(l2["derived_indicator_output_dir"])
+
+    def unrelated(rows):
+        return {
+            (r.instrument_id, r.timeframe, r.ts): r.values
+            for r in rows
+            if r.instrument_id == "SI" or r.timeframe == "1d" and change != "delete_key"
+        }
+
+    assert unrelated(before) == unrelated(after)
+    difference = (
+        1 if change.startswith("append") else -1 if change in {"source_delete", "delete_key"} else 0
+    )
+    assert len(after) == len(before) + difference
+    if change == "higher_tf":
+        assert {
+            r.ts: r.values for r in before if r.instrument_id == "BR" and r.timeframe == "15m"
+        } != {r.ts: r.values for r in after if r.instrument_id == "BR" and r.timeframe == "15m"}
+    assert materialize_derived_indicator_frames(**l2)["refreshed_partition_count"] == 0
+    monkeypatch.setattr(derived_materialize_module, "_build_partition_rows", l2_builder)
+    reference = {**l2, "timeframes": ()}
+    materialize_derived_indicator_frames(**reference, force_recompute=True)
+    full = _vp_derived_rows(l2["derived_indicator_output_dir"])
+
+    def values(rows):
+        return {(r.instrument_id, r.timeframe, r.ts): r.values for r in rows}
+
+    assert values(after) == values(full)

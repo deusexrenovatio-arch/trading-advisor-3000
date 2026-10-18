@@ -657,3 +657,193 @@ def test_native_canonical_calendar_scope_covers_raw_schedule_provenance_advance(
     assert scope["force_full_refresh"] is False
     _apply_scope(accepted_chain, scope)
     assert checkpoint._validate_hash_compatibility(config, pending, instance) == accepted
+
+
+@pytest.mark.parametrize(
+    "status,hops", [("FAILURE", 1), ("CANCELED", 1), ("FAILURE", 2), ("CANCELED", 2)]
+)
+@pytest.mark.parametrize(
+    "change",
+    [
+        None,
+        "unrelated",
+        "forged_lineage",
+        "missing_step",
+        "missing_owner",
+        "missing_ancestor",
+        "owner_started",
+        "cycle",
+    ],
+)
+def test_migration_completed_stage_requires_verified_native_ancestor(
+    accepted_chain, monkeypatch, status, hops, change
+):
+    from types import SimpleNamespace
+
+    config, pending, instance, accepted, _, _, checkpoint = accepted_chain
+    pending.update(run_id="child", recovery_lineage=["ancestor", "parent"])
+    pending["quality_checks"]["completed"] = "PASS"
+    pending["quality_owners"]["completed"] = "ancestor"
+    parents = {"child": "ancestor" if hops == 1 else "parent", "parent": "ancestor"}
+    if change == "unrelated":
+        parents = {"child": "other", "other": None}
+    if change == "forged_lineage":
+        pending["recovery_lineage"] = ["parent"]
+    if change == "cycle":
+        parents = {"child": "parent", "parent": "ancestor", "ancestor": "child"}
+    if change == "missing_ancestor":
+        parents = {"child": "parent", "parent": "ancestor"}
+    original_run = instance.get_run_by_id
+    original_steps = instance.get_run_step_stats
+    monkeypatch.setattr(
+        instance,
+        "get_run_by_id",
+        lambda run_id: (
+            original_run(run_id)
+            if run_id == "native"
+            else None
+            if (change == "missing_owner" and run_id == "ancestor")
+            or (change == "missing_ancestor" and run_id == "parent")
+            else SimpleNamespace(
+                status=SimpleNamespace(
+                    value=status
+                    if run_id == "ancestor" and change != "owner_started"
+                    else "STARTED"
+                ),
+                parent_run_id=parents.get(run_id),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        instance,
+        "get_run_step_stats",
+        lambda run_id: (
+            original_steps(run_id)
+            if run_id == "native"
+            else []
+            if change == "missing_step"
+            else [SimpleNamespace(step_key="completed", status=SimpleNamespace(value="SUCCESS"))]
+        ),
+    )
+    if change:
+        with pytest.raises(ValueError, match="completed native stage proof"):
+            checkpoint._validate_hash_compatibility(config, pending, instance)
+    else:
+        assert checkpoint._validate_hash_compatibility(config, pending, instance) == accepted
+
+
+def reconstruct_hash_seed_job():
+    from dagster import in_process_executor, job, op
+
+    @op
+    def proof():
+        return None
+
+    @job(executor_def=in_process_executor)
+    def seed():
+        for stage in sorted(owner.REQUIRED_QUALITY - {"continuous_front_acceptance"}):
+            proof.alias(stage)()
+
+    return seed
+
+
+def reconstruct_hash_resume_job():
+    from dagster import in_process_executor, job, op
+
+    from trading_advisor_3000.product_plane.research import data_snapshots as checkpoint
+
+    @op(config_schema=dict)
+    @checkpoint.snapshot_materialization(("research_indicator_frames",))
+    def hash_resume_l1(context):
+        import pyarrow as pa
+        from deltalake import write_deltalake
+
+        root = Path(context.op_config["materialized_output_dir"])
+        count = root / "l1-calls.txt"
+        count.write_text(str(int(count.read_text()) + 1) if count.exists() else "1")
+        write_deltalake(
+            str(root / "research_indicator_frames.delta"),
+            pa.table(
+                {
+                    "ts_close_year": [2026],
+                    "value": [1.0],
+                    "dataset_version": ["nightly"],
+                    "contour_id": ["pit_active_front"],
+                    "series_mode": ["continuous_front"],
+                    "series_id": ["BR"],
+                    "indicator_set_version": ["indicators-v1"],
+                    "timeframe": ["15m"],
+                    "ts": ["2026-10-12T10:00:00Z"],
+                }
+            ),
+            partition_by=["ts_close_year"],
+        )
+        return {"status": "PASS"}
+
+    @op(config_schema=dict)
+    @checkpoint.snapshot_materialization(())
+    def hash_resume_r2(context, hash_resume_l1):
+        root = Path(context.op_config["materialized_output_dir"])
+        count = root / "r2-calls.txt"
+        attempts = int(count.read_text()) if count.exists() else 0
+        count.write_text(str(attempts + 1))
+        if attempts < context.op_config["test_failures"]:
+            raise RuntimeError("simulated downstream failure after verified migration L1")
+        pending = checkpoint._initial(context, context.op_config)
+        assert pending["quality_owners"]["hash_resume_l1"] in pending["recovery_lineage"]
+        return {"status": "PASS"}
+
+    @job(executor_def=in_process_executor)
+    def resume():
+        hash_resume_r2(hash_resume_l1())
+
+    return resume
+
+
+@pytest.mark.parametrize("failures", [1, 2])
+def test_native_migration_from_failure_preserves_completed_delta_checkpoint(
+    accepted_chain, tmp_path, failures
+):
+    import json
+    from types import SimpleNamespace
+
+    from dagster import DagsterInstance, ReexecutionOptions, execute_job, reconstructable
+    from deltalake import DeltaTable
+
+    config, _, _, _, publish, _, checkpoint = accepted_chain
+    output = Path(config["materialized_output_dir"])
+    output.mkdir(exist_ok=True)
+    config.update(code_version="fixture", data_snapshot_enabled=True, test_failures=failures)
+    stages = owner.REQUIRED_QUALITY - {"continuous_front_acceptance"}
+    instance_root = tmp_path / "instance"
+    instance_root.mkdir()
+    with DagsterInstance.local_temp(str(instance_root)) as instance:
+        with execute_job(reconstructable(reconstruct_hash_seed_job), instance=instance) as seeded:
+            assert seeded.success
+            publish(owners={stage: seeded.run_id for stage in stages})
+        run_config = {
+            "ops": {name: {"config": config} for name in ("hash_resume_l1", "hash_resume_r2")}
+        }
+        lineage = []
+        for attempt in range(failures + 1):
+            options = ReexecutionOptions.from_failure(lineage[-1], instance) if lineage else None
+            with execute_job(
+                reconstructable(reconstruct_hash_resume_job),
+                instance=instance,
+                run_config=run_config,
+                reexecution_options=options,
+                raise_on_error=False,
+            ) as result:
+                assert result.success == (attempt == failures)
+                assert (output / "l1-calls.txt").read_text() == "1"
+                pending = json.loads(
+                    checkpoint._pending_path(
+                        SimpleNamespace(run_id=result.run_id), config
+                    ).read_text()
+                )
+                assert pending.get("recovery_lineage", []) == lineage
+                lineage.append(result.run_id)
+        assert (output / "r2-calls.txt").read_text() == str(failures + 1)
+        assert DeltaTable(str(output / "research_indicator_frames.delta")).version() == 0
+        assert pending["quality_owners"]["hash_resume_l1"] == lineage[0]
+        assert pending["quality_owners"]["hash_resume_r2"] == lineage[-1]

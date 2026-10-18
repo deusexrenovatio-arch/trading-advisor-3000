@@ -552,3 +552,83 @@ def test_higher_tf_only_adx_change_invalidates_lower_causal_mtf_and_reuses_other
             target.loc[pd.Timestamp(f"2026-03-02T{opened}:00Z"), "mtf_1h_to_15m_adx_14"] == expected
         )
     assert _input_pin(l1_path) == revised_l1_pin
+
+
+def test_native_source_append_keeps_other_l2_partitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, native_source_runtime
+) -> None:
+    import pyarrow as pa
+    from deltalake import write_deltalake
+
+    kwargs, l1_path, derived_dir, profile = _runtime_fixture(tmp_path)
+    owner.materialize_derived_indicator_frames(**kwargs)
+    l0_path = kwargs["dataset_output_dir"] / "research_bar_views.delta"
+    l2_path = derived_dir / "research_derived_indicator_frames.delta"
+    before = _read_values(l2_path, profile.output_columns)
+    assert len(before) == 256
+    assert before[list(profile.output_columns)].notna().any().any()
+    for path in (l0_path, l1_path):
+        table = DeltaTable(str(path)).to_pyarrow_table(
+            filters=[("instrument_id", "=", "BR"), ("timeframe", "=", "15m")]
+        )
+        row = max(table.to_pylist(), key=lambda item: item["ts"])
+        for field in ("ts", "bar_start_ts", "bar_end_ts"):
+            value = row.get(field)
+            if value is not None:
+                stamp = pd.Timestamp(value) + pd.Timedelta(minutes=15)
+                row[field] = (
+                    stamp.to_pydatetime()
+                    if isinstance(value, datetime)
+                    else stamp.isoformat().replace("+00:00", "Z")
+                )
+        if "bar_index" in row:
+            row["bar_index"] += 1
+        if "row_count" in row:
+            row["row_count"] = 33
+            row["created_at"] = "2026-03-04T00:00:00Z"
+        write_deltalake(str(path), pa.Table.from_pylist([row], schema=table.schema), mode="append")
+    pins = {path: _input_pin(path) for path in (l0_path, l1_path)}
+    builder = owner._build_partition_rows
+    calls = []
+
+    def affected_only(**arguments):
+        bar = arguments["local_series"][0]
+        assert (bar.instrument_id, bar.timeframe) == ("BR", "15m")
+        calls.append((bar.instrument_id, bar.timeframe))
+        return builder(**arguments)
+
+    monkeypatch.setattr(owner, "_build_partition_rows", affected_only)
+    report = owner.materialize_derived_indicator_frames(**kwargs)
+    assert report["refreshed_partition_count"] == report["recomputed_partition_count"] == 1
+    assert report["reused_partition_count"] == 7
+    assert calls == [("BR", "15m")]
+    after = _read_values(l2_path, profile.output_columns)
+    assert len(after) == 257
+    unchanged_before = before.loc[
+        ~((before.instrument_id == "BR") & (before.timeframe == "15m"))
+    ].reset_index(drop=True)
+    unchanged_after = after.loc[
+        ~((after.instrument_id == "BR") & (after.timeframe == "15m"))
+    ].reset_index(drop=True)
+    pd.testing.assert_frame_equal(unchanged_before, unchanged_after, check_exact=True)
+    monkeypatch.setattr(owner, "_build_partition_rows", builder)
+    reference_dir = tmp_path / "reference"
+    owner.materialize_derived_indicator_frames(
+        **{**kwargs, "derived_indicator_output_dir": reference_dir}, force_recompute=True
+    )
+    pd.testing.assert_frame_equal(
+        after,
+        _read_values(
+            reference_dir / "research_derived_indicator_frames.delta", profile.output_columns
+        ),
+        check_exact=True,
+    )
+    final_pin = _input_pin(l2_path)
+
+    def forbidden(**arguments):
+        pytest.fail("unchanged repeat started source production")
+
+    monkeypatch.setattr(owner, "run_research_derived_source_frames_spark_job", forbidden)
+    assert owner.materialize_derived_indicator_frames(**kwargs)["refreshed_partition_count"] == 0
+    assert _input_pin(l2_path) == final_pin
+    assert {path: _input_pin(path) for path in pins} == pins
