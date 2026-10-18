@@ -104,3 +104,55 @@ python -m trading_advisor_3000.product_plane.research.derived_indicators.retire_
 
 Resume writes only after native schemas, sidecar parity and normal consumer
 reads pass. A verification copy does not constitute production migration.
+
+## Native metadata adoption after retirement
+
+Change surface: product-plane. Metadata lifecycle contract change, 2026-10-19.
+`research.derived_indicators.adapt_native_metadata` is the explicit migration
+owner. Ordinary scoped refresh never clears requested timeframe/date windows
+to repair a projection contract. Existing incompatible source/L2 metadata fails
+before source production. New absent pairs may bootstrap only their requested
+scope; disjoint refresh windows preserve exact instrument/timeframe pairs in
+reuse, coverage, planning and deletion.
+
+The migration supports the audited `9981781d` legacy calculation identity with
+numpy 2.5.4 / pandas 2.3.3. It binds the accepted sidecar manifest, immutable
+L0/L1/L2/ladder table IDs and versions, the native kernel/normalization AST and
+the final deployed writer files. Unknown releases, missing physical native
+columns/types, ambiguous manifest lineage and incomplete selected key coverage
+fail before mutation.
+
+The adapter reconstructs historical native inputs through existing row and CF
+projection owners. Legacy bar and 61-column indicator hashes must match saved
+L2; retained 94 native outputs/keys must equal accepted historical L2. The new
+local hash describes those historical inputs. Current source rows independently
+must match authoritative current L0/L1. Corrections and appended bars remain
+pending: a differing current input hash keeps `source_snapshot_hash` empty.
+Only a complete unchanged pair receives a current snapshot binding, after the
+source metadata commit. Historical count, dataset/profile provenance and all
+native values remain intact.
+
+No indicator/derived formula is invoked by adaptation. Source projection
+metadata and L2 native identity metadata use existing Delta merge ownership.
+Every selected partition is preflighted before the first transaction; ID/version
+checks fence both commits. Native values/keys/types, all selected metadata/counts
+and metadata outside scope receive independent readback. The durable receipt
+records each commit before verification. Rollback rejects intervening writes;
+no vacuum. This is not a cross-table transaction: keep writers idle until both
+verified commits, or use the receipt for recovery.
+
+Run from the promoted writer with recurring writes paused:
+
+```text
+python -m trading_advisor_3000.product_plane.research.derived_indicators.adapt_native_metadata --root <current-root> --dataset-version <dataset> --output <plan.json>
+python -m trading_advisor_3000.product_plane.research.derived_indicators.adapt_native_metadata --root <current-root> --apply-plan <plan.json> --writer-root /workspace --output <receipt.json>
+python -m trading_advisor_3000.product_plane.research.derived_indicators.adapt_native_metadata --root <current-root> --rollback-receipt <receipt.json> --writer-root /workspace --output <rollback.json>
+```
+
+Use `--instruments` / `--timeframes` for an explicitly selected adoption scope.
+Verify an unchanged pair through ordinary `snapshot_materialization` with hard
+failures on formula entrypoints. Changed native inputs must miss both reuse
+paths and retain their requested TF. The current CF calculation owner computes
+the full selected series before reducing writes to a changed suffix; suffix
+writes alone do not prove incremental formula continuation. Do not invoke that
+calculation when full selected-series recomputation is prohibited.

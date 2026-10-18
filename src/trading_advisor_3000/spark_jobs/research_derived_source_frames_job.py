@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
+import pyarrow as pa
+
 from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
 from trading_advisor_3000.product_plane.common.table_layout import (
     YEAR_PARTITION_COLUMN,
@@ -21,6 +23,7 @@ from trading_advisor_3000.product_plane.research.datasets import (
 from trading_advisor_3000.product_plane.research.derived_indicators.source_frames import (
     DERIVED_SOURCE_FRAME_DELTA,
     DERIVED_SOURCE_FRAME_TABLE,
+    NativeRefreshScope,
     derived_source_indicator_columns_hash,
     research_derived_source_frame_store_contract,
 )
@@ -256,8 +259,9 @@ def _source_projection_contract_changed(
     indicator_set_version: str,
     dataset_instrument_ids: Sequence[str] = (),
     source_indicator_columns: tuple[str, ...] = (),
+    scope: NativeRefreshScope = NativeRefreshScope(),
 ) -> bool:
-    """Check the entire scoped MTF family before applying timeframe/date windows."""
+    """Check native projection identity inside the exact requested pairs."""
     if not has_delta_log(table_path):
         return False
     hash_column = "source_indicator_columns_hash"
@@ -269,7 +273,7 @@ def _source_projection_contract_changed(
 
     metadata = read_delta_table_arrow(
         table_path,
-        columns=[hash_column],
+        columns=[hash_column, "instrument_id", "timeframe"],
         filters=_scope_filters(
             dataset_version=dataset_version,
             contour_id=contour_id,
@@ -278,10 +282,19 @@ def _source_projection_contract_changed(
         ),
     )
     # Native distinct over the projected metadata column; NULL is a separate value.
+    metadata = metadata.filter(
+        pa.array(
+            [
+                scope.matches(row["instrument_id"], row["timeframe"])
+                for row in metadata.select(["instrument_id", "timeframe"]).to_pylist()
+            ],
+            type=pa.bool_(),
+        )
+    )
     hashes = pc.unique(metadata.column(hash_column))
     if len(hashes) > 1:
         raise ValueError("mixed source projection contracts in scoped derived source frames")
-    changed = len(hashes) == 0 or hashes[0].as_py() != expected_hash
+    changed = len(hashes) > 0 and hashes[0].as_py() != expected_hash
     missing_columns = set(source_indicator_columns) - available_columns
     if not changed and missing_columns:
         raise ValueError(
@@ -396,6 +409,11 @@ def run_research_derived_source_frames_spark_job(
 
     spec = ResearchDerivedSourceFramesSparkJobSpec()
     normalized_refresh_windows = _normalize_refresh_windows(refresh_windows)
+    requested_scope = NativeRefreshScope.from_request(
+        timeframes=timeframes,
+        instruments=dataset_instrument_ids,
+        refresh_windows=refresh_windows,
+    )
     scoped_timeframes = (
         _unique_scope_values(normalized_refresh_windows, "timeframe")
         if normalized_refresh_windows
@@ -425,12 +443,12 @@ def run_research_derived_source_frames_spark_job(
         indicator_set_version=indicator_set_version,
         dataset_instrument_ids=declared_instruments,
         source_indicator_columns=source_indicator_columns,
+        scope=requested_scope,
     )
     requested_refresh_window_count = len(normalized_refresh_windows)
+    if source_projection_contract_changed and requested_scope.bounded:
+        raise ValueError("native source metadata adaptation required before scoped refresh")
     if source_projection_contract_changed:
-        # A narrow update would leave historical rows and higher-timeframe dependencies
-        # under the old projection. Restore the declared instrument scope, not the
-        # window instruments; an empty declared scope means the entire dataset.
         normalized_refresh_windows = ()
         scoped_timeframes = ()
         scoped_instruments = declared_instruments
