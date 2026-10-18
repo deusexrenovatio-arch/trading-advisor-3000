@@ -52,10 +52,10 @@ def test_cf_materialization_releases_finished_source_families(monkeypatch, tmp_p
         indicator = SimpleNamespace(profile_version="core_v1", output_columns_hash="source-hash")
         return [bar], [indicator], frame
 
-    def build_rows(*, local_series, source_frames, **kwargs):
+    def build_rows(*, local_series, base_frame, **kwargs):
         bar = local_series[0]
-        assert set(source_frames) == set(timeframes)
-        assert {frame.attrs["family"] for frame in source_frames.values()} == {bar.instrument_id}
+        assert "source_frames" not in kwargs
+        assert base_frame.attrs["family"] == bar.instrument_id
         observe("compute")
         key = (bar.instrument_id, bar.timeframe)
         computed.append(key)
@@ -110,7 +110,7 @@ def test_cf_materialization_releases_finished_source_families(monkeypatch, tmp_p
     monkeypatch.setattr(owner, "existing_derived_indicator_value_columns", lambda **kwargs: ())
     monkeypatch.setattr(owner, "_bars_hash", lambda rows: "bars-hash")
     monkeypatch.setattr(owner, "_indicator_hash", lambda rows, **kwargs: "indicators-hash")
-    monkeypatch.setattr(owner, "_mtf_source_family_hash", lambda **kwargs: "family-hash")
+    monkeypatch.setattr(owner, "_source_inputs_hash", lambda **kwargs: "family-hash")
     monkeypatch.setattr(owner, "_build_partition_rows", build_rows)
     monkeypatch.setattr(owner, "write_derived_indicator_frame_batches", write_batches)
 

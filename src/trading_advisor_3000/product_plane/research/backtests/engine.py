@@ -58,6 +58,7 @@ METADATA_COLUMNS = {
     "created_at",
     "source_bars_hash",
     "source_indicators_hash",
+    "source_inputs_hash",
     "row_count",
     "warmup_span",
     "null_warmup_span",

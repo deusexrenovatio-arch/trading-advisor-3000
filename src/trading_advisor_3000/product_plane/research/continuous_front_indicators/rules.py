@@ -240,24 +240,6 @@ CALCULATION_GROUPS: dict[str, CalculationGroup] = {
             "outputs compare movement angles."
         ),
     ),
-    "mtf_causal_overlay": CalculationGroup(
-        group_id="mtf_causal_overlay",
-        roll_class="MTF",
-        adapter_id="pandas_window_adapter",
-        input_price_space="source_declared",
-        output_price_space="source_declared",
-        state_space="closed_bar_mtf_overlay",
-        state_transform_on_roll="latest source bar where source_ts_close <= target_ts_close",
-        contract_boundary_policy="matching_policy_versions_only",
-        allow_cross_contract_window=True,
-        reset_on_roll=False,
-        anchor_sensitive=False,
-        pandas_ta_allowed=False,
-        description=(
-            "MTF overlays use closed source bars only and require matching "
-            "dataset/roll/indicator versions."
-        ),
-    ),
 }
 
 
@@ -450,8 +432,6 @@ def rules_for_indicator_profile(
 def _group_for_derived_output(column: str) -> str:
     if column.startswith("vp_"):
         return "price_volume_roll_aware"
-    if column.startswith("mtf_"):
-        return "mtf_causal_overlay"
     if column in {
         "volume_change_1",
         "oi_change_1",

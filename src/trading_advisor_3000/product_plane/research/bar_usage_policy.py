@@ -322,12 +322,6 @@ DERIVED_BAR_USAGE_RULES: tuple[BarUsageCalculationRule, ...] = (
             "divergence_price_oi_relative_activity_*_score",
         ),
     ),
-    BarUsageCalculationRule(
-        group_id="derived_mtf_projection",
-        required_flags=PRICE_RISK,
-        mode=STATE_UPDATE_HOLD,
-        output_patterns=("mtf_*",),
-    ),
 )
 
 
@@ -425,7 +419,3 @@ def has_required_bar_usage_flags(flags: object, required_flags: int) -> bool:
     except (TypeError, ValueError):
         return False
     return (value & required_flags) == required_flags
-
-
-def required_flags_for_mtf_source_column(source_column: str) -> int:
-    return resolve_indicator_bar_usage_rule(source_column).required_flags

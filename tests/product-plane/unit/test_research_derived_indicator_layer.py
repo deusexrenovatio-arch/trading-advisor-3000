@@ -5,7 +5,6 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
@@ -41,7 +40,7 @@ def _angle_slope(current: float, previous: float, *, length: int) -> float:
     return math.degrees(math.atan((current - previous) / float(length)))
 
 
-def test_derived_native_contract_tracks_ladder_and_mtf_policy(monkeypatch) -> None:
+def test_derived_native_contract_tracks_ladder_and_usage_policy(monkeypatch) -> None:
     from trading_advisor_3000.product_plane.research.derived_indicators import materialize
 
     ladder = ({"roll_seq": 1, "offset": 2.0}, {"roll_seq": 2, "offset": 3.0})
@@ -51,7 +50,7 @@ def test_derived_native_contract_tracks_ladder_and_mtf_policy(monkeypatch) -> No
         materialize._derived_compute_contract_hash((dict(ladder[0], offset=2.1), ladder[1]))
         != original
     )
-    monkeypatch.setattr(materialize, "MTF_MAPPINGS", (("1h", "15m"),))
+    monkeypatch.setattr(materialize, "INDICATOR_USAGE_POLICY_ID", "native-policy-change")
     assert materialize._derived_compute_contract_hash(ladder) != original
 
 
@@ -368,7 +367,7 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
             "source_indicator_profile_version",
             "source_indicator_output_columns_hash",
             "source_indicator_columns_hash",
-            "mtf_source_family_hash",
+            "source_inputs_hash",
             "source_snapshot_hash",
             "compute_contract_hash",
             "row_count",
@@ -624,11 +623,11 @@ def test_derived_legacy_partition_without_output_hash_is_not_reused_as_complete(
         profile_version="core_v1",
         row_count=12,
         output_columns_hash="TARGET-COLUMNS",
-        mtf_source_family_hash="CURRENT-FAMILY",
+        source_inputs_hash="CURRENT-FAMILY",
     )
 
 
-def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay() -> None:
+def test_derived_indicator_build_produces_native_wide_values() -> None:
     bars_15m = [
         _view(
             ts_index=index, close=90.0 + index * 0.05 + ((index % 16) - 8) * 0.06, timeframe="15m"
@@ -661,8 +660,6 @@ def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay(
     )
 
     indicator_15m = [row for row in indicators if row.timeframe == "15m"]
-    indicator_1h = [row for row in indicators if row.timeframe == "1h"]
-    indicator_4h = [row for row in indicators if row.timeframe == "4h"]
     rows_15m = [row for row in rows if row.timeframe == "15m"]
     tail = rows_15m[-1]
     for column in (
@@ -678,13 +675,6 @@ def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay(
         "trix_signal_cross_code",
         "divergence_price_rsi_14_score",
         "divergence_price_pvt_score",
-        "mtf_1h_to_15m_ema_20",
-        "mtf_1h_to_15m_ema_50",
-        "mtf_1h_to_15m_rsi_14",
-        "mtf_4h_to_15m_ema_20",
-        "mtf_4h_to_15m_ema_50",
-        "mtf_4h_to_15m_adx_14",
-        "mtf_4h_to_15m_rsi_14",
     ):
         assert tail.values[column] is not None
     assert tail.values["sma_20_slope_5"] == pytest.approx(
@@ -697,17 +687,7 @@ def test_derived_indicator_build_produces_wide_v2_values_and_causal_mtf_overlay(
             indicator_15m[-1].values["ema_20"], indicator_15m[-6].values["ema_20"], length=5
         )
     )
-    assert tail.values["mtf_1h_to_15m_ema_20"] == pytest.approx(indicator_1h[-1].values["ema_20"])
-    assert tail.values["mtf_1h_to_15m_ema_50"] == pytest.approx(indicator_1h[-1].values["ema_50"])
-    current_close_ts = pd.Timestamp(tail.ts) + pd.Timedelta(minutes=15)
-    source_4h = [
-        row
-        for row in indicator_4h
-        if pd.Timestamp(row.ts) + pd.Timedelta(hours=4) <= current_close_ts
-    ][-1]
-    assert tail.values["mtf_4h_to_15m_ema_20"] == pytest.approx(source_4h.values["ema_20"])
-    assert tail.values["mtf_4h_to_15m_adx_14"] == pytest.approx(source_4h.values["adx_14"])
-    assert "mtf_4h_to_15m_donchian_high_55" not in tail.values
+    assert not any(column.startswith("mtf_") for column in tail.values)
     assert tail.null_warmup_span < tail.row_count
 
 

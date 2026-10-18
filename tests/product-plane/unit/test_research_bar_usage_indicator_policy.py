@@ -19,7 +19,6 @@ from trading_advisor_3000.product_plane.research.datasets.bar_usage import (
 )
 from trading_advisor_3000.product_plane.research.derived_indicators import (
     DerivedIndicatorProfile,
-    build_derived_indicator_frames,
     current_derived_indicator_profile,
 )
 from trading_advisor_3000.product_plane.research.derived_indicators import (
@@ -28,7 +27,6 @@ from trading_advisor_3000.product_plane.research.derived_indicators import (
 from trading_advisor_3000.product_plane.research.derived_indicators.materialize import (
     _compute_derived_frame,
     _compute_derived_frame_unmasked,
-    _split_mtf_output_columns_by_source_flags,
 )
 from trading_advisor_3000.product_plane.research.derived_indicators.materialize import (
     _project_bar_usage_computed_columns as _project_derived_bar_usage_columns,
@@ -397,11 +395,6 @@ def test_derived_projection_preserves_computed_null_state() -> None:
     assert pd.isna(projected["rolling_high_20"].iloc[2])
 
 
-def test_mtf_output_split_rejects_unknown_projection_output() -> None:
-    with pytest.raises(ValueError, match="unknown MTF output column"):
-        _split_mtf_output_columns_by_source_flags(("mtf_unknown_to_15m_ema_20",))
-
-
 def test_derived_rolling_windows_skip_noneligible_bars() -> None:
     usage_profiles = ["regular_trading"] * 20 + ["risk_only", "regular_trading"]
     highs = [float(index) for index in range(20)] + [999.0, 21.0]
@@ -409,8 +402,6 @@ def test_derived_rolling_windows_skip_noneligible_bars() -> None:
 
     computed = _compute_derived_frame(
         base_frame=frame,
-        current_timeframe="15m",
-        source_frames={},
         profile=_derived_profile("rolling_high_20"),
     )
 
@@ -428,8 +419,6 @@ def test_derived_session_state_resets_without_cross_session_leakage() -> None:
 
     computed = _compute_derived_frame(
         base_frame=frame,
-        current_timeframe="15m",
-        source_frames={},
         profile=_derived_profile("session_high"),
     )
 
@@ -447,38 +436,11 @@ def test_derived_event_columns_are_neutral_on_noneligible_bars() -> None:
 
     computed = _compute_derived_frame(
         base_frame=frame,
-        current_timeframe="15m",
-        source_frames={},
         profile=_derived_profile("cross_close_session_vwap_code"),
     )
 
     assert computed.loc[1, "cross_close_session_vwap_code"] == 1
     assert computed.loc[2, "cross_close_session_vwap_code"] == 0
-
-
-def test_mtf_projection_uses_only_source_bars_eligible_for_carried_column() -> None:
-    target = _derived_base_frame(
-        ["regular_trading"],
-        start=datetime(2026, 3, 16, 9, 45, tzinfo=UTC),
-    )
-    source = _derived_base_frame(
-        ["regular_trading", "risk_only"],
-        timeframe="1h",
-        start=datetime(2026, 3, 16, 8, 0, tzinfo=UTC),
-    )
-    source["adx_14"] = [20.0, 999.0]
-    source["ema_20"] = [10.0, 999.0]
-    source["ema_50"] = [11.0, 999.0]
-    source["rsi_14"] = [50.0, 999.0]
-
-    computed = _compute_derived_frame(
-        base_frame=target,
-        current_timeframe="15m",
-        source_frames={"1h": source},
-        profile=_derived_profile("mtf_1h_to_15m_adx_14"),
-    )
-
-    assert computed.loc[0, "mtf_1h_to_15m_adx_14"] == pytest.approx(20.0)
 
 
 def test_derived_unmasked_profile_skips_unrequested_formula_groups(
@@ -497,45 +459,12 @@ def test_derived_unmasked_profile_skips_unrequested_formula_groups(
         "_compute_session_vwap",
         fail_unrequested_group,
     )
-    monkeypatch.setattr(
-        derived_materialize_module,
-        "_compute_mtf_overlay",
-        fail_unrequested_group,
-    )
 
     computed = _compute_derived_frame_unmasked(
         base_frame=frame,
-        current_timeframe="15m",
-        source_frames={},
         profile=_derived_profile("close_change_1"),
     )
 
     assert computed.loc[1, "close_change_1"] == pytest.approx(2.0)
     assert "session_vwap" not in computed.columns
     assert "mtf_1h_to_15m_ema_20" not in computed.columns
-
-
-def test_continuous_front_build_mtf_projection_uses_source_timeframe_family() -> None:
-    bar_15m = _cf_view(3, 100.0, timeframe="15m")
-    bar_1h = _cf_view(0, 101.0, timeframe="1h")
-    indicator_rows = [
-        _indicator_row_for_bar(
-            bar_15m, {"ema_20": 10.0, "ema_50": 11.0, "adx_14": 20.0, "rsi_14": 50.0}
-        ),
-        _indicator_row_for_bar(
-            bar_1h, {"ema_20": 123.0, "ema_50": 124.0, "adx_14": 25.0, "rsi_14": 55.0}
-        ),
-    ]
-
-    rows = build_derived_indicator_frames(
-        dataset_version="dataset-bar-usage-v1",
-        indicator_set_version="indicators-bar-usage-v1",
-        derived_indicator_set_version="derived-bar-usage-v1",
-        bar_views=[bar_15m, bar_1h],
-        indicator_rows=indicator_rows,
-        series_mode="continuous_front",
-        profile=_derived_profile("mtf_1h_to_15m_ema_20"),
-    )
-
-    row_15m = next(row for row in rows if row.timeframe == "15m")
-    assert row_15m.values["mtf_1h_to_15m_ema_20"] == pytest.approx(123.0)
