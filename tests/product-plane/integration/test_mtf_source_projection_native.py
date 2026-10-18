@@ -398,7 +398,19 @@ def test_source_commit_l2_failure_narrow_retry_repairs_full_family(
         for column in owner._source_indicator_columns_for_profile(profile)
         if column != "adx_14"
     )
+    from trading_advisor_3000.product_plane.research.hash_compatibility import LEGACY_SOURCES
+
+    compute_contract = owner._derived_compute_contract_hash
     with monkeypatch.context() as legacy:
+        # An older compute receipt requires the existing complete-partition
+        # fallback rather than trimming a numerically equal prefix.
+        legacy.setattr(
+            owner,
+            "_derived_compute_contract_hash",
+            lambda ladder: compute_contract(
+                ladder, implementation_sha256=tuple(LEGACY_SOURCES.values())[1]
+            ),
+        )
         legacy.setattr(owner, "_source_indicator_columns_for_profile", lambda _: old_columns)
         owner.materialize_derived_indicator_frames(**kwargs)
     l2_path = derived_dir / "research_derived_indicator_frames.delta"
@@ -425,6 +437,11 @@ def test_source_commit_l2_failure_narrow_retry_repairs_full_family(
 
             def split_batches():
                 for batch in batches:
+                    assert len(batch) == 32 and {row.row_count for row in batch} == {32}
+                    assert (
+                        len({(row.instrument_id, row.contract_id, row.timeframe) for row in batch})
+                        == 1
+                    )
                     yield batch[:16]
                     yield batch[16:]
 
