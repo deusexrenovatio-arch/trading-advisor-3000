@@ -417,6 +417,10 @@ def test_source_commit_l2_failure_narrow_retry_repairs_full_family(
                 raise RuntimeError("injected after committed L2 append")
 
         def bounded_actual_l2_writer(**write_args):
+            # Exercise the existing full-batch fallback, whose first committed
+            # append can be interrupted. The ordinary suffix API requires one
+            # complete logical partition per batch and must not be split here.
+            write_args["partition_start_ts"] = None
             batches = write_args.pop("row_batches")
 
             def split_batches():
@@ -585,7 +589,11 @@ def test_native_source_append_keeps_other_l2_partitions(
             row["bar_index"] += 1
         if "row_count" in row:
             row["row_count"] = 33
-            row["created_at"] = "2026-03-04T00:00:00Z"
+            row["created_at"] = (
+                datetime(2026, 3, 4, tzinfo=UTC)
+                if isinstance(row["created_at"], datetime)
+                else "2026-03-04T00:00:00Z"
+            )
         write_deltalake(str(path), pa.Table.from_pylist([row], schema=table.schema), mode="append")
     pins = {path: _input_pin(path) for path in (l0_path, l1_path)}
     builder = owner._build_partition_rows
