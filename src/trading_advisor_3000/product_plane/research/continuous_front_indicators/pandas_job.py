@@ -178,6 +178,7 @@ DERIVED_SOURCE_RESERVED_COLUMNS = (
     "source_bars_hash",
     "source_dataset_bars_hash",
     "source_indicators_hash",
+    "source_inputs_hash",
     "source_indicator_profile_version",
     "source_indicator_output_columns_hash",
     "row_count",

@@ -223,7 +223,7 @@ def native_source_runtime(monkeypatch: pytest.MonkeyPatch):
     yield
 
 
-def test_real_source_projection_corrects_historical_mtf_before_narrow_window(
+def test_real_native_source_contract_repair_preserves_values_before_narrow_window(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     native_source_runtime,
@@ -234,7 +234,7 @@ def test_real_source_projection_corrects_historical_mtf_before_narrow_window(
     l1_pin = _input_pin(l1_path)
     profile = build_derived_indicator_profile_registry().get("core_v1")
     current_columns = owner._source_indicator_columns_for_profile(profile)
-    old_columns = tuple(column for column in current_columns if column != "adx_14")
+    old_columns = (*current_columns, "adx_14")
     kwargs = dict(
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
@@ -250,9 +250,9 @@ def test_real_source_projection_corrects_historical_mtf_before_narrow_window(
     l2_path = derived_dir / "research_derived_indicator_frames.delta"
     mtf_columns = tuple(column for column in profile.output_columns if column.startswith("mtf_"))
     other_columns = tuple(column for column in profile.output_columns if column not in mtf_columns)
-    assert len(mtf_columns) == 24 and len(other_columns) == 94
+    assert not mtf_columns and len(other_columns) == len(profile.output_columns)
     before = _read_values(l2_path, profile.output_columns)
-    assert before[list(mtf_columns)].isna().all().all()
+    assert not any(column.startswith("mtf_") for column in before.columns)
     assert _input_pin(l1_path) == l1_pin
 
     narrow = dict(
@@ -280,13 +280,6 @@ def test_real_source_projection_corrects_historical_mtf_before_narrow_window(
     assert report["extended_partition_count"] == 0
     assert _input_pin(l1_path) == l1_pin
 
-    source_path = derived_dir / "research_derived_source_frames.delta"
-    pd.testing.assert_frame_equal(
-        _read_values(source_path, ("adx_14",)),
-        _read_values(l1_path, ("adx_14",)),
-        check_exact=True,
-        check_dtype=False,
-    )
     after = _read_values(l2_path, profile.output_columns)
     pd.testing.assert_frame_equal(
         before[["instrument_id", "contract_id", "timeframe", "ts", *other_columns]],
@@ -294,40 +287,10 @@ def test_real_source_projection_corrects_historical_mtf_before_narrow_window(
         check_exact=True,
         check_dtype=False,
     )
-    target = after.loc[(after["timeframe"] == "15m") & (after["instrument_id"] == "BR")].set_index(
-        "ts"
-    )
-    adx_1h = "mtf_1h_to_15m_adx_14"
-    for opened, expected in (("09:30", 7.0), ("09:45", 11.0), ("10:30", 11.0), ("10:45", 99.0)):
-        assert target.loc[pd.Timestamp(f"2026-03-02T{opened}:00Z"), adx_1h] == expected
-    adx_4h = "mtf_4h_to_15m_adx_14"
-    assert target.loc[pd.Timestamp("2026-03-02T12:30:00Z"), adx_4h] == 33.0
-    assert target.loc[pd.Timestamp("2026-03-02T12:45:00Z"), adx_4h] == 44.0
-    assert (target["mtf_1d_to_15m_adx_14"] == 55.0).all()
-    for source_tf, target_tf in (
-        ("1h", "15m"),
-        ("4h", "15m"),
-        ("4h", "1h"),
-        ("1d", "15m"),
-        ("1d", "1h"),
-        ("1d", "4h"),
-    ):
-        for instrument_id in ("BR", "Si"):
-            for carried in ("ema_20", "ema_50", "adx_14", "rsi_14"):
-                assert (
-                    after.loc[
-                        (after["timeframe"] == target_tf)
-                        & (after["instrument_id"] == instrument_id),
-                        f"mtf_{source_tf}_to_{target_tf}_{carried}",
-                    ]
-                    .notna()
-                    .any()
-                )
-
     compatible = owner.materialize_derived_indicator_frames(**kwargs, **narrow)
-    assert not compatible["source_frame_report"]["source_projection_contract_changed"]
-    assert compatible["source_frame_report"]["refresh_window_count"] == 1
-    assert compatible["source_frame_report"]["row_counts"]["joined_row_count"] == 2
+    assert not compatible["source_projection_contract_changed"]
+    assert compatible["source_frame_report"]["mode"] == "exact_snapshot_reuse"
+    assert compatible["reused_partition_count"] == 2
     pd.testing.assert_frame_equal(
         after, _read_values(l2_path, profile.output_columns), check_exact=True
     )
@@ -377,7 +340,7 @@ def _revise_fixture_adx(path: Path, *, timeframe: str, ts: str, value: float) ->
         and pd.Timestamp(row["ts"]) == pd.Timestamp(ts)
     ]
     assert len(matches) == 1
-    matches[0]["adx_14"] = value
+    matches[0]["ema_20"] = value
     profile = build_derived_indicator_profile_registry().get("core_v1")
     columns = {
         **indicator_store_contract()["research_indicator_frames"]["columns"],
@@ -393,13 +356,14 @@ def test_source_commit_l2_failure_narrow_retry_repairs_full_family(
 ) -> None:
     kwargs, l1_path, derived_dir, profile = _runtime_fixture(tmp_path)
     l1_pin = _input_pin(l1_path)
-    old_columns = tuple(
-        column
-        for column in owner._source_indicator_columns_for_profile(profile)
-        if column != "adx_14"
-    )
+    old_columns = (*owner._source_indicator_columns_for_profile(profile), "adx_14")
     with monkeypatch.context() as legacy:
         legacy.setattr(owner, "_source_indicator_columns_for_profile", lambda _: old_columns)
+        legacy.setattr(
+            owner,
+            "_derived_compute_contract_hash",
+            lambda *_args, **_kwargs: "previous-native-contract",
+        )
         owner.materialize_derived_indicator_frames(**kwargs)
     l2_path = derived_dir / "research_derived_indicator_frames.delta"
     l2_pin = _input_pin(l2_path)
@@ -434,7 +398,7 @@ def test_source_commit_l2_failure_narrow_retry_repairs_full_family(
             owner.materialize_derived_indicator_frames(**kwargs, **_narrow_15m())
     assert _input_pin(l2_path)[1] > l2_pin[1]
     partial = _read_values(l2_path, ("row_count", "source_indicator_columns_hash"))
-    assert len(partial) == 16
+    assert len(partial) == 256 - 32 + 16
     assert partial["row_count"].eq(32).all()
     assert (
         partial["source_indicator_columns_hash"]
@@ -443,33 +407,22 @@ def test_source_commit_l2_failure_narrow_retry_repairs_full_family(
                 owner._source_indicator_columns_for_profile(profile)
             )
         )
-        .all()
-    )
-    source_path = derived_dir / "research_derived_source_frames.delta"
-    pd.testing.assert_frame_equal(
-        _read_values(source_path, ("adx_14",)),
-        _read_values(l1_path, ("adx_14",)),
-        check_exact=True,
-        check_dtype=False,
+        .sum()
+        == 16
     )
     retry = owner.materialize_derived_indicator_frames(**kwargs, **_narrow_15m())
     assert not retry["source_projection_contract_changed"]
-    assert not retry["derived_projection_contract_changed"]
+    assert retry["derived_projection_contract_changed"]
     assert retry["derived_partition_coverage_changed"]
     assert retry["source_frame_report"]["row_counts"]["joined_row_count"] == 2
     assert retry["recomputed_partition_count"] == 8
     assert retry["reused_partition_count"] == retry["extended_partition_count"] == 0
     pd.testing.assert_frame_equal(before_other, _read_values(l2_path, other), check_exact=True)
     after = _read_values(
-        l2_path, ("mtf_1h_to_15m_adx_14", "source_indicator_columns_hash", "mtf_source_family_hash")
+        l2_path, ("distance_to_ema_20_atr", "source_indicator_columns_hash", "source_inputs_hash")
     )
-    for instrument in ("BR", "Si"):
-        target = after.loc[
-            (after["instrument_id"] == instrument) & (after["timeframe"] == "15m")
-        ].set_index("ts")
-        assert target.loc[pd.Timestamp("2026-03-02T09:45:00Z"), "mtf_1h_to_15m_adx_14"] == 11.0
     assert after["source_indicator_columns_hash"].notna().all()
-    assert after["mtf_source_family_hash"].str.len().eq(16).all()
+    assert after["source_inputs_hash"].str.len().eq(64).all()
     assert _input_pin(l1_path) == l1_pin
     compatible = owner.materialize_derived_indicator_frames(**kwargs, **_narrow_15m())
     assert not compatible["derived_projection_contract_changed"]
@@ -477,7 +430,7 @@ def test_source_commit_l2_failure_narrow_retry_repairs_full_family(
     assert compatible["refreshed_partition_count"] == 0
 
 
-def test_changed_compatible_15m_recalculation_keeps_all_tf_source_context(
+def test_changed_native_15m_recalculation_keeps_other_timeframes_unchanged(
     tmp_path: Path,
     native_source_runtime,
 ) -> None:
@@ -494,14 +447,15 @@ def test_changed_compatible_15m_recalculation_keeps_all_tf_source_context(
     assert report["reused_partition_count"] == 1
     assert report["extended_partition_count"] == 0
     assert report["derived_indicator_row_count"] == 64
-    # ADX on the local target is not an output: every output stays exactly equal.
+    after = _read_values(l2_path, profile.output_columns)
     pd.testing.assert_frame_equal(
-        before, _read_values(l2_path, profile.output_columns), check_exact=True
+        before.query("timeframe != '15m'"), after.query("timeframe != '15m'"), check_exact=True
     )
+    assert not before.query("timeframe == '15m'").equals(after.query("timeframe == '15m'"))
     assert _input_pin(l1_path) == revised_l1_pin
 
 
-def test_higher_tf_only_adx_change_invalidates_lower_causal_mtf_and_reuses_other_family(
+def test_higher_tf_change_does_not_invalidate_native_lower_timeframe(
     tmp_path: Path,
     native_source_runtime,
 ) -> None:
@@ -515,6 +469,7 @@ def test_higher_tf_only_adx_change_invalidates_lower_causal_mtf_and_reuses_other
     report = owner.materialize_derived_indicator_frames(
         **kwargs,
         dataset_instrument_ids=("BR", "Si"),
+        timeframes=("1h",),
         refresh_windows=(
             {
                 "instrument_id": "BR",
@@ -527,8 +482,8 @@ def test_higher_tf_only_adx_change_invalidates_lower_causal_mtf_and_reuses_other
     assert not report["source_projection_contract_changed"]
     assert not report["derived_projection_contract_changed"]
     assert report["source_frame_report"]["row_counts"]["joined_row_count"] == 1
-    assert report["recomputed_partition_count"] == 2
-    assert report["reused_partition_count"] == 6
+    assert report["recomputed_partition_count"] == 1
+    assert report["reused_partition_count"] == 1
     assert report["extended_partition_count"] == 0
     pd.testing.assert_frame_equal(
         lower_l1_before,
@@ -536,19 +491,15 @@ def test_higher_tf_only_adx_change_invalidates_lower_causal_mtf_and_reuses_other
         check_exact=True,
     )
     after = _read_values(l2_path, profile.output_columns)
-    keys = ["instrument_id", "contract_id", "timeframe", "ts"]
-    other = tuple(column for column in profile.output_columns if not column.startswith("mtf_"))
-    pd.testing.assert_frame_equal(before[[*keys, *other]], after[[*keys, *other]], check_exact=True)
     pd.testing.assert_frame_equal(
-        before.loc[before["instrument_id"] == "Si"],
-        after.loc[after["instrument_id"] == "Si"],
+        before.query("timeframe == '15m'"), after.query("timeframe == '15m'"), check_exact=True
+    )
+    pd.testing.assert_frame_equal(
+        before.query("instrument_id == 'Si'"),
+        after.query("instrument_id == 'Si'"),
         check_exact=True,
     )
-    target = after.loc[(after["instrument_id"] == "BR") & (after["timeframe"] == "15m")].set_index(
-        "ts"
-    )
-    for opened, expected in (("09:30", 7.0), ("09:45", 22.0), ("10:30", 22.0), ("10:45", 99.0)):
-        assert (
-            target.loc[pd.Timestamp(f"2026-03-02T{opened}:00Z"), "mtf_1h_to_15m_adx_14"] == expected
-        )
+    lower = owner.materialize_derived_indicator_frames(**kwargs, **_narrow_15m())
+    assert lower["recomputed_partition_count"] == 0
+    assert lower["reused_partition_count"] == 2
     assert _input_pin(l1_path) == revised_l1_pin

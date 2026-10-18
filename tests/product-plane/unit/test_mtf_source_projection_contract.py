@@ -7,7 +7,6 @@ import pytest
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.research.derived_indicators.materialize import (
-    _mtf_source_column_for_output,
     _source_indicator_columns_for_profile,
 )
 from trading_advisor_3000.product_plane.research.derived_indicators.registry import (
@@ -19,14 +18,11 @@ from trading_advisor_3000.product_plane.research.derived_indicators.source_frame
 from trading_advisor_3000.spark_jobs import research_derived_source_frames_job as job
 
 
-def test_declared_mtf_outputs_require_their_source_columns() -> None:
+def test_native_outputs_have_no_projected_dependencies() -> None:
     profile = build_derived_indicator_profile_registry().get("core_v1")
     required = _source_indicator_columns_for_profile(profile)
-    for output in profile.output_columns:
-        source = _mtf_source_column_for_output(output)
-        if source is not None:
-            assert source[1] in required, output
-    assert required.count("adx_14") == 1
+    assert not any(column.startswith("mtf_") for column in profile.output_columns)
+    assert len(required) == len(set(required))
 
 
 def _source_metadata(root: Path, hashes: tuple[str | None, ...]) -> Path:
@@ -193,34 +189,6 @@ def test_current_hash_with_missing_declared_source_column_fails_closed(tmp_path:
         )
 
 
-def test_mtf_absent_higher_timeframe_and_short_warmup_remain_null() -> None:
-    import pandas as pd
-
-    from trading_advisor_3000.product_plane.research.derived_indicators.materialize import (
-        _compute_mtf_overlay,
-    )
-
-    target = pd.DataFrame({"ts": ["2026-03-02T09:00:00Z", "2026-03-02T09:45:00Z"]})
-    source = pd.DataFrame(
-        {
-            "ts": ["2026-03-02T09:00:00Z"],
-            "ema_20": [None],
-            "ema_50": [None],
-            "adx_14": [None],
-            "rsi_14": [None],
-        }
-    )
-    columns = {"mtf_1h_to_15m_adx_14", "mtf_4h_to_15m_adx_14"}
-    overlay = _compute_mtf_overlay(
-        frame=target,
-        current_timeframe="15m",
-        source_frames={"1h": source},
-        output_columns=columns,
-    )
-    assert set(overlay) == columns
-    assert all(values.isna().all() for values in overlay.values())
-
-
 @pytest.mark.parametrize("declared_ips", [("BR", "Si"), ()])
 def test_hash_check_includes_declared_instrument_scope_before_windows(
     tmp_path: Path, declared_ips
@@ -291,7 +259,7 @@ def test_l2_projection_identity_unknown_requires_full_family_repair(
         "instrument_id": "string",
         "timeframe": "string",
         "source_indicator_columns_hash": "string",
-        "mtf_source_family_hash": "string",
+        "source_inputs_hash": "string",
     }
     identities = {
         "null": (None,),
@@ -308,20 +276,20 @@ def test_l2_projection_identity_unknown_requires_full_family_repair(
             "instrument_id": "Si",
             "timeframe": "1h",
             "source_indicator_columns_hash": value,
-            "mtf_source_family_hash": "known",
+            "source_inputs_hash": "known",
         }
         for value in identities
     ]
     if kind == "missing":
         columns.pop("source_indicator_columns_hash")
     if kind == "missing-family":
-        columns.pop("mtf_source_family_hash")
+        columns.pop("source_inputs_hash")
     if kind == "mixed-family":
-        rows.append({**rows[0], "mtf_source_family_hash": "different"})
+        rows.append({**rows[0], "source_inputs_hash": "different"})
     rows = [{key: value for key, value in row.items() if key in columns} for row in rows]
     path = tmp_path / "research_derived_indicator_frames.delta"
     write_delta_table_rows(table_path=path, columns=columns, rows=rows)
-    assert owner._derived_projection_contract_changed(
+    changed = owner._derived_projection_contract_changed(
         table_path=path,
         expected_hash=expected,
         dataset_version="dataset-v1",
@@ -331,43 +299,7 @@ def test_l2_projection_identity_unknown_requires_full_family_repair(
         dataset_instrument_ids=("BR", "Si"),
     )
 
-
-def test_mtf_family_fingerprint_tracks_values_close_and_eligibility_only() -> None:
-    import pandas as pd
-
-    from trading_advisor_3000.product_plane.research.derived_indicators import materialize as owner
-
-    profile = build_derived_indicator_profile_registry().get("core_v1")
-    source = pd.DataFrame(
-        {
-            "ts": ["2026-03-02T08:00:00Z", "2026-03-02T09:00:00Z"],
-            "ema_20": [80.0, 81.0],
-            "ema_50": [79.0, 80.0],
-            "adx_14": [None, 11.0],
-            "rsi_14": [50.0, 55.0],
-            "bar_usage_flags": [511, 511],
-            "indicator_created_at": ["old", "old"],
-        }
-    )
-
-    def fingerprint(frames):
-        return owner._mtf_source_family_hash(
-            source_frames=frames, current_timeframe="15m", profile=profile
-        )
-
-    original = fingerprint({"1h": source})
-    for column, value in (("adx_14", 22.0), ("ts", "2026-03-02T09:15:00Z"), ("bar_usage_flags", 0)):
-        changed = source.copy()
-        changed.loc[1, column] = value
-        assert fingerprint({"1h": changed}) != original, column
-    metadata_only = source.copy()
-    metadata_only["indicator_created_at"] = "new"
-    assert fingerprint({"1h": metadata_only}) == original
-    irrelevant = {"1h": source, "15m": source.assign(adx_14=999.0)}
-    assert fingerprint(irrelevant) == original
-    assert fingerprint({}) != original
-    assert fingerprint({"1h": source.drop(columns="adx_14")}) != original
-    assert fingerprint({"1h": source.assign(adx_14=None)}) != original
+    assert changed is (kind not in {"missing-family", "mixed-family"})
 
 
 def test_l2_dependency_metadata_is_reserved_and_legacy_nullable(tmp_path: Path) -> None:
@@ -392,11 +324,11 @@ def test_l2_dependency_metadata_is_reserved_and_legacy_nullable(tmp_path: Path) 
         "warmup_span": 0,
         "null_warmup_span": 0,
         "created_at": "2026-03-02T09:00:00Z",
-        "mtf_1h_to_15m_adx_14": None,
+        "rolling_high_20": None,
     }
     for field in (
         "source_indicator_columns_hash",
-        "mtf_source_family_hash",
+        "source_inputs_hash",
         "source_snapshot_hash",
         "compute_contract_hash",
     ):
@@ -409,12 +341,12 @@ def test_l2_dependency_metadata_is_reserved_and_legacy_nullable(tmp_path: Path) 
         )
     legacy = DerivedIndicatorFrameRow.from_dict(payload)
     assert legacy.source_indicator_columns_hash == ""
-    assert legacy.mtf_source_family_hash == ""
+    assert legacy.source_inputs_hash == ""
     current = DerivedIndicatorFrameRow.from_dict(
         {
             **payload,
             "source_indicator_columns_hash": "ABCD",
-            "mtf_source_family_hash": "EFGH",
+            "source_inputs_hash": "EFGH",
             "source_snapshot_hash": "snapshot",
             "compute_contract_hash": "compute",
         }
@@ -422,7 +354,7 @@ def test_l2_dependency_metadata_is_reserved_and_legacy_nullable(tmp_path: Path) 
     current = replace(current, bar_end_ts="2026-03-02T09:15:00Z")
     assert current.values == legacy.values
     assert current.to_dict()["source_indicator_columns_hash"] == "ABCD"
-    assert current.to_dict()["mtf_source_family_hash"] == "EFGH"
+    assert current.to_dict()["source_inputs_hash"] == "EFGH"
 
     from trading_advisor_3000.product_plane.research.derived_indicators.store import (
         existing_derived_indicator_value_columns,
@@ -438,21 +370,21 @@ def test_l2_dependency_metadata_is_reserved_and_legacy_nullable(tmp_path: Path) 
             dataset_version="d",
             indicator_set_version="l1",
             derived_indicator_set_version="l2",
-            value_columns=("mtf_1h_to_15m_adx_14",),
+            value_columns=("rolling_high_20",),
         ),
         load_derived_indicator_partition_rows(
             output_dir=tmp_path,
             partition=current.partition_key(series_mode="contract"),
-            value_columns=("mtf_1h_to_15m_adx_14",),
+            value_columns=("rolling_high_20",),
         ),
     ):
         assert len(loaded) == 1
         assert loaded[0].source_indicator_columns_hash == "ABCD"
-        assert loaded[0].mtf_source_family_hash == "EFGH"
+        assert loaded[0].source_inputs_hash == "EFGH"
         assert loaded[0].source_snapshot_hash == "snapshot"
         assert loaded[0].compute_contract_hash == "compute"
         assert loaded[0].values == current.values
-    assert not {"source_indicator_columns_hash", "mtf_source_family_hash"} & set(
+    assert not {"source_indicator_columns_hash", "source_inputs_hash"} & set(
         existing_derived_indicator_value_columns(output_dir=tmp_path)
     )
 
@@ -469,11 +401,11 @@ def test_l2_current_family_identities_are_partition_specific_and_scoped(tmp_path
         "instrument_id": "BR",
         "timeframe": "15m",
         "source_indicator_columns_hash": expected,
-        "mtf_source_family_hash": "first",
+        "source_inputs_hash": "first",
     }
     rows = [
         base,
-        {**base, "timeframe": "1h", "mtf_source_family_hash": "second"},
+        {**base, "timeframe": "1h", "source_inputs_hash": "second"},
         {**base, "instrument_id": "Si", "source_indicator_columns_hash": "old"},
         {**base, "derived_indicator_set_version": "other", "source_indicator_columns_hash": "old"},
     ]
@@ -501,37 +433,7 @@ def test_l2_current_family_identities_are_partition_specific_and_scoped(tmp_path
     )
 
 
-def test_mtf_daily_close_field_and_usage_masks_follow_actual_consumption() -> None:
-    import pandas as pd
-
-    from trading_advisor_3000.product_plane.research.derived_indicators import materialize as owner
-
-    profile = build_derived_indicator_profile_registry().get("core_v1")
-    daily = pd.DataFrame(
-        {
-            "ts": ["2026-03-01T09:00:00Z"],
-            "ema_20": [80.0],
-            "ema_50": [79.0],
-            "adx_14": [None],
-            "rsi_14": [55.0],
-        }
-    )
-
-    def fingerprint(frame):
-        return owner._mtf_source_family_hash(
-            source_frames={"1d": frame}, current_timeframe="15m", profile=profile
-        )
-
-    assert fingerprint(daily) != fingerprint(daily.assign(session_close_ts=None))
-    assert fingerprint(daily) != fingerprint(daily.assign(session_close_ts="2026-03-01T23:45:00Z"))
-    assert fingerprint(daily.assign(bar_usage_flags=511)) == fingerprint(daily)
-    assert fingerprint(daily.assign(bar_usage_flags=None)) != fingerprint(daily)
-    assert owner._mtf_source_family_hash(
-        source_frames={"1d": daily}, current_timeframe="1d", profile=profile
-    )
-
-
-def test_changed_family_identity_forbids_reuse_with_unchanged_target_inputs() -> None:
+def test_changed_local_input_identity_forbids_reuse() -> None:
     from trading_advisor_3000.product_plane.research.derived_indicators import materialize as owner
 
     head = {
@@ -540,7 +442,8 @@ def test_changed_family_identity_forbids_reuse_with_unchanged_target_inputs() ->
         "profile_version": "core_v1",
         "row_count": 32,
         "output_columns_hash": "same",
-        "mtf_source_family_hash": "old-higher-inputs",
+        "source_inputs_hash": "old-local-inputs",
+        "compute_contract_hash": "native-contract",
     }
     assert not owner._existing_partition_matches(
         [head],
@@ -549,7 +452,19 @@ def test_changed_family_identity_forbids_reuse_with_unchanged_target_inputs() ->
         profile_version="core_v1",
         row_count=32,
         output_columns_hash="same",
-        mtf_source_family_hash="new-higher-inputs",
+        source_inputs_hash="new-local-inputs",
+        compute_contract_hash="native-contract",
+    )
+
+    assert owner._existing_partition_matches(
+        [head],
+        source_bars_hash="same",
+        source_indicators_hash="same",
+        profile_version="core_v1",
+        row_count=32,
+        output_columns_hash="same",
+        source_inputs_hash="old-local-inputs",
+        compute_contract_hash="native-contract",
     )
 
 

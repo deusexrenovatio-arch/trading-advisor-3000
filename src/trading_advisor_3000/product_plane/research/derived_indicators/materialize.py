@@ -28,7 +28,6 @@ from trading_advisor_3000.product_plane.research.bar_usage_policy import (
     assert_derived_bar_usage_policy_coverage,
     derived_bar_usage_groups_for_outputs,
     has_required_bar_usage_flags,
-    required_flags_for_mtf_source_column,
 )
 from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
     input_projection as cf_input_projection,
@@ -41,13 +40,10 @@ from trading_advisor_3000.product_plane.research.continuous_front_indicators.rul
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 from trading_advisor_3000.product_plane.research.datasets.bar_usage import BAR_USAGE_POLICY_ID
 from trading_advisor_3000.product_plane.research.derived_indicators.registry import (
-    MTF_MAPPINGS,
     DerivedIndicatorProfile,
     DerivedIndicatorProfileRegistry,
     build_derived_indicator_profile_registry,
     current_derived_indicator_profile,
-    mtf_carried_columns,
-    mtf_column_name,
 )
 from trading_advisor_3000.product_plane.research.indicators import (
     IndicatorFramePartitionKey,
@@ -210,20 +206,7 @@ def _source_indicator_columns_for_profile(profile: DerivedIndicatorProfile) -> t
         target = _dynamic_distance_target(column)
         if target and target not in DERIVED_DYNAMIC_DISTANCE_NON_INDICATOR_TARGETS:
             columns.append(target)
-        mtf_source = _mtf_source_column_for_output(column)
-        if mtf_source is not None:
-            columns.append(mtf_source[1])
     return tuple(dict.fromkeys(columns))
-
-
-def _timeframe_delta(timeframe: str) -> pd.Timedelta:
-    if timeframe.endswith("m"):
-        return pd.Timedelta(minutes=int(timeframe[:-1]))
-    if timeframe.endswith("h"):
-        return pd.Timedelta(hours=int(timeframe[:-1]))
-    if timeframe.endswith("d"):
-        return pd.Timedelta(days=int(timeframe[:-1]))
-    raise ValueError(f"unsupported timeframe token: {timeframe}")
 
 
 def _series_key_from_bar(row: ResearchBarView, *, series_mode: str) -> DerivedSeriesKey:
@@ -251,17 +234,6 @@ def _series_key_from_indicator(row: IndicatorFrameRow, *, series_mode: str) -> D
         contour_id=row.contour_id,
         series_mode=resolved_series_mode,
         series_id=row.series_id or fallback_series_id,
-    )
-
-
-def _mtf_source_family_key(series_key: DerivedSeriesKey) -> DerivedSeriesKey:
-    if series_key.series_mode != "continuous_front":
-        return series_key
-    return DerivedSeriesKey(
-        instrument_id=series_key.instrument_id,
-        contract_id=None,
-        contour_id=series_key.contour_id,
-        series_mode=series_key.series_mode,
     )
 
 
@@ -624,7 +596,7 @@ def _indicator_hash(
         }
         for row in rows
     ]
-    # Bars, count and MTF content have separate guards. L1 provenance is not
+    # Bars, count and local input content have separate guards. L1 provenance is not
     # a consumed indicator value (e.g. a VP-only refresh must not invalidate EMA).
     normalized = json.dumps(
         {"indicator_content_version": 2, "rows": payload},
@@ -883,67 +855,6 @@ def _compute_session_vwap(frame: pd.DataFrame) -> pd.Series:
     return _safe_divide(session_cum_weight, session_cum_volume) + post_transform
 
 
-def _bar_close_times(frame: pd.DataFrame, timeframe: str) -> pd.Series:
-    if timeframe.endswith("d") and "session_close_ts" in frame.columns:
-        return pd.to_datetime(frame["session_close_ts"], utc=True)
-    return pd.to_datetime(frame["ts"], utc=True) + _timeframe_delta(timeframe)
-
-
-def _compute_mtf_overlay(
-    *,
-    frame: pd.DataFrame,
-    current_timeframe: str,
-    source_frames: dict[str, pd.DataFrame],
-    output_columns: set[str] | None = None,
-) -> dict[str, pd.Series]:
-    output: dict[str, pd.Series] = {}
-    for source_timeframe, target_timeframe in MTF_MAPPINGS:
-        source_columns = mtf_carried_columns(source_timeframe, target_timeframe)
-        selected_columns = tuple(
-            (source_column, mtf_column_name(source_timeframe, target_timeframe, source_column))
-            for source_column in source_columns
-            if output_columns is None
-            or mtf_column_name(source_timeframe, target_timeframe, source_column) in output_columns
-        )
-        if not selected_columns:
-            continue
-        columns = tuple(output_column for _, output_column in selected_columns)
-        if current_timeframe != target_timeframe or source_timeframe not in source_frames:
-            for column in columns:
-                output[column] = pd.Series([None] * len(frame), index=frame.index, dtype="object")
-            continue
-        source_frame = source_frames[source_timeframe]
-        if not set(source_columns) <= set(source_frame.columns):
-            for column in columns:
-                output[column] = pd.Series([None] * len(frame), index=frame.index, dtype="object")
-            continue
-        current_close_ts = _bar_close_times(frame, current_timeframe)
-        source_close_ts = _bar_close_times(source_frame, source_timeframe)
-        left = pd.DataFrame(
-            {"_row_index": frame.index, "current_close_ts": current_close_ts}
-        ).sort_values("current_close_ts")
-        right = pd.DataFrame(
-            {
-                "source_close_ts": source_close_ts,
-                **{
-                    output_column: _numeric(source_frame, source_column)
-                    for source_column, output_column in selected_columns
-                },
-            }
-        ).sort_values("source_close_ts")
-        merged = pd.merge_asof(
-            left,
-            right,
-            left_on="current_close_ts",
-            right_on="source_close_ts",
-            direction="backward",
-        )
-        merged = merged.set_index("_row_index").reindex(frame.index)
-        for column in columns:
-            output[column] = merged[column].astype("object")
-    return output
-
-
 def _bar_usage_eligible_mask(frame: pd.DataFrame, required_flags: int) -> pd.Series:
     if "bar_usage_flags" not in frame.columns:
         return pd.Series([True] * len(frame), index=frame.index)
@@ -1021,49 +932,9 @@ def _fill_bar_usage_noncomputed_rows(
     return filled
 
 
-def _mtf_source_column_for_output(output_column: str) -> tuple[str, str] | None:
-    for source_timeframe, target_timeframe in MTF_MAPPINGS:
-        prefix = f"mtf_{source_timeframe}_to_{target_timeframe}_"
-        if output_column.startswith(prefix):
-            return source_timeframe, output_column.removeprefix(prefix)
-    return None
-
-
-def _split_mtf_output_columns_by_source_flags(
-    output_columns: tuple[str, ...],
-) -> tuple[tuple[int, tuple[str, ...]], ...]:
-    grouped: list[tuple[int, list[str]]] = []
-    for output_column in output_columns:
-        parsed = _mtf_source_column_for_output(output_column)
-        if parsed is None:
-            raise ValueError(f"unknown MTF output column: {output_column}")
-        required_flags = required_flags_for_mtf_source_column(parsed[1])
-        for existing_flags, columns in grouped:
-            if existing_flags == required_flags:
-                columns.append(output_column)
-                break
-        else:
-            grouped.append((required_flags, [output_column]))
-    return tuple((flags, tuple(columns)) for flags, columns in grouped)
-
-
-def _filter_mtf_source_frames_for_bar_usage(
-    source_frames: dict[str, pd.DataFrame], *, required_flags: int
-) -> dict[str, pd.DataFrame]:
-    if not required_flags:
-        return source_frames
-    filtered: dict[str, pd.DataFrame] = {}
-    for timeframe, frame in source_frames.items():
-        mask = _bar_usage_eligible_mask(frame, required_flags)
-        filtered[timeframe] = frame.loc[mask].copy()
-    return filtered
-
-
 def _compute_derived_frame_unmasked(
     *,
     base_frame: pd.DataFrame,
-    current_timeframe: str,
-    source_frames: dict[str, pd.DataFrame],
     profile: DerivedIndicatorProfile,
 ) -> pd.DataFrame:
     assert_rule_coverage(
@@ -1413,18 +1284,6 @@ def _compute_derived_frame_unmasked(
             ] = pd.NA
     result = _append_columns(result, divergence_columns)
 
-    requested_mtf_columns = {column for column in requested if column.startswith("mtf_")}
-    if requested_mtf_columns:
-        result = _append_columns(
-            result,
-            _compute_mtf_overlay(
-                frame=result,
-                current_timeframe=current_timeframe,
-                source_frames=source_frames,
-                output_columns=requested_mtf_columns,
-            ),
-        )
-
     missing_columns: dict[str, pd.Series] = {}
     for column in profile.output_columns:
         if column not in result.columns:
@@ -1438,54 +1297,35 @@ def _compute_derived_frame_unmasked(
 def _compute_derived_frame(
     *,
     base_frame: pd.DataFrame,
-    current_timeframe: str,
-    source_frames: dict[str, pd.DataFrame],
     profile: DerivedIndicatorProfile,
 ) -> pd.DataFrame:
     assert_derived_bar_usage_policy_coverage(profile)
     if base_frame.empty or "bar_usage_flags" not in base_frame.columns:
         return _compute_derived_frame_unmasked(
             base_frame=base_frame,
-            current_timeframe=current_timeframe,
-            source_frames=source_frames,
             profile=profile,
         )
     result = base_frame.copy()
     for rule, output_columns in derived_bar_usage_groups_for_outputs(profile.output_columns):
-        execution_groups = (
-            _split_mtf_output_columns_by_source_flags(output_columns)
-            if rule.group_id == "derived_mtf_projection"
-            else ((0, output_columns),)
-        )
-        for source_required_flags, grouped_columns in execution_groups:
-            eligible = _bar_usage_eligible_mask(base_frame, rule.required_flags)
-            eligible_frame = base_frame.loc[eligible].copy()
-            if eligible_frame.empty:
-                computed = pd.DataFrame(index=eligible_frame.index)
-            else:
-                grouped_profile = _profile_for_output_columns(profile, set(grouped_columns))
-                grouped_source_frames = (
-                    _filter_mtf_source_frames_for_bar_usage(
-                        source_frames, required_flags=source_required_flags
-                    )
-                    if source_required_flags
-                    else source_frames
-                )
-                computed = _compute_derived_frame_unmasked(
-                    base_frame=eligible_frame,
-                    current_timeframe=current_timeframe,
-                    source_frames=grouped_source_frames,
-                    profile=grouped_profile,
-                )
-            result = _append_columns(
-                result,
-                _project_bar_usage_computed_columns(
-                    frame=base_frame,
-                    computed=computed,
-                    output_columns=grouped_columns,
-                    rule=rule,
-                ),
+        eligible = _bar_usage_eligible_mask(base_frame, rule.required_flags)
+        eligible_frame = base_frame.loc[eligible].copy()
+        if eligible_frame.empty:
+            computed = pd.DataFrame(index=eligible_frame.index)
+        else:
+            grouped_profile = _profile_for_output_columns(profile, set(output_columns))
+            computed = _compute_derived_frame_unmasked(
+                base_frame=eligible_frame,
+                profile=grouped_profile,
             )
+        result = _append_columns(
+            result,
+            _project_bar_usage_computed_columns(
+                frame=base_frame,
+                computed=computed,
+                output_columns=output_columns,
+                rule=rule,
+            ),
+        )
     return result
 
 
@@ -1535,7 +1375,7 @@ def _derived_projection_contract_changed(
     """Detect legacy/partial L2 publication before narrowing the target scope."""
     if not has_delta_log(table_path):
         return False
-    columns = ("source_indicator_columns_hash", "mtf_source_family_hash")
+    columns = ("source_indicator_columns_hash",)
     available = set(delta_table_columns(table_path))
     if not set(columns) <= available:
         return True
@@ -1559,10 +1399,7 @@ def _derived_projection_contract_changed(
         ):
             # A successful suffix carries complete partition metadata in its
             # latest row; retained prefix hashes remain historical provenance.
-            return any(
-                row.get(columns[0]) != expected_hash or not row.get(columns[1])
-                for row in owner_metadata
-            )
+            return any(row.get(columns[0]) != expected_hash for row in owner_metadata)
     import pyarrow.compute as pc
 
     filters: list[tuple[str, str, object]] = [
@@ -1583,14 +1420,7 @@ def _derived_projection_contract_changed(
     identities = pc.unique(metadata.column(columns[0]))
     if len(identities) != 1 or identities[0].as_py() != expected_hash:
         return True
-    family = metadata.column(columns[1])
-    unknown = pc.or_(pc.is_null(family), pc.equal(pc.fill_null(family, ""), ""))
-    if pc.any(unknown).as_py():
-        return True
-    # Different families/target TFs legitimately have different dependency hashes.
-    # A partial write mixing identities inside one target partition must be repaired.
-    consistency = metadata.group_by(partition_columns).aggregate([(columns[1], "count_distinct")])
-    return bool(pc.any(pc.greater(consistency.column(columns[1] + "_count_distinct"), 1)).as_py())
+    return False
 
 
 def _derived_partition_coverage_changed(
@@ -1642,59 +1472,21 @@ def _derived_partition_coverage_changed(
     return actual_counts != expected_counts
 
 
-def _mtf_source_family_hash(
-    *,
-    source_frames: dict[str, pd.DataFrame],
-    current_timeframe: str,
-    profile: DerivedIndicatorProfile,
-    apply_bar_usage_policy: bool = True,
-) -> str:
-    """Fingerprint the higher-TF inputs consumed by this target's MTF mappings."""
-    fingerprint = hashlib.sha256(
-        json.dumps(
-            (
-                "mtf-source-family-v1",
-                current_timeframe,
-                INDICATOR_USAGE_POLICY_ID if apply_bar_usage_policy else "unmasked",
-            )
-        ).encode("utf-8")
+def _source_inputs_hash(*, profile: DerivedIndicatorProfile, base_frame: pd.DataFrame) -> str:
+    """Fingerprint this partition only, including its continuous-front projection."""
+    digest = hashlib.sha256()
+    digest.update(
+        json.dumps(["derived-native-input-v1", profile.version, profile.output_columns]).encode()
     )
-    requested = set(profile.output_columns)
-    for source_tf, target_tf in MTF_MAPPINGS:
-        carried = mtf_carried_columns(source_tf, target_tf)
-        selected = tuple(
-            column
-            for column in carried
-            if mtf_column_name(source_tf, target_tf, column) in requested
-        )
-        if target_tf != current_timeframe or not selected:
-            continue
-        fingerprint.update(json.dumps((source_tf, target_tf, selected)).encode("utf-8"))
-        source = source_frames.get(source_tf)
-        if source is None:
-            fingerprint.update(b"absent-timeframe")
-            continue
-        missing = tuple(column for column in carried if column not in source.columns)
-        if missing:
-            fingerprint.update(json.dumps(("absent-columns", missing)).encode("utf-8"))
-            continue
-        for column in selected:
-            required = required_flags_for_mtf_source_column(column) if apply_bar_usage_policy else 0
-            eligible = _bar_usage_eligible_mask(source, required)
-            consumed = (
-                pd.DataFrame(
-                    {
-                        "source_close_ts": _bar_close_times(source, source_tf),
-                        column: _numeric(source, column),
-                    }
-                )
-                .loc[eligible]
-                .sort_values("source_close_ts")
-                .reset_index(drop=True)
-            )
-            fingerprint.update(json.dumps((column, required)).encode("utf-8"))
-            fingerprint.update(pd.util.hash_pandas_object(consumed, index=False).values.tobytes())
-    return fingerprint.hexdigest()[:16].upper()
+    semantic = (
+        set(ResearchBarView.__dataclass_fields__)
+        | set(_source_indicator_columns_for_profile(profile))
+        | {"indicator_profile_version", "indicator_output_columns_hash"}
+    )
+    columns = sorted(c for c in base_frame.columns if c in semantic or c.startswith("_cf_"))
+    digest.update(json.dumps([(c, str(base_frame[c].dtype)) for c in columns]).encode())
+    digest.update(pd.util.hash_pandas_object(base_frame[columns], index=False).values.tobytes())
+    return digest.hexdigest()
 
 
 def _existing_partition_matches(
@@ -1705,7 +1497,7 @@ def _existing_partition_matches(
     profile_version: str,
     row_count: int,
     output_columns_hash: str,
-    mtf_source_family_hash: str,
+    source_inputs_hash: str,
     compute_contract_hash: str = "",
     warmup_span: int | None = None,
 ) -> bool:
@@ -1719,7 +1511,7 @@ def _existing_partition_matches(
         and head.get("profile_version") == profile_version
         and int(head.get("row_count", -1) or -1) == row_count
         and existing_output_columns_hash == output_columns_hash
-        and head.get("mtf_source_family_hash") == mtf_source_family_hash
+        and head.get("source_inputs_hash") == source_inputs_hash
         and bool(compute_contract_hash)
         and head.get("compute_contract_hash") == compute_contract_hash
         and (warmup_span is None or head.get("warmup_span") == warmup_span)
@@ -1770,7 +1562,6 @@ def _build_partition_rows(
     profile: DerivedIndicatorProfile,
     local_series: list[ResearchBarView],
     local_indicator_rows: list[IndicatorFrameRow],
-    source_frames: dict[str, pd.DataFrame],
     base_frame: pd.DataFrame | None = None,
     source_dataset_bars_hash: str = "",
     output_columns_hash: str | None = None,
@@ -1786,12 +1577,9 @@ def _build_partition_rows(
             indicators=local_indicator_rows,
             adjustment_ladder_rows=adjustment_ladder_rows,
         )
-    current_timeframe = local_series[0].timeframe
     compute_profile = compute_profile or profile
     computed = _compute_derived_frame(
         base_frame=base_frame,
-        current_timeframe=current_timeframe,
-        source_frames=source_frames,
         profile=compute_profile,
     )
     payload_rows = computed.to_dict("records")
@@ -1837,12 +1625,7 @@ def _build_partition_rows(
     source_indicator_columns_hash = derived_source_indicator_columns_hash(
         _source_indicator_columns_for_profile(profile)
     )
-    mtf_source_family_hash = _mtf_source_family_hash(
-        source_frames=source_frames,
-        current_timeframe=current_timeframe,
-        profile=profile,
-        apply_bar_usage_policy="bar_usage_flags" in base_frame.columns,
-    )
+    source_inputs_hash = _source_inputs_hash(profile=profile, base_frame=base_frame)
     rows: list[DerivedIndicatorFrameRow] = []
     for original, values, existing in prepared_values:
         series_key = _series_key_from_bar(original, series_mode=series_mode)
@@ -1867,7 +1650,7 @@ def _build_partition_rows(
                 source_indicator_profile_version=source_indicator_profile_version,
                 source_indicator_output_columns_hash=source_indicator_output_columns_hash,
                 source_indicator_columns_hash=source_indicator_columns_hash,
-                mtf_source_family_hash=mtf_source_family_hash,
+                source_inputs_hash=source_inputs_hash,
                 source_snapshot_hash=source_snapshot_hash,
                 compute_contract_hash=compute_contract_hash,
                 row_count=len(local_series),
@@ -1894,31 +1677,11 @@ def build_derived_indicator_frames(
     profile = profile or current_derived_indicator_profile()
     grouped_bars = _group_bar_views(bar_views=bar_views, series_mode=series_mode)
     grouped_indicators = _group_indicator_rows(rows=indicator_rows, series_mode=series_mode)
-    source_frames_by_family: dict[DerivedSeriesKey, dict[str, pd.DataFrame]] = {}
-    for source_series_key, source_bars_by_timeframe in grouped_bars.items():
-        family_key = _mtf_source_family_key(source_series_key)
-        source_frames = source_frames_by_family.setdefault(family_key, {})
-        source_indicators_by_timeframe = grouped_indicators.get(source_series_key, {})
-        for timeframe, source_series in source_bars_by_timeframe.items():
-            if timeframe in source_frames:
-                raise ValueError(
-                    "derived indicator MTF source family has multiple partitions for "
-                    f"{family_key.instrument_id}|{family_key.series_mode}|{timeframe}"
-                )
-            source_frames[timeframe] = _prepare_base_frame(
-                bars=source_series,
-                indicators=source_indicators_by_timeframe.get(timeframe, []),
-                adjustment_ladder_rows=adjustment_ladder_rows
-                if series_mode == "continuous_front"
-                else (),
-            )
-
     rows: list[DerivedIndicatorFrameRow] = []
     for series_key, bars_by_timeframe in sorted(
         grouped_bars.items(), key=lambda item: (item[0].instrument_id, item[0].contract_id or "")
     ):
         indicators_by_timeframe = grouped_indicators.get(series_key, {})
-        source_frames = source_frames_by_family.get(_mtf_source_family_key(series_key), {})
         for timeframe, local_series in sorted(bars_by_timeframe.items(), key=lambda item: item[0]):
             rows.extend(
                 _build_partition_rows(
@@ -1929,7 +1692,6 @@ def build_derived_indicator_frames(
                     profile=profile,
                     local_series=local_series,
                     local_indicator_rows=indicators_by_timeframe.get(timeframe, []),
-                    source_frames=source_frames,
                     adjustment_ladder_rows=adjustment_ladder_rows
                     if series_mode == "continuous_front"
                     else (),
@@ -2015,7 +1777,6 @@ def _derived_compute_contract_hash(ladder: tuple[dict[str, object], ...]) -> str
         "pandas": pd.__version__,
         "bar_usage": BAR_USAGE_POLICY_ID,
         "indicator_usage": INDICATOR_USAGE_POLICY_ID,
-        "mtf": MTF_MAPPINGS,
         "ladder": sorted(ladder, key=lambda row: json.dumps(row, sort_keys=True, default=str)),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
@@ -2475,7 +2236,6 @@ def materialize_derived_indicator_frames(
     refresh_plan: list[
         tuple[
             DerivedSeriesKey,
-            dict[str, pd.DataFrame],
             list[
                 tuple[
                     str,
@@ -2498,28 +2258,6 @@ def materialize_derived_indicator_frames(
     refreshed_partitions = 0
     extended_partitions = 0
     recomputed_partitions = 0
-    source_frames_by_family: dict[DerivedSeriesKey, dict[str, pd.DataFrame]] = {}
-
-    def _source_frames_for_family(series_key: DerivedSeriesKey) -> dict[str, pd.DataFrame]:
-        family_key = _mtf_source_family_key(series_key)
-        if family_key in source_frames_by_family:
-            return source_frames_by_family[family_key]
-        source_frames: dict[str, pd.DataFrame] = {}
-        for candidate_key, candidate_counts in partition_counts.items():
-            if _mtf_source_family_key(candidate_key) != family_key:
-                continue
-            for source_timeframe in candidate_counts:
-                if source_timeframe in source_frames:
-                    raise ValueError(
-                        "derived indicator MTF source family has multiple partitions for "
-                        f"{family_key.instrument_id}|{family_key.series_mode}|{source_timeframe}"
-                    )
-                source_frames[source_timeframe] = _load_source_inputs(
-                    candidate_key, source_timeframe
-                )[2]
-        source_frames_by_family[family_key] = source_frames
-        return source_frames
-
     stage_started = stage_timer()
     for series_key, counts_by_timeframe in sorted(
         partition_counts.items(),
@@ -2599,12 +2337,11 @@ def materialize_derived_indicator_frames(
                     local_indicator_rows,
                     value_columns=required_source_indicator_columns,
                 )
-            family_hash = _mtf_source_family_hash(
-                source_frames=_source_frames_for_family(series_key),
-                current_timeframe=timeframe,
-                profile=resolved_profile,
-                apply_bar_usage_policy="bar_usage_flags" in source_base_frame.columns,
+            inputs_hash = _source_inputs_hash(
+                profile=resolved_profile, base_frame=source_base_frame
             )
+            if series_mode == "continuous_front":
+                source_rows_cache.clear()
             if not full_family_repair and _existing_partition_matches(
                 existing_partition_metadata,
                 source_bars_hash=source_bars_hash,
@@ -2612,13 +2349,13 @@ def materialize_derived_indicator_frames(
                 profile_version=resolved_profile.version,
                 row_count=row_count,
                 output_columns_hash=target_output_columns_hash,
-                mtf_source_family_hash=family_hash,
+                source_inputs_hash=inputs_hash,
                 compute_contract_hash=compute_contract_hash,
                 warmup_span=resolved_profile.warmup_bars,
             ):
                 reused_partitions += 1
                 if head.get("source_snapshot_hash") != source_snapshot_hash:
-                    # Full current source/MTF content was just verified. Retain
+                    # Full current native source content was just verified. Retain
                     # existing values, advance only the complete metadata carrier.
                     source_columns_hash = source_indicator_output_columns_hash
                     rebase_metadata = {
@@ -2638,7 +2375,7 @@ def materialize_derived_indicator_frames(
                 and (
                     head.get("source_bars_hash") == source_bars_hash
                     and head.get("source_indicators_hash") == source_indicators_hash
-                    and head.get("mtf_source_family_hash") == family_hash
+                    and head.get("source_inputs_hash") == inputs_hash
                     and int(head.get("row_count", -1) or -1) == row_count
                 )
             )
@@ -2681,13 +2418,10 @@ def materialize_derived_indicator_frames(
             if cf_refreshed_timeframes:
                 cf_refresh_plan.append((series_key, cf_refreshed_timeframes))
             source_rows_cache.clear()
-            source_frames_by_family.clear()
             if cf_loaded_inputs:
                 del local_series, local_indicator_rows, source_base_frame
         elif refreshed_timeframes:
-            refresh_plan.append(
-                (series_key, _source_frames_for_family(series_key), refreshed_timeframes)
-            )
+            refresh_plan.append((series_key, refreshed_timeframes))
 
     deleted_partitions = tuple(
         partition
@@ -2736,7 +2470,6 @@ def materialize_derived_indicator_frames(
                 plans = (
                     (
                         key,
-                        _source_frames_for_family(key),
                         (
                             (timeframe, *_load_source_inputs(key, timeframe), compute_profile, None)
                             for timeframe, compute_profile in instructions
@@ -2746,7 +2479,7 @@ def materialize_derived_indicator_frames(
                 )
             else:
                 plans = iter(refresh_plan)
-            for series_key, source_frames, refreshed_timeframes in plans:
+            for series_key, refreshed_timeframes in plans:
                 for (
                     timeframe,
                     local_series,
@@ -2763,7 +2496,6 @@ def materialize_derived_indicator_frames(
                         profile=resolved_profile,
                         local_series=local_series,
                         local_indicator_rows=local_indicator_rows,
-                        source_frames=source_frames,
                         base_frame=source_base_frame,
                         source_dataset_bars_hash=current_dataset_bars_hash,
                         source_snapshot_hash=source_snapshot_hash,
@@ -2801,10 +2533,9 @@ def materialize_derived_indicator_frames(
                         del old
                     yield rows
                     del rows
-                if series_mode == "continuous_front":
-                    source_rows_cache.clear()
-                    source_frames_by_family.clear()
-                    del source_frames, local_series, local_indicator_rows, source_base_frame
+                    if series_mode == "continuous_front":
+                        source_rows_cache.clear()
+                        del local_series, local_indicator_rows, source_base_frame
             for partition, last_bar, metadata in metadata_rebase_plan:
                 old = load_derived_indicator_partition_rows(
                     output_dir=derived_indicator_output_dir,
