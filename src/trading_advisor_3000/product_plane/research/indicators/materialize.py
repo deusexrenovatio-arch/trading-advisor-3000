@@ -3257,7 +3257,9 @@ def _materialize_indicator_window_tails(
             del series, existing, existing_by_ts, rows, changed_ts, source_ts
 
     started = stage_timer("write_indicator_frames")
-    paths, row_count, batch_count = write_indicator_frame_partition_batches(
+    from .batch_writer import write_indicator_frame_scoped_batches as write_scoped_batches
+
+    paths, row_count, batch_count = write_scoped_batches(
         output_dir=indicator_output_dir,
         partition_row_batches=batches(),
         delete_partitions=deleted_partitions,
