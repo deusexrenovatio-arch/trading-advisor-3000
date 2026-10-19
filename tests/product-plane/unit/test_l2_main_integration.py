@@ -160,3 +160,20 @@ def test_conflicting_carrier_blocks_snapshot_reuse_and_scoped_write(
     )
     with pytest.raises(ValueError, match="metadata adaptation"):
         run()
+
+
+@pytest.mark.parametrize(
+    "filename", ["fingerprints.py", "read_cache.py", "tails.py", "source_frames.py"]
+)
+def test_extracted_input_and_proof_helpers_invalidate_compute_contract(monkeypatch, filename):
+    from pathlib import Path
+
+    before = m._derived_compute_contract_hash(())
+    native_read = Path.read_bytes
+
+    def changed_read(path):
+        content = native_read(path)
+        return content + b"\n# changed helper contract\n" if path.name == filename else content
+
+    monkeypatch.setattr(Path, "read_bytes", changed_read)
+    assert m._derived_compute_contract_hash(()) != before

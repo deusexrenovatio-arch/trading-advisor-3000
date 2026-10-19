@@ -2083,6 +2083,10 @@ def _derived_compute_contract_hash(ladder: tuple[dict[str, object], ...]) -> str
     files = (
         Path(__file__),
         Path(__file__).with_name("registry.py"),
+        Path(__file__).with_name("fingerprints.py"),
+        Path(__file__).with_name("read_cache.py"),
+        Path(__file__).with_name("tails.py"),
+        Path(__file__).with_name("source_frames.py"),
         research / "bar_usage_policy.py",
         research / "continuous_front_indicators" / "input_projection.py",
         research / "continuous_front_indicators" / "rules.py",
