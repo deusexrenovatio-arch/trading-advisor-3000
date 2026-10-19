@@ -2354,6 +2354,16 @@ def materialize_derived_indicator_frames(
         requested_pairs=requested_scope.pairs,
     )
     if reused is not None:
+        from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+            finalize_research_delta_table,
+        )
+
+        path = derived_indicator_output_dir / "research_derived_indicator_frames.delta"
+        finalize_research_delta_table(
+            path,
+            since_version=delta_table_version(path),
+            partition_by=("ts_close_year",),
+        )
         if (
             _delta_source_refs(input_paths) != input_refs
             or _derived_source_snapshot_hash(**snapshot_args) != initial_snapshot_hash

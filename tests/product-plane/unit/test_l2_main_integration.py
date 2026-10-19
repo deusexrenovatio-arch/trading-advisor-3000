@@ -177,3 +177,83 @@ def test_extracted_input_and_proof_helpers_invalidate_compute_contract(monkeypat
 
     monkeypatch.setattr(Path, "read_bytes", changed_read)
     assert m._derived_compute_contract_hash(()) != before
+
+
+def test_public_l2_noop_repairs_debt_before_snapshot_capture(native_materializer, monkeypatch):
+    from types import SimpleNamespace
+
+    from trading_advisor_3000.product_plane.common.table_layout import (
+        MAX_COMPRESSED_FILE_BYTES,
+        validate_file_actions,
+    )
+    from trading_advisor_3000.product_plane.data_plane import delta_runtime as runtime
+    from trading_advisor_3000.product_plane.research import data_snapshots as snapshots
+    from trading_advisor_3000.product_plane.research.derived_indicators import store
+
+    _, run, root, _ = native_materializer
+    native = runtime.finalize_research_delta_table
+    pack = store.write_delta_table_scoped_batches
+    monkeypatch.setattr(
+        store, "write_delta_table_scoped_batches", lambda **kw: pack(**kw, max_batch_scopes=1)
+    )
+    monkeypatch.setattr(
+        runtime,
+        "finalize_research_delta_table",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("finalization interrupted")),
+    )
+    with pytest.raises(RuntimeError, match="finalization interrupted"):
+        run()
+    path = root / "research_derived_indicator_frames.delta"
+    table = DeltaTable(str(path))
+    assert len(table.file_uris()) == 2
+    with pytest.raises(ValueError, match="small year"):
+        validate_file_actions(
+            table.get_add_actions(flatten=True).to_pylist(),
+            max_file_bytes=MAX_COMPRESSED_FILE_BYTES,
+        )
+    monkeypatch.setattr(runtime, "finalize_research_delta_table", native)
+    monkeypatch.setattr(
+        m, "_derived_metadata_fast_reuse", m.__dict__["_integration_original_fast_path"]
+    )
+    monkeypatch.setattr(
+        m,
+        "_source_frame_arrow_to_inputs",
+        lambda **_: pytest.fail("wide source read on fast retry"),
+    )
+    pending = dict(
+        tables={},
+        dataset_version="dataset-v5",
+        run_id="retry",
+        code_version="test",
+        quality_checks={},
+        quality_evidence={},
+    )
+    monkeypatch.setattr(snapshots, "_initial", lambda *_: pending)
+    monkeypatch.setattr(snapshots, "_pending_path", lambda *_: root / "pending.json")
+    context = SimpleNamespace(
+        run_id="retry",
+        op_execution_context=SimpleNamespace(
+            op_config={
+                "materialized_output_dir": str(root),
+                "data_snapshot_enabled": True,
+                "series_mode": "continuous_front",
+            }
+        ),
+    )
+
+    @snapshots.snapshot_materialization(
+        ("research_derived_source_frames", "research_derived_indicator_frames")
+    )
+    def asset(context):
+        return run()
+
+    assert asset(context)["reused_partition_count"] == 2
+    table = DeltaTable(str(path))
+    validate_file_actions(
+        table.get_add_actions(flatten=True).to_pylist(), max_file_bytes=MAX_COMPRESSED_FILE_BYTES
+    )
+    capture = pending["tables"]["research_derived_indicator_frames"]
+    assert capture["file_count"] == 1 and capture["delta_version"] == table.version()
+    version = table.version()
+    assert asset(context)["reused_partition_count"] == 2
+    assert DeltaTable(str(path)).version() == version
