@@ -723,3 +723,25 @@ def test_spark_sidecar_job_rejects_missing_derived_columns_before_spark(
             include_derived=True,
             spark_session_factory=lambda _app, _master: pytest.fail("Spark should not start"),
         )
+
+
+def test_legacy_l2_without_optional_input_hash_passes_source_validation(tmp_path):
+    from trading_advisor_3000.product_plane.data_plane.delta_runtime import delta_table_columns
+    from trading_advisor_3000.spark_jobs.continuous_front_indicator_sidecar_job import (
+        _validate_sources_before_spark,
+    )
+
+    _write_empty_sidecar_sources(
+        tmp_path,
+        indicator_columns={"ema_20": "double"},
+        derived_columns={"distance_to_ema_20_atr": "double"},
+    )
+    assert "source_inputs_hash" not in delta_table_columns(
+        tmp_path / "research_derived_indicator_frames.delta"
+    )
+    _validate_sources_before_spark(
+        materialized_output_dir=tmp_path,
+        indicator_value_columns=("ema_20",),
+        derived_value_columns=("distance_to_ema_20_atr",),
+        include_derived=True,
+    )
