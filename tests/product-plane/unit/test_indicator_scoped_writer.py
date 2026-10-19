@@ -165,3 +165,85 @@ def test_scoped_noop_schema_extension_preserves_layout(tmp_path):
     assert table.metadata().partition_columns == ["ts_close_year"]
     assert table.metadata().id == identity
     assert "new_value" in table.to_pyarrow_table().schema.names
+
+
+def test_public_l1_snapshot_noop_repairs_interrupted_finalization(tmp_path, monkeypatch):
+    import pyarrow as pa
+    from deltalake import write_deltalake
+
+    from trading_advisor_3000.product_plane.data_plane import delta_runtime as runtime
+    from trading_advisor_3000.product_plane.research.indicators import batch_writer
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+    from trading_advisor_3000.product_plane.research.indicators.store import (
+        indicator_output_columns_hash,
+    )
+
+    bars = tmp_path / "research_bar_views.delta"
+    bases = [_row(), _row("SI")]
+    write_deltalake(str(bars), pa.Table.from_pylist([row.to_dict() for row in bases]))
+    profile = _profile()
+    rows = [
+        replace(
+            row,
+            source_dataset_bars_hash="dataset",
+            output_columns_hash=indicator_output_columns_hash(("sma_2",)),
+            source_snapshot_hash=owner._source_snapshot_hash(bars, None),
+            compute_contract_hash=owner._indicator_compute_contract_hash(profile),
+            refresh_context_hash=owner._refresh_context_hash(
+                profile,
+                instrument_id=row.instrument_id,
+                ladder_rows=(),
+                raw_1m_path=None,
+                source_rows=None,
+                tick_sizes=None,
+            ),
+        )
+        for row in bases
+    ]
+    native = runtime.finalize_research_delta_table
+    monkeypatch.setattr(
+        batch_writer,
+        "write_delta_table_scoped_batches",
+        lambda **kw: runtime.write_delta_table_scoped_batches(**kw, max_batch_scopes=1),
+    )
+    monkeypatch.setattr(
+        runtime,
+        "finalize_research_delta_table",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("finalization interrupted")),
+    )
+    with pytest.raises(RuntimeError, match="finalization interrupted"):
+        _write_l1(tmp_path, rows)
+    path = tmp_path / "research_indicator_frames.delta"
+    assert len(DeltaTable(str(path)).file_uris()) == 2
+    monkeypatch.setattr(runtime, "finalize_research_delta_table", native)
+    monkeypatch.setattr(
+        owner,
+        "_load_dataset_manifest",
+        lambda **_: {"series_mode": "contract", "bars_hash": "dataset"},
+    )
+    monkeypatch.setattr(
+        owner,
+        "_load_bar_partition_rows",
+        lambda **_: pytest.fail("source history read during fast reuse"),
+    )
+    kwargs = dict(
+        dataset_output_dir=tmp_path,
+        indicator_output_dir=tmp_path,
+        dataset_version="batch-test",
+        indicator_set_version="test",
+        profile=profile,
+    )
+    assert owner.materialize_indicator_frames(**kwargs)["reused_partition_count"] == 2
+    table = DeltaTable(str(path))
+    assert len(table.file_uris()) == 1
+    version = table.version()
+    assert owner.materialize_indicator_frames(**kwargs)["reused_partition_count"] == 2
+    assert DeltaTable(str(path)).version() == version
+
+    def drift(*args, **kwargs):
+        native(*args, **kwargs)
+        write_deltalake(str(bars), pa.Table.from_pylist([bases[0].to_dict()]), mode="append")
+
+    monkeypatch.setattr(runtime, "finalize_research_delta_table", drift)
+    with pytest.raises(ValueError, match="inputs changed during snapshot reuse"):
+        owner.materialize_indicator_frames(**kwargs)

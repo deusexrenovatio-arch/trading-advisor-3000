@@ -2185,6 +2185,27 @@ def _materialize_indicator_frames_unlocked(
         ):
             fast_reuse_report = None
     if fast_reuse_report is not None:
+        from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+            delta_table_version,
+            finalize_research_delta_table,
+        )
+
+        path = indicator_output_dir / "research_indicator_frames.delta"
+        finalize_research_delta_table(
+            path,
+            since_version=delta_table_version(path),
+            partition_by=("ts_close_year",),
+        )
+        if (
+            _source_snapshot_hash(
+                dataset_output_dir / "research_bar_views.delta",
+                volume_profile_raw_1m_table_path
+                if _profile_has_volume_profile_spec(resolved_profile)
+                else None,
+            )
+            != source_snapshot_hash
+        ):
+            raise ValueError("L1 inputs changed during snapshot reuse")
         record_stage_timing(
             stage_timings,
             "reuse_decision",
