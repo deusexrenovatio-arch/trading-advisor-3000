@@ -66,6 +66,71 @@ They are not the production-current serving location and can be cleaned up after
 `materialization_key` is an identity/fingerprint recorded in `materialization.lock.json` and run artifacts.
 It is not used as a physical folder segment.
 
+## Reviewed hash transition
+
+Delivery of #224 with #227/#228 retains the finite L1/snapshot bridge and native
+batched writes, pinned Arrow reads, prepared hashes and exact L2 suffix updates.
+The production source `8a4432db9fc8e5da29cc3b6668b61972ded6bc270072252e000d4414a6827fbb`
+has no proven legacy recipe alias. Its first scheduled run may require conservative
+numeric refresh; deployment performs no unscheduled full-data run. Next-night
+timing/QC/pinned publication is separate acceptance evidence.
+
+The pre/post volume-profile invalidation releases have one finite compatibility
+bridge in `research/hash_compatibility.py`. Only the two recorded deployed source
+hashes can migrate to its exact reviewed package fingerprint. The fingerprint
+covers every Python path and byte, normalizes CRLF, and substitutes only its own
+single anchored digest literal. Any other source/dependency/contract/profile
+change retains conservative admission. Explicit full admission reaches both L1/L2
+numerical owners as `force_recompute`, disabling metadata, partition, extension
+and cached-prefix reuse. Freeze the literal after the final source
+diff; independent review must bind that same diff. Do not add aliases for an
+unreviewed numerical change.
+
+`hash_compatibility` is an admission receipt carrying accepted Research id/hash
+and old source, not an operator permission switch. The snapshot owner rechecks
+historical Data pins, unchanged current Research outputs, mandatory PASS QC and
+successful native owners. Changed Data is admitted only through native bounded
+ancestry with exact names/path/ID/schema/layout on every edge. Runtime independently
+resolves and compares complete instrument/TF/UTC windows; contract filters and
+narrowed ranges reject admission. Canonical migration tails come from immutable
+accepted Data/Research pins and native windows. Strict current native CF proof is
+imported before compatibility validation; return still requires validation. Only
+unchanged Data pins permit accepted CF reuse; bounded changes run native CF. Empty bounded scope explicitly dispatches revalidation;
+it does not become a fake window or full refresh. Resume, same-run CF handoff and
+publication still compare exact raw runtime provenance.
+
+
+Same-code migration recovery may retain a successful stage from a terminal
+failed/canceled owner only when saved recovery lineage and the complete native
+Dagster parent chain both prove that owner. Missing/cyclic ancestry, active
+owners or missing native step SUCCESS reject recovery; code/config/pins remain
+exact.
+
+L2 source row growth or deletion alone does not mean physical output damage.
+Only slow planning can accept previous counts, with complete known proof
+metadata, exact physical/previous counts, identical current/previous keysets and
+all changed counts inside the requested scope. Physical gaps/duplicates,
+unknown proof, changed keysets or outside-scope changes retain full-family
+repair. Fast metadata noop still requires physical/current count equality;
+per-partition value, native input, profile and exact pair-scope guards remain authoritative.
+
+L1 migrates only an exact complete legacy bars/ladder/minute proof, row membership
+and context. It updates row input proofs while preserving every value/NULL and
+legacy source provenance. Complete metadata-only partitions use one existing atomic
+predicate write with the exact proven row count as its budget (the accepted
+historical maximum is 105307); computed suffixes use #227 native scoped packs (64 MiB / 32 scopes by default; a complete oversized scope is written alone). Native-only L2 preserves the complete current compute recipe, including extracted
+fingerprint/cache/tail/source helpers. Historical MTF/JSON L2 recipes confer no
+native L2 reuse: current projection/compute validation and native repair or
+fail-closed bounded-scope refusal remain authoritative. Unknown or
+mismatched legacy partitions compute a complete native partition without cached
+prefix or VP values, using the existing full-partition writer. This affects only
+those partitions, retains each writer native budget and emits migration full
+partition/row counters. Existing full-partition delete/append recovery limitations
+remain: a failed partial staging write stays unaccepted; the old pinned manifest
+remains public truth until all native QC/publication complete. Compatible fixtures forbid numerical
+builders; subsequent same-code runs use the normal metadata noop. Migration reads
+inputs and rewrites proof metadata; it is not zero-I/O or a measured speed claim.
+
 ## Research preflight and recovery
 
 Change surface: product-plane.

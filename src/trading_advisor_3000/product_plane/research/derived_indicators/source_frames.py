@@ -5,6 +5,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
 
+import pyarrow as pa
+
 from trading_advisor_3000.product_plane.common.table_layout import (
     YEAR_PARTITION_COLUMN,
     default_file_policy,
@@ -184,9 +186,10 @@ def load_derived_source_frame_partition_metadata(
     dataset_version: str,
     indicator_set_version: str,
     contour_id: str = "native_tradable",
+    reader=None,
 ) -> list[dict[str, object]]:
     path = output_dir / DERIVED_SOURCE_FRAME_DELTA
-    existing_columns = set(delta_table_columns(path))
+    existing_columns = set(reader.schema.names if reader is not None else delta_table_columns(path))
     read_columns = [
         column for column in DERIVED_SOURCE_FRAME_METADATA_COLUMNS if column in existing_columns
     ]
@@ -211,15 +214,20 @@ def load_derived_source_frame_partition_metadata(
     aggregate_columns = [
         column for column in read_columns if column not in group_columns and column != "ts"
     ]
-    filters = _filters_for_existing_columns(
-        path,
-        [
+    filters = [
+        item
+        for item in [
             ("dataset_version", "=", dataset_version),
             ("contour_id", "=", contour_id),
             ("indicator_set_version", "=", indicator_set_version),
-        ],
+        ]
+        if item[0] in existing_columns
+    ]
+    table = (
+        reader.read(columns=read_columns, filters=filters)
+        if reader is not None
+        else read_delta_table_arrow(path, columns=read_columns, filters=filters)
     )
-    table = read_delta_table_arrow(path, columns=read_columns, filters=filters)
     if table.num_rows == 0:
         return []
     count_aggregates = [("ts", "count")] if "ts" in read_columns else []
@@ -293,3 +301,37 @@ def iter_derived_source_frame_partition_rows(
         partition=partition,
         source_indicator_columns=source_indicator_columns,
     )
+
+
+def load_derived_source_frame_partition_arrow(
+    *,
+    output_dir: Path,
+    partition: DerivedSourceFramePartitionKey,
+    source_indicator_columns: tuple[str, ...],
+    reader=None,
+) -> pa.Table:
+    """Keep a single projected native partition columnar through preparation."""
+    path = output_dir / DERIVED_SOURCE_FRAME_DELTA
+    requested = tuple(
+        research_derived_source_frame_store_contract(
+            source_indicator_columns=source_indicator_columns
+        )[DERIVED_SOURCE_FRAME_TABLE]["columns"]
+    )
+    existing = set(reader.schema.names if reader is not None else delta_table_columns(path))
+    filters = [
+        (name, "=", value)
+        for name, value in vars(partition).items()
+        if value is not None and name in existing
+    ]
+    read_columns = [name for name in requested if name in existing]
+    table = (
+        reader.read(columns=read_columns, filters=filters)
+        if reader is not None
+        else read_delta_table_arrow(path, columns=read_columns, filters=filters)
+    )
+    for name in requested:
+        if name not in existing:
+            table = table.append_column(name, pa.nulls(len(table)))
+    # The input adapter sorts canonical ISO keys after temporal normalization,
+    # preserving the legacy row-loader order even with mixed microseconds.
+    return table
