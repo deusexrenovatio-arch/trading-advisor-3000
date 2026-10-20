@@ -71,13 +71,18 @@ It is not used as a physical folder segment.
 Delivery of #224 with #227/#228 retains the finite L1/snapshot bridge and native
 batched writes, pinned Arrow reads, prepared hashes and exact L2 suffix updates.
 The production source `8a4432db9fc8e5da29cc3b6668b61972ded6bc270072252e000d4414a6827fbb`
-has no proven legacy recipe alias. Its first scheduled run may require conservative
-numeric refresh; deployment performs no unscheduled full-data run. Next-night
-timing/QC/pinned publication is separate acceptance evidence.
+has an audited native metadata transition: its exact old six-file compute
+recipe, full DTO JSON input hashes and native input/profile/count/key proofs
+must match before the final carrier adopts current columnar/compute identities.
+Unchanged numerical values and historical prefix metadata are retained. Changed
+or unproven inputs keep ordinary conservative calculation. Deployment performs
+no unscheduled full-data run; next-night timing/QC/pinned publication remains
+separate acceptance evidence.
 
-The pre/post volume-profile invalidation releases have one finite compatibility
-bridge in `research/hash_compatibility.py`. Only the two recorded deployed source
-hashes can migrate to its exact reviewed package fingerprint. The fingerprint
+The pre/post volume-profile invalidation releases and native post-226 release
+have one finite compatibility bridge in `research/hash_compatibility.py`. Only
+the three recorded deployed source hashes can migrate to its exact reviewed
+package fingerprint. The fingerprint
 covers every Python path and byte, normalizes CRLF, and substitutes only its own
 single anchored digest literal. Any other source/dependency/contract/profile
 change retains conservative admission. Explicit full admission reaches both L1/L2
@@ -119,9 +124,11 @@ and context. It updates row input proofs while preserving every value/NULL and
 legacy source provenance. Complete metadata-only partitions use one existing atomic
 predicate write with the exact proven row count as its budget (the accepted
 historical maximum is 105307); computed suffixes use #227 native scoped packs (64 MiB / 32 scopes by default; a complete oversized scope is written alone). Native-only L2 preserves the complete current compute recipe, including extracted
-fingerprint/cache/tail/source helpers. Historical MTF/JSON L2 recipes confer no
-native L2 reuse: current projection/compute validation and native repair or
-fail-closed bounded-scope refusal remain authoritative. Unknown or
+fingerprint/cache/tail/source helpers. The exact post-226 native DTO JSON recipe
+alone can migrate after complete content and unique non-null timestamp/contract
+key proof; `hash_migrated_partition_count` reports this separately. Retired MTF
+recipes confer no native L2 reuse. Current projection/compute validation, native
+repair or fail-closed bounded-scope refusal remain authoritative. Unknown or
 mismatched legacy partitions compute a complete native partition without cached
 prefix or VP values, using the existing full-partition writer. This affects only
 those partitions, retains each writer native budget and emits migration full

@@ -120,7 +120,14 @@ def accepted_chain(tmp_path, monkeypatch, request):
         "changed_windows": [],
         "data_snapshot_manifest_path": str(data_path),
     }
-    old = {"source_sha256": next(iter(owner.LEGACY_SOURCES)), "dependencies": {"numpy": "same"}}
+    old = {
+        "source_sha256": (
+            "8a4432db9fc8e5da29cc3b6668b61972ded6bc270072252e000d4414a6827fbb"
+            if getattr(request, "param", None) == "post226"
+            else next(iter(owner.LEGACY_SOURCES))
+        ),
+        "dependencies": {"numpy": "same"},
+    }
     current = {**old, "source_sha256": "new"}
     monkeypatch.setattr(checkpoint, "runtime_provenance", lambda: current)
     from trading_advisor_3000.product_plane.research import refresh_scope
@@ -183,6 +190,7 @@ def accepted_chain(tmp_path, monkeypatch, request):
     return config, pending, instance, accepted, publish, source, checkpoint
 
 
+@pytest.mark.parametrize("accepted_chain", [None, "post226"], indirect=True)
 def test_accepted_state_admits_exact_receipt_and_refresh_scope(accepted_chain, monkeypatch):
     from trading_advisor_3000.product_plane.research import refresh_scope
 
@@ -216,6 +224,7 @@ def test_accepted_state_admits_exact_receipt_and_refresh_scope(accepted_chain, m
         "data_parent",
     ],
 )
+@pytest.mark.parametrize("accepted_chain", [None, "post226"], indirect=True)
 def test_accepted_migration_rejects_forgery_or_changed_evidence(accepted_chain, change):
     from types import SimpleNamespace
 
@@ -516,6 +525,7 @@ def _apply_scope(accepted_chain, scope):
         config["hash_compatibility"] = scope["hash_compatibility"]
 
 
+@pytest.mark.parametrize("accepted_chain", [None, "post226"], indirect=True)
 def test_bounded_changed_data_keeps_finite_migration(accepted_chain):
     config, pending, instance, accepted, _, _, checkpoint = accepted_chain
     _advance_data(accepted_chain)
@@ -573,6 +583,7 @@ def test_changed_data_migration_rejects_unproven_ancestry_edges(accepted_chain, 
 @pytest.mark.parametrize(
     "change", ["empty", "narrow_start", "narrow_end", "contract", "instrument", "full"]
 )
+@pytest.mark.parametrize("accepted_chain", [None, "post226"], indirect=True)
 def test_migration_runtime_rejects_forged_frozen_scope(accepted_chain, change):
     config, pending, instance, _, _, _, checkpoint = accepted_chain
     _advance_data(accepted_chain)
@@ -849,8 +860,13 @@ def test_native_migration_from_failure_preserves_completed_delta_checkpoint(
         assert pending["quality_owners"]["hash_resume_r2"] == lineage[-1]
 
 
-def test_current_production_source_has_no_unproved_finite_alias():
+def test_actual_production_source_is_admitted_only_by_reviewed_transition(monkeypatch):
     current_production = "8a4432db9fc8e5da29cc3b6668b61972ded6bc270072252e000d4414a6827fbb"
+    monkeypatch.setattr(owner, "reviewed_current_source", lambda: True)
+    assert owner.compatible_provenance(
+        {"source_sha256": current_production}, {"source_sha256": "new"}
+    )
+    monkeypatch.setattr(owner, "reviewed_current_source", lambda: False)
     assert not owner.compatible_provenance(
         {"source_sha256": current_production}, {"source_sha256": "new"}
     )
