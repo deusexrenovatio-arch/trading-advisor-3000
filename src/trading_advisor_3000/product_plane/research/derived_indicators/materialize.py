@@ -1836,6 +1836,92 @@ def _source_inputs_hash(*, profile: DerivedIndicatorProfile, base_frame: pd.Data
     return digest.hexdigest()
 
 
+def _reviewed_native_partition_metadata(
+    *,
+    head: dict,
+    table: pa.Table,
+    profile: DerivedIndicatorProfile,
+    source_inputs_hash: str,
+    source_bars_hash: str,
+    source_indicators_hash: str,
+    compute_contract_hash: str,
+    ladder: tuple[dict[str, object], ...],
+    partition: DerivedIndicatorFramePartitionKey,
+    reader,
+) -> dict | None:
+    """Translate exactly the accepted post-226 proof; never calculate values."""
+    from ..hash_compatibility import (
+        LEGACY_NATIVE_L2_IMPLEMENTATION,
+        NATIVE_LEGACY_SOURCE,
+        migration_source,
+    )
+    from .tails import partition_filters
+
+    if migration_source() != NATIVE_LEGACY_SOURCE:
+        return None
+    payload = {
+        "contract": "derived-native-v1",
+        "implementation": list(LEGACY_NATIVE_L2_IMPLEMENTATION),
+        "numpy": np.__version__,
+        "pandas": pd.__version__,
+        "bar_usage": BAR_USAGE_POLICY_ID,
+        "indicator_usage": INDICATOR_USAGE_POLICY_ID,
+        "ladder": sorted(ladder, key=lambda row: json.dumps(row, sort_keys=True, default=str)),
+    }
+    old_compute = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, default=str).encode()
+    ).hexdigest()
+    if (
+        head.get("compute_contract_hash") != old_compute
+        or head.get("source_inputs_hash") != source_inputs_hash
+        or head.get("source_indicator_columns_hash")
+        != derived_source_indicator_columns_hash(_source_indicator_columns_for_profile(profile))
+    ):
+        return None
+    # One-time historical recipe only. Reconstruct ALL old indicator rows from
+    # this exact projected Arrow partition, never the first metadata row alone.
+    old_bars, old_indicators = _columnar_source_hashes(
+        table, _source_indicator_columns_for_profile(profile)
+    )
+    if not _existing_partition_matches(
+        [head],
+        source_bars_hash=old_bars,
+        source_indicators_hash=old_indicators,
+        source_inputs_hash=source_inputs_hash,
+        compute_contract_hash=old_compute,
+        profile_version=profile.version,
+        output_columns_hash=derived_indicator_output_columns_hash(profile.output_columns),
+        row_count=len(table),
+        warmup_span=profile.warmup_bars,
+    ):
+        return None
+    # A valid newest carrier proves the whole accepted partition. Older prefix
+    # rows intentionally retain historical provenance; only physical keys align.
+    old = reader.read(columns=["ts", "contract_id"], filters=partition_filters(partition))
+    keys = []
+    for frame in (old, table):
+        timestamps = pc.cast(frame["ts"], pa.timestamp("us", "UTC"))
+        contracts = pc.cast(frame["contract_id"], pa.string())
+        if (
+            timestamps.null_count
+            or contracts.null_count
+            or pc.count_distinct(timestamps).as_py() != len(frame)
+        ):
+            return None
+        keys.append(
+            pa.table({"ts": timestamps, "contract_id": contracts}).sort_by([("ts", "ascending")])
+        )
+    if not keys[0].equals(keys[1]):
+        return None
+    migration_source()  # revoke admission if code changed while proving keys
+    return {
+        **head,
+        "source_bars_hash": source_bars_hash,
+        "source_indicators_hash": source_indicators_hash,
+        "compute_contract_hash": compute_contract_hash,
+    }
+
+
 def _existing_partition_matches(
     existing_rows: list[dict[str, object]],
     *,
@@ -2263,6 +2349,7 @@ def _derived_metadata_fast_reuse(
         "output_columns_hash": output_hash,
         "loaded_indicator_partition_count": 0,
         "loaded_source_frame_partition_count": 0,
+        "hash_migrated_partition_count": 0,
         "reuse_plan_mode": "metadata_fast_path",
         "output_paths": {
             DERIVED_SOURCE_FRAME_TABLE: (
@@ -2762,6 +2849,7 @@ def materialize_derived_indicator_frames(
     )
     reused_partitions = refreshed_partitions = extended_partitions = recomputed_partitions = 0
     metadata_rebased_partitions = 0
+    hash_migrated_partitions = 0
 
     def assert_source_stable():
         if (
@@ -2776,7 +2864,8 @@ def materialize_derived_indicator_frames(
             refreshed_partitions, \
             extended_partitions, \
             recomputed_partitions, \
-            metadata_rebased_partitions
+            metadata_rebased_partitions, \
+            hash_migrated_partitions
         for series_key, timeframe, row_count, partition_key in scopes:
             local_series = local_indicator_rows = source_base_frame = None
             try:
@@ -2830,6 +2919,30 @@ def materialize_derived_indicator_frames(
                     resolved_profile.version,
                     resolved_profile.output_columns,
                 )
+                migrated_head = None
+                if (
+                    head
+                    and not full_family_repair
+                    and not derived_partition_coverage_changed
+                    and not force_recompute
+                    and stored_indicator_metadata_matches
+                    and head.get("_metadata_valid", True)
+                ):
+                    migrated_head = _reviewed_native_partition_metadata(
+                        head=head,
+                        table=local_series.table,
+                        profile=resolved_profile,
+                        source_inputs_hash=source_inputs_hash,
+                        source_bars_hash=source_bars_hash,
+                        source_indicators_hash=source_indicators_hash,
+                        compute_contract_hash=compute_contract_hash,
+                        ladder=adjustment_ladder_rows,
+                        partition=partition_key,
+                        reader=old_cache,
+                    )
+                    if migrated_head:
+                        head = migrated_head
+                        existing_partition_metadata = [head]
                 if (
                     not full_family_repair
                     and not derived_partition_coverage_changed
@@ -2850,7 +2963,7 @@ def materialize_derived_indicator_frames(
                 ):
                     reused_partitions += 1
                     assert_source_stable()
-                    if head.get("source_snapshot_hash") != source_snapshot_hash:
+                    if migrated_head or head.get("source_snapshot_hash") != source_snapshot_hash:
                         last_bar = local_series[-1]
                         carrier = load_derived_indicator_partition_rows(
                             output_dir=derived_indicator_output_dir,
@@ -2866,6 +2979,7 @@ def materialize_derived_indicator_frames(
                             pd.Timestamp(head["created_at"]) + pd.Timedelta(1, unit="us"),
                         )
                         metadata_rebased_partitions += 1
+                        hash_migrated_partitions += int(migrated_head is not None)
                         yield DerivedIndicatorPartitionUpdate(
                             partition_key,
                             "replace",
@@ -2873,6 +2987,10 @@ def materialize_derived_indicator_frames(
                                 replace(
                                     carrier[0],
                                     source_snapshot_hash=source_snapshot_hash,
+                                    source_bars_hash=source_bars_hash,
+                                    source_indicators_hash=source_indicators_hash,
+                                    source_inputs_hash=source_inputs_hash,
+                                    compute_contract_hash=compute_contract_hash,
                                     source_dataset_bars_hash=current_dataset_bars_hash,
                                     source_indicator_profile_version=source_indicator_profile_version,
                                     source_indicator_output_columns_hash=source_indicator_output_columns_hash,
@@ -3052,6 +3170,7 @@ def materialize_derived_indicator_frames(
         "derived_projection_contract_changed": derived_projection_contract_changed,
         "derived_partition_coverage_changed": derived_partition_coverage_changed,
         "metadata_rebased_partition_count": metadata_rebased_partitions,
+        "hash_migrated_partition_count": hash_migrated_partitions,
         "refreshed_row_count": refreshed_row_count,
         "refreshed_partition_count": refreshed_partitions,
         "reused_partition_count": reused_partitions,

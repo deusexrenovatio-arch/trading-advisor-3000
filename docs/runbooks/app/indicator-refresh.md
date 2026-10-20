@@ -37,3 +37,22 @@ are explicit; an omitted update decision is an error.
 
 Validation uses isolated temporary Delta tables. This integration performs no
 production data migration, rebuild, service restart or publication.
+
+## Reviewed production hash transition
+
+The accepted post-226 production source `8a4432db` has a finite transition to
+the exact reviewed package. Accepted manifests, QC, input/output pins, Data
+ancestry, dependencies and configuration must still match. L1 retains its
+content-proven metadata adaptation. L2 reconstructs the exact old six-file
+compute recipe and old DTO JSON input hashes; native input, profile, projection,
+count and unique timestamp/contract keys must match. The existing final carrier
+then receives current columnar and actual ten-helper compute identities.
+Historical prefix metadata and all numerical/NULL values are preserved.
+
+This audited transition permits metadata-only reuse across the reviewed hash
+encoding and implementation packaging changes. `hash_migrated_partition_count`
+reports adopted L2 partitions separately from numerical refreshes. Unknown
+recipes, changed inputs, damaged output and explicit full refresh never receive
+this admission. No arbitrary source alias or permanently frozen compute hash is
+allowed. Migration runs only inside the accepted-snapshot scope on the ordinary
+scheduled route; no manual full run or pre-nightly production repin is required.

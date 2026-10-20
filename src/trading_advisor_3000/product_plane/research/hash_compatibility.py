@@ -1,4 +1,4 @@
-"""Finite, reviewed proof migration for the two deployed pre/post-223 sources.
+"""Finite, reviewed proof migration for audited deployed sources.
 
 Raw runtime provenance remains the strict resume/publication contract. This
 adapter admits an accepted snapshot, never arbitrary caller permission.
@@ -12,7 +12,17 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-_REVIEWED_CURRENT_SOURCE_SHA256 = "37124825bea6f35357856fb4d95f817f8cb5f974f713a816a9e44d256bc1ac39"
+_REVIEWED_CURRENT_SOURCE_SHA256 = "048dfb4406d4fac2e504b0505dc7b8e5d74ad4b6a3f74728576a43f6c85939fa"
+# Exact post-226 production79257fa3, reconstructed from its CRLF Git checkout.
+NATIVE_LEGACY_SOURCE = "8a4432db9fc8e5da29cc3b6668b61972ded6bc270072252e000d4414a6827fbb"
+LEGACY_NATIVE_L2_IMPLEMENTATION = (
+    "3183b255524a646acbf791cad4a12b31bd5017d410a7c8ff444ef7c95a40fb15",
+    "03e55fd245842af90f697ad9a30cdd5005e88038060bf56e44bf62685dcc3f9c",
+    "78630475a3a79745d9116a6e00b888e1bdc258240a7f839fb280c495c29a0ee1",
+    "b017e27e3ed51f21b8b0799bbfa06ebf252306c895707b07ed00c29205204796",
+    "2f4efdbb0a62db05f963b92daad11bcc2d7a1e83ef847fb8537706280ecec376",
+    "f003b68ccafe64d2bd063dd9ea94d9eebdf2b5462619b46d697f4c3301ba059f",
+)
 LEGACY_SOURCES = {
     # Exact deployed raw file hashes; both changes leave numerical formulas intact.
     "6c41c2dfc0dca91d67eeb63065ccb23e6368895e511aab4c816868bfc3c4acec": (
@@ -21,6 +31,7 @@ LEGACY_SOURCES = {
     "6c266cccbd56afd3682146aba0a98a9aa7be9385d1f24408724b0ffdce30b188": (
         "5a297d32aeadf2e80a989396dc42be83cbb27a6e67a3f39bf86c88eb63929e49"
     ),
+    NATIVE_LEGACY_SOURCE: LEGACY_NATIVE_L2_IMPLEMENTATION[0],
 }
 CANONICAL_L2_IMPLEMENTATION_SHA256 = next(iter(LEGACY_SOURCES.values()))
 SCOPE_PARAMETER_KEYS = frozenset(
