@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
+
+import pyarrow as pa
 
 from trading_advisor_3000.product_plane.common.table_layout import (
     YEAR_PARTITION_COLUMN,
@@ -66,6 +69,55 @@ class DerivedSourceFramePartitionKey:
             f"{self.dataset_version}/{self.contour_id}/{self.series_mode}/"
             f"{self.series_id}/{self.indicator_set_version}/{contract}/"
             f"{self.instrument_id}/{self.timeframe}"
+        )
+
+
+@dataclass(frozen=True)
+class NativeRefreshScope:
+    """An explicit request cannot become a Cartesian product or a family repair."""
+
+    timeframes: tuple[str, ...] = ()
+    instruments: tuple[str, ...] = ()
+    pairs: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def bounded(self) -> bool:
+        return bool(self.timeframes or self.instruments or self.pairs)
+
+    def matches(self, instrument: str, timeframe: str) -> bool:
+        return (
+            (not self.timeframes or timeframe in self.timeframes)
+            and (not self.instruments or instrument in self.instruments)
+            and (not self.pairs or (instrument, timeframe) in self.pairs)
+        )
+
+    @classmethod
+    def from_request(
+        cls,
+        *,
+        timeframes: Sequence[str] = (),
+        instruments: Sequence[str] = (),
+        refresh_windows: Sequence[Mapping[str, object]] = (),
+    ) -> NativeRefreshScope:
+        tfs = tuple(sorted({str(x).strip() for x in timeframes if str(x).strip()}))
+        ips = tuple(sorted({str(x).strip() for x in instruments if str(x).strip()}))
+        pairs = set()
+        for window in refresh_windows or ():
+            if not isinstance(window, Mapping):
+                if not is_dataclass(window) or isinstance(window, type):
+                    raise TypeError("refresh windows must be mappings or window dataclasses")
+                window = asdict(window)
+            instrument = str(window.get("instrument_id") or "").strip()
+            timeframe = str(window.get("timeframe") or "").strip()
+            if not instrument or not timeframe:
+                raise ValueError("refresh windows require instrument_id and timeframe")
+            if (tfs and timeframe not in tfs) or (ips and instrument not in ips):
+                raise ValueError("refresh window exceeds declared native scope")
+            pairs.add((instrument, timeframe))
+        return cls(
+            tuple(sorted({p[1] for p in pairs})) if pairs else tfs,
+            tuple(sorted({p[0] for p in pairs})) if pairs else ips,
+            tuple(sorted(pairs)),
         )
 
 
@@ -134,9 +186,10 @@ def load_derived_source_frame_partition_metadata(
     dataset_version: str,
     indicator_set_version: str,
     contour_id: str = "native_tradable",
+    reader=None,
 ) -> list[dict[str, object]]:
     path = output_dir / DERIVED_SOURCE_FRAME_DELTA
-    existing_columns = set(delta_table_columns(path))
+    existing_columns = set(reader.schema.names if reader is not None else delta_table_columns(path))
     read_columns = [
         column for column in DERIVED_SOURCE_FRAME_METADATA_COLUMNS if column in existing_columns
     ]
@@ -161,15 +214,20 @@ def load_derived_source_frame_partition_metadata(
     aggregate_columns = [
         column for column in read_columns if column not in group_columns and column != "ts"
     ]
-    filters = _filters_for_existing_columns(
-        path,
-        [
+    filters = [
+        item
+        for item in [
             ("dataset_version", "=", dataset_version),
             ("contour_id", "=", contour_id),
             ("indicator_set_version", "=", indicator_set_version),
-        ],
+        ]
+        if item[0] in existing_columns
+    ]
+    table = (
+        reader.read(columns=read_columns, filters=filters)
+        if reader is not None
+        else read_delta_table_arrow(path, columns=read_columns, filters=filters)
     )
-    table = read_delta_table_arrow(path, columns=read_columns, filters=filters)
     if table.num_rows == 0:
         return []
     count_aggregates = [("ts", "count")] if "ts" in read_columns else []
@@ -243,3 +301,37 @@ def iter_derived_source_frame_partition_rows(
         partition=partition,
         source_indicator_columns=source_indicator_columns,
     )
+
+
+def load_derived_source_frame_partition_arrow(
+    *,
+    output_dir: Path,
+    partition: DerivedSourceFramePartitionKey,
+    source_indicator_columns: tuple[str, ...],
+    reader=None,
+) -> pa.Table:
+    """Keep a single projected native partition columnar through preparation."""
+    path = output_dir / DERIVED_SOURCE_FRAME_DELTA
+    requested = tuple(
+        research_derived_source_frame_store_contract(
+            source_indicator_columns=source_indicator_columns
+        )[DERIVED_SOURCE_FRAME_TABLE]["columns"]
+    )
+    existing = set(reader.schema.names if reader is not None else delta_table_columns(path))
+    filters = [
+        (name, "=", value)
+        for name, value in vars(partition).items()
+        if value is not None and name in existing
+    ]
+    read_columns = [name for name in requested if name in existing]
+    table = (
+        reader.read(columns=read_columns, filters=filters)
+        if reader is not None
+        else read_delta_table_arrow(path, columns=read_columns, filters=filters)
+    )
+    for name in requested:
+        if name not in existing:
+            table = table.append_column(name, pa.nulls(len(table)))
+    # The input adapter sorts canonical ISO keys after temporal normalization,
+    # preserving the legacy row-loader order even with mixed microseconds.
+    return table

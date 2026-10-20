@@ -847,3 +847,10 @@ def test_native_migration_from_failure_preserves_completed_delta_checkpoint(
         assert DeltaTable(str(output / "research_indicator_frames.delta")).version() == 0
         assert pending["quality_owners"]["hash_resume_l1"] == lineage[0]
         assert pending["quality_owners"]["hash_resume_r2"] == lineage[-1]
+
+
+def test_current_production_source_has_no_unproved_finite_alias():
+    current_production = "8a4432db9fc8e5da29cc3b6668b61972ded6bc270072252e000d4414a6827fbb"
+    assert not owner.compatible_provenance(
+        {"source_sha256": current_production}, {"source_sha256": "new"}
+    )

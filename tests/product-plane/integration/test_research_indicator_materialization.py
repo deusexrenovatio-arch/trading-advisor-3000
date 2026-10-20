@@ -2571,8 +2571,8 @@ def _vp_partition_fixture(tmp_path, monkeypatch, *, with_daily=False):
         contour_id="pit_active_front",
         profile=DerivedIndicatorProfile(
             version="vp_scope_l2",
-            description="registered EMA MTF consumer",
-            output_columns=("mtf_1h_to_15m_ema_20",),
+            description="registered native EMA consumer",
+            output_columns=("cross_close_ema_20_code",),
             warmup_bars=0,
         ),
     )
@@ -2750,14 +2750,14 @@ def test_vp_partition_invalidation_preserves_unrelated_l1_l2(tmp_path, monkeypat
         contour_id="pit_active_front",
     )
     l2_computed = []
-    build_l2 = derived_materialize_module._build_partition_rows
+    build_l2 = derived_materialize_module._build_prepared_partition_rows
 
     def observe_l2(**kwargs):
         first = kwargs["local_series"][0]
         l2_computed.append((first.instrument_id, first.timeframe))
         return build_l2(**kwargs)
 
-    monkeypatch.setattr(derived_materialize_module, "_build_partition_rows", observe_l2)
+    monkeypatch.setattr(derived_materialize_module, "_build_prepared_partition_rows", observe_l2)
     second = materialize_derived_indicator_frames(**l2)
     expected_l2 = {("BR", "15m"), ("BR", "1h")} if change in ("higher_tf", "native_only") else set()
     assert set(l2_computed) == expected_l2
@@ -2918,7 +2918,6 @@ def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
     namespace = {}
     exec(_PRE223_INPUT_PRODUCER, owner.__dict__, namespace)
     old_producer = namespace["_pre223_input_row_hashes"]
-    compute_contract = derived_materialize_module._derived_compute_contract_hash
     with monkeypatch.context() as producer:
         if legacy_index == 0:
             producer.setattr(
@@ -2926,18 +2925,8 @@ def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
                 "_indicator_input_row_hashes",
                 lambda *args, series_mode=None, **kwargs: old_producer(*args, **kwargs),
             )
-            producer.setattr(
-                derived_materialize_module,
-                "_indicator_hash",
-                derived_materialize_module._legacy_indicator_hash,
-            )
-        producer.setattr(
-            derived_materialize_module,
-            "_derived_compute_contract_hash",
-            lambda ladder: compute_contract(
-                ladder, implementation_sha256=bridge.LEGACY_SOURCES[source]
-            ),
-        )
+        # L1 still has a finite legacy proof bridge. L2 uses the native-only
+        # current producer; retired MTF/JSON recipes confer no L2 reuse.
         l1, l2, raw, columns, minute_rows, target = _vp_partition_fixture(tmp_path, monkeypatch)
     before_l1 = reload_indicator_frames(
         indicator_output_dir=l1["indicator_output_dir"],
@@ -2968,13 +2957,13 @@ def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
         return numerical_l1(**kwargs)
 
     monkeypatch.setattr(owner, "_build_partition_rows", record)
-    numerical_l2 = derived_materialize_module._build_partition_rows
+    numerical_l2 = derived_materialize_module._build_prepared_partition_rows
 
     def record_l2(**kwargs):
         assert change != "none" and kwargs["local_series"][0].instrument_id == "BR"
         return numerical_l2(**kwargs)
 
-    monkeypatch.setattr(derived_materialize_module, "_build_partition_rows", record_l2)
+    monkeypatch.setattr(derived_materialize_module, "_build_prepared_partition_rows", record_l2)
     with bridge._verified_migration_scope(source):
         first = materialize_indicator_frames(**l1)
         second = materialize_derived_indicator_frames(**l2)
@@ -2984,9 +2973,7 @@ def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
     assert first["hash_migrated_partition_count"] == (
         4 if change == "none" else 3 if change == "native_only" else 2
     )
-    assert second["refreshed_partition_count"] == (
-        2 if change == "native_only" or (legacy_index == 0 and change != "none") else 0
-    )
+    assert second["refreshed_partition_count"] == (1 if change == "native_only" else 0)
     after_l1 = reload_indicator_frames(
         indicator_output_dir=l1["indicator_output_dir"],
         dataset_version="vp-scope",
@@ -3029,7 +3016,7 @@ def test_explicit_full_guard_reaches_both_numerical_owners(tmp_path, monkeypatch
     calls_l1 = []
     calls_l2 = []
     build_l1 = owner._build_partition_rows
-    build_l2 = derived_materialize_module._build_partition_rows
+    build_l2 = derived_materialize_module._build_prepared_partition_rows
 
     def first(**kwargs):
         assert kwargs.get("existing_rows") is None
@@ -3046,7 +3033,7 @@ def test_explicit_full_guard_reaches_both_numerical_owners(tmp_path, monkeypatch
         return build_l2(**kwargs)
 
     monkeypatch.setattr(owner, "_build_partition_rows", first)
-    monkeypatch.setattr(derived_materialize_module, "_build_partition_rows", second)
+    monkeypatch.setattr(derived_materialize_module, "_build_prepared_partition_rows", second)
     from contextlib import nullcontext
 
     from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
@@ -3107,16 +3094,36 @@ def test_metadata_migration_uses_exact_atomic_partition_budget(tmp_path, monkeyp
         indicator_set_version="indicators-v1",
         contour_id="pit_active_front",
     )
-    assert [(r.instrument_id, r.timeframe, r.ts, r.values) for r in before] == [
-        (r.instrument_id, r.timeframe, r.ts, r.values) for r in after
-    ]
+    assert {(r.instrument_id, r.timeframe, r.ts): r.values for r in before} == {
+        (r.instrument_id, r.timeframe, r.ts): r.values for r in after
+    }
     assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
     # An ordinary computed tail does not inherit the metadata-only allowance.
     DeltaTable(str(l1["volume_profile_raw_1m_table_path"])).update(
         updates={"high": "90.0"}, predicate="instrument_id='BR' AND ts_open='2026-03-02T06:01:00Z'"
     )
-    with pytest.raises(ValueError, match="atomic indicator suffix exceeds"):
-        materialize_indicator_frames(**l1)
+    from trading_advisor_3000.product_plane.research.indicators import batch_writer
+
+    scoped_writer = batch_writer.write_indicator_frame_scoped_batches
+    suffixes = []
+
+    def ordinary_suffixes(**kwargs):
+        assert "max_rows_per_delta_write" not in kwargs
+        batches = kwargs["partition_row_batches"]
+
+        def inspect():
+            for partition, rows in batches:
+                assert partition in kwargs["partition_start_ts"]
+                suffixes.append((partition, len(rows)))
+                yield partition, rows
+
+        kwargs["partition_row_batches"] = inspect()
+        return scoped_writer(**kwargs)
+
+    monkeypatch.setattr(batch_writer, "write_indicator_frame_scoped_batches", ordinary_suffixes)
+    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 2
+    assert len(suffixes) == 4
+    assert all(count == 1 for partition, count in suffixes if partition.instrument_id == "SI")
 
 
 def test_changed_pre223_partition_uses_native_full_writer_without_suffix_allowance(
@@ -3242,8 +3249,10 @@ def test_post223_migration_retains_verified_prefix_and_small_vp_tail(tmp_path, m
     DeltaTable(str(raw)).update(
         updates={"high": "90.0"}, predicate=f"instrument_id='BR' AND ts_open='{last}'"
     )
+    from trading_advisor_3000.product_plane.research.indicators import batch_writer
+
     writer, builder, vp = (
-        owner.write_indicator_frame_partition_batches,
+        batch_writer.write_indicator_frame_scoped_batches,
         owner._build_partition_rows,
         owner._compute_volume_profile_columns,
     )
@@ -3251,7 +3260,6 @@ def test_post223_migration_retains_verified_prefix_and_small_vp_tail(tmp_path, m
 
     def small_budget(**kwargs):
         if "max_rows_per_delta_write" not in kwargs:
-            kwargs["max_rows_per_delta_write"] = 2
             batches = kwargs["partition_row_batches"]
 
             def inspect():
@@ -3272,7 +3280,7 @@ def test_post223_migration_retains_verified_prefix_and_small_vp_tail(tmp_path, m
         volumes.append(len(kwargs["local_series"]))
         return vp(**kwargs)
 
-    monkeypatch.setattr(owner, "write_indicator_frame_partition_batches", small_budget)
+    monkeypatch.setattr(batch_writer, "write_indicator_frame_scoped_batches", small_budget)
     monkeypatch.setattr(owner, "_build_partition_rows", check_builder)
     monkeypatch.setattr(owner, "_compute_volume_profile_columns", check_vp)
     monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
@@ -3315,7 +3323,6 @@ def test_legacy_l2_append_preserves_unrelated_proof_migration(
     namespace = {}
     exec(_PRE223_INPUT_PRODUCER, owner.__dict__, namespace)
     old_producer = namespace["_pre223_input_row_hashes"]
-    compute_contract = derived_materialize_module._derived_compute_contract_hash
     with monkeypatch.context() as producer:
         if legacy_index == 0:
             producer.setattr(
@@ -3323,18 +3330,8 @@ def test_legacy_l2_append_preserves_unrelated_proof_migration(
                 "_indicator_input_row_hashes",
                 lambda *args, series_mode=None, **kwargs: old_producer(*args, **kwargs),
             )
-            producer.setattr(
-                derived_materialize_module,
-                "_indicator_hash",
-                derived_materialize_module._legacy_indicator_hash,
-            )
-        producer.setattr(
-            derived_materialize_module,
-            "_derived_compute_contract_hash",
-            lambda ladder: compute_contract(
-                ladder, implementation_sha256=bridge.LEGACY_SOURCES[source]
-            ),
-        )
+        # L1 still has a finite legacy proof bridge. L2 uses the native-only
+        # current producer; retired MTF/JSON recipes confer no L2 reuse.
         l1, l2, raw, _, minute_rows, _ = _vp_partition_fixture(
             tmp_path, monkeypatch, with_daily=True
         )
@@ -3414,7 +3411,7 @@ def test_legacy_l2_append_preserves_unrelated_proof_migration(
     if change == "append_outside_scope":
         l2 = {**l2, "timeframes": ("1h",)}
     l1_builder = owner._build_partition_rows
-    l2_builder = derived_materialize_module._build_partition_rows
+    l2_builder = derived_materialize_module._build_prepared_partition_rows
     calls = []
 
     def only_changed_l1(**kwargs):
@@ -3429,36 +3426,48 @@ def test_legacy_l2_append_preserves_unrelated_proof_migration(
         key = kwargs["local_series"][0]
         if not damage and change not in {"append_outside_scope", "delete_key"}:
             assert key.instrument_id == "BR" and key.timeframe in (
-                {"15m", "1h"} if change == "higher_tf" else {"15m"}
+                {"1h"} if change == "higher_tf" else {"15m"}
             ), "unrelated L2 partition recomputed after scoped source change"
         calls.append((key.instrument_id, key.timeframe))
         return l2_builder(**kwargs)
 
     monkeypatch.setattr(owner, "_build_partition_rows", only_changed_l1)
-    monkeypatch.setattr(derived_materialize_module, "_build_partition_rows", only_changed_l2)
+    monkeypatch.setattr(
+        derived_materialize_module, "_build_prepared_partition_rows", only_changed_l2
+    )
     with bridge._verified_migration_scope(source):
         materialize_indicator_frames(**l1)
         result = materialize_derived_indicator_frames(**l2)
     refreshed = (
-        6
-        if damage or change == "append_outside_scope"
+        0
+        if change == "append_outside_scope"
+        else 6
+        if damage
         else 5
         if change == "delete_key"
-        else 2
-        if change == "higher_tf"
         else 1
     )
     assert result["refreshed_partition_count"] == refreshed
     expected_reuse = (
-        0 if damage or change in {"append_outside_scope", "delete_key"} else 6 - refreshed
+        2
+        if change == "append_outside_scope"
+        else 0
+        if damage or change == "delete_key"
+        else 6 - refreshed
     )
-    assert (
-        result["reused_partition_count"]
-        == result["hash_migrated_partition_count"]
-        == expected_reuse
-    )
+    assert result["reused_partition_count"] == expected_reuse
     assert len(calls) == refreshed
     after = _vp_derived_rows(l2["derived_indicator_output_dir"])
+    if change == "append_outside_scope":
+        # The 1h request cannot consume a changed 15m partition. A later
+        # explicit full-scope fixture call processes that pending native input.
+        assert len(after) == len(before)
+        assert {(r.instrument_id, r.timeframe, r.ts): r.values for r in after} == {
+            (r.instrument_id, r.timeframe, r.ts): r.values for r in before
+        }
+        l2 = {**l2, "timeframes": ()}
+        assert materialize_derived_indicator_frames(**l2)["refreshed_partition_count"] == 1
+        after = _vp_derived_rows(l2["derived_indicator_output_dir"])
 
     def unrelated(rows):
         return {
@@ -3475,9 +3484,9 @@ def test_legacy_l2_append_preserves_unrelated_proof_migration(
     if change == "higher_tf":
         assert {
             r.ts: r.values for r in before if r.instrument_id == "BR" and r.timeframe == "15m"
-        } != {r.ts: r.values for r in after if r.instrument_id == "BR" and r.timeframe == "15m"}
+        } == {r.ts: r.values for r in after if r.instrument_id == "BR" and r.timeframe == "15m"}
     assert materialize_derived_indicator_frames(**l2)["refreshed_partition_count"] == 0
-    monkeypatch.setattr(derived_materialize_module, "_build_partition_rows", l2_builder)
+    monkeypatch.setattr(derived_materialize_module, "_build_prepared_partition_rows", l2_builder)
     reference = {**l2, "timeframes": ()}
     materialize_derived_indicator_frames(**reference, force_recompute=True)
     full = _vp_derived_rows(l2["derived_indicator_output_dir"])

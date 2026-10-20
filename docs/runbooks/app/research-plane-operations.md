@@ -68,6 +68,13 @@ It is not used as a physical folder segment.
 
 ## Reviewed hash transition
 
+Delivery of #224 with #227/#228 retains the finite L1/snapshot bridge and native
+batched writes, pinned Arrow reads, prepared hashes and exact L2 suffix updates.
+The production source `8a4432db9fc8e5da29cc3b6668b61972ded6bc270072252e000d4414a6827fbb`
+has no proven legacy recipe alias. Its first scheduled run may require conservative
+numeric refresh; deployment performs no unscheduled full-data run. Next-night
+timing/QC/pinned publication is separate acceptance evidence.
+
 The pre/post volume-profile invalidation releases have one finite compatibility
 bridge in `research/hash_compatibility.py`. Only the two recorded deployed source
 hashes can migrate to its exact reviewed package fingerprint. The fingerprint
@@ -105,17 +112,19 @@ metadata, exact physical/previous counts, identical current/previous keysets and
 all changed counts inside the requested scope. Physical gaps/duplicates,
 unknown proof, changed keysets or outside-scope changes retain full-family
 repair. Fast metadata noop still requires physical/current count equality;
-per-partition value, profile and MTF guards remain authoritative.
+per-partition value, native input, profile and exact pair-scope guards remain authoritative.
 
 L1 migrates only an exact complete legacy bars/ladder/minute proof, row membership
 and context. It updates row input proofs while preserving every value/NULL and
 legacy source provenance. Complete metadata-only partitions use one existing atomic
 predicate write with the exact proven row count as its budget (the accepted
-maximum is 105307); computed suffixes keep the ordinary 100000-row limit. L2 verifies actual bars/count/MTF/content plus the finite
-old compute recipe before advancing its complete metadata carrier. Unknown or
+historical maximum is 105307); computed suffixes use #227 native scoped packs (64 MiB / 32 scopes by default; a complete oversized scope is written alone). Native-only L2 preserves the complete current compute recipe, including extracted
+fingerprint/cache/tail/source helpers. Historical MTF/JSON L2 recipes confer no
+native L2 reuse: current projection/compute validation and native repair or
+fail-closed bounded-scope refusal remain authoritative. Unknown or
 mismatched legacy partitions compute a complete native partition without cached
 prefix or VP values, using the existing full-partition writer. This affects only
-those partitions, retains the ordinary suffix limit and emits migration full
+those partitions, retains each writer native budget and emits migration full
 partition/row counters. Existing full-partition delete/append recovery limitations
 remain: a failed partial staging write stays unaccepted; the old pinned manifest
 remains public truth until all native QC/publication complete. Compatible fixtures forbid numerical

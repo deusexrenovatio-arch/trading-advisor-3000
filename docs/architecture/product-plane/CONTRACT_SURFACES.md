@@ -50,3 +50,7 @@ The following contracts are versioned and test-covered, but they are not part of
 - `runtime_signal.v1` maps to `signal.active_signals`
 - `signal_event.v1` maps to `signal.signal_events`
 - `decision_publication.v1` maps to `signal.publications`
+
+## Research Storage Retirement
+
+Persisted `mtf_*` projections and legacy source hashes are retired. Native strategy timeframe APIs retain their contracts. Migration and rollback: [Continuous Front Indicator Storage](docs/architecture/product-plane/continuous-front-indicator-storage.md).

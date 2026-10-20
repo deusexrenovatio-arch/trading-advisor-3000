@@ -11,14 +11,17 @@ from typing import Any
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
-from deltalake import DeltaTable
+from deltalake import DeltaTable, write_deltalake
 
 from trading_advisor_3000.product_plane.common.data_snapshots import open_read_table
 from trading_advisor_3000.product_plane.common.table_layout import (
+    MAX_COMPRESSED_FILE_BYTES,
+    YEAR_PARTITION_COLUMN,
     assert_default_table_layout,
     assert_fresh_arrow_candidate,
     compact_default_table,
     default_partition_columns,
+    validate_file_actions,
     write_layout_arrow_table,
 )
 
@@ -652,13 +655,26 @@ def delta_table_column_value_counts(table_path: Path, *, column: str) -> dict[st
     return dict(sorted(counts.items()))
 
 
-def ensure_delta_table_columns(*, table_path: Path, columns: dict[str, str]) -> bool:
+def ensure_delta_table_columns(
+    *,
+    table_path: Path,
+    columns: dict[str, str],
+    compact: bool = True,
+    partition_by: tuple[str, ...] | None = None,
+) -> bool:
     assert_default_table_layout(table_path)
     existing_columns = set(delta_table_columns(table_path))
     missing_columns = [column for column in columns if column not in existing_columns]
     if not missing_columns:
         return False
-    write_delta_table_rows(table_path=table_path, rows=[], columns=columns, mode="append")
+    write_delta_table_rows(
+        table_path=table_path,
+        rows=[],
+        columns=columns,
+        mode="append",
+        compact=compact,
+        partition_by=partition_by,
+    )
     return True
 
 
@@ -669,21 +685,10 @@ def iter_delta_table_row_batches(
     filters: DeltaReadFilters = None,
     batch_size: int = 65_536,
 ) -> Iterator[list[dict[str, object]]]:
-    if not has_delta_log(table_path):
-        raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    if batch_size <= 0:
-        raise ValueError("batch_size must be > 0")
-    table = open_read_table(table_path, unscoped_open=DeltaTable)
-    dataset = table.to_pyarrow_dataset()
-    normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
-    _enforce_hot_delta_batch_bound(table_path, filters=normalized_filters)
-    dataset = _filtered_delta_dataset(table, normalized_filters)
-    scanner = dataset.scanner(
-        columns=columns,
-        filter=_filters_to_dataset_expression(normalized_filters),
-        batch_size=batch_size,
+    reader = DeltaArrowReader(table_path).batches(
+        columns=columns, filters=filters, batch_size=batch_size
     )
-    for batch in scanner.to_batches():
+    for batch in reader:
         yield _normalize_loaded_rows(batch.to_pylist())
 
 
@@ -693,20 +698,7 @@ def read_delta_table_arrow(
     columns: list[str] | None = None,
     filters: DeltaReadFilters = None,
 ) -> pa.Table:
-    if not has_delta_log(table_path):
-        raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
-    table = open_read_table(table_path, unscoped_open=DeltaTable)
-    dataset = table.to_pyarrow_dataset()
-    normalized_filters = _normalize_filters_for_schema(filters, dataset.schema)
-    _enforce_hot_delta_read_bound(table_path, filters=normalized_filters)
-    dataset = _filtered_delta_dataset(table, normalized_filters)
-    selected_columns = columns
-    if selected_columns is not None:
-        available = set(dataset.schema.names)
-        selected_columns = [column for column in selected_columns if column in available]
-    return dataset.to_table(
-        columns=selected_columns, filter=_filters_to_dataset_expression(normalized_filters)
-    )
+    return DeltaArrowReader(table_path).read(columns=columns, filters=filters)
 
 
 def read_delta_table_rows(
@@ -789,3 +781,181 @@ def read_small_delta_table_rows(
     if is_hot_delta_table_path(table_path):
         raise ValueError("hot Delta tables require filtered reads or Spark/Delta-native operations")
     return read_delta_table_rows(table_path, columns=columns, limit=limit)
+
+
+def write_delta_table_scoped_batches(
+    *,
+    table_path: Path,
+    scoped_batches: Iterable[tuple[str, list[dict[str, object]]]],
+    columns: dict[str, str],
+    partition_by: tuple[str, ...] | None = None,
+    max_batch_bytes: int = 64 * 1024 * 1024,
+    max_batch_scopes: int = 32,
+) -> tuple[int, int]:
+    """Atomically replace bounded packs; consume/validate before mutating each pack.
+
+    One oversized logical scope is written alone. Earlier packs can be committed
+    if a later generator fails; the owning asset must not publish that failed run.
+    This API deliberately does not use the delete-before-read compatibility API.
+    """
+    if max_batch_bytes <= 0 or max_batch_scopes <= 0:
+        raise ValueError("Delta pack limits must be > 0")
+    # Research writers supply authoritative physical carriers. Raw publication
+    # remains owned by write_layout_arrow_table and its fresh-candidate guard.
+    if table_path.stem == "raw_moex_history":
+        raise ValueError("scoped packs do not own raw history publication")
+    if partition_by is None:
+        raise ValueError("scoped packs require explicit physical partitions")
+    if has_delta_log(table_path):
+        actual = DeltaTable(str(table_path)).metadata().partition_columns
+        if actual != list(partition_by):
+            raise ValueError("scoped packs require an isolated layout migration")
+    before_version = DeltaTable(str(table_path)).version() if has_delta_log(table_path) else -1
+    tables: list[pa.Table] = []
+    predicates: list[str] = []
+    buffered_bytes = row_count = batch_count = 0
+
+    def flush() -> None:
+        nonlocal buffered_bytes, row_count, batch_count
+        if not predicates:
+            return
+        reader = pa.RecordBatchReader.from_batches(
+            tables[0].schema,
+            (batch for table in tables for batch in table.to_batches()),
+        )
+        partitions = partition_by
+        options = {} if partitions is None else {"partition_by": list(partitions)}
+        write_deltalake(
+            str(table_path),
+            reader,
+            mode="overwrite",
+            schema_mode="merge",
+            predicate=" OR ".join(f"({item})" for item in predicates),
+            target_file_size=MAX_COMPRESSED_FILE_BYTES,
+            **options,
+        )
+        row_count += sum(table.num_rows for table in tables)
+        batch_count += 1
+        tables.clear()
+        predicates.clear()
+        buffered_bytes = 0
+
+    for predicate, rows in scoped_batches:
+        if not str(predicate).strip():
+            raise ValueError("Delta pack requires a non-empty replacement predicate")
+        # Normalize the next complete scope before committing the previous pack.
+        # In particular, invalid timestamps cannot follow a destructive delete.
+        table = pa.Table.from_pylist(_normalize_rows(rows, columns), schema=_build_schema(columns))
+        if predicates and (
+            len(predicates) >= max_batch_scopes or buffered_bytes + table.nbytes > max_batch_bytes
+        ):
+            flush()
+        tables.append(table)
+        predicates.append(predicate)
+        buffered_bytes += table.nbytes
+        if buffered_bytes >= max_batch_bytes or len(predicates) >= max_batch_scopes:
+            flush()
+    flush()
+    if not has_delta_log(table_path):
+        write_delta_table_rows(
+            table_path=table_path,
+            rows=[],
+            columns=columns,
+            compact=False,
+            partition_by=partition_by,
+        )
+    elif not batch_count:
+        ensure_delta_table_columns(
+            table_path=table_path, columns=columns, compact=False, partition_by=partition_by
+        )
+    # Also repairs a previous successful write followed by failed finalization.
+    finalize_research_delta_table(
+        table_path, since_version=before_version, partition_by=partition_by
+    )
+    return row_count, batch_count
+
+
+def finalize_research_delta_table(
+    table_path: Path, *, since_version: int, partition_by: tuple[str, ...]
+) -> None:
+    """Compact changed close-years plus existing debt once; healthy no-op is read-only."""
+    if not has_delta_log(table_path):
+        return
+    if partition_by != (YEAR_PARTITION_COLUMN,):
+        raise ValueError("research finalization requires authoritative close-year layout")
+    table = DeltaTable(str(table_path))
+    if table.metadata().partition_columns != list(partition_by):
+        raise ValueError("research finalization requires an isolated layout migration")
+
+    def files(snapshot):
+        return {
+            row["path"]: (str(row[f"partition.{YEAR_PARTITION_COLUMN}"]), int(row["size_bytes"]))
+            for row in snapshot.get_add_actions(flatten=True).to_pylist()
+        }
+
+    current = files(table)
+    previous = (
+        files(DeltaTable(str(table_path), version=since_version)) if since_version >= 0 else {}
+    )
+    if any(size > MAX_COMPRESSED_FILE_BYTES for _, size in current.values()):
+        raise ValueError("research compressed file exceeds 512 MiB; isolated rebuild required")
+    years = {
+        source[path][0]
+        for source, other in ((previous, current), (current, previous))
+        for path in source.keys() - other.keys()
+    }
+    by_year: dict[str, list[int]] = {}
+    for year, size in current.values():
+        by_year.setdefault(year, []).append(size)
+    years.update(
+        year
+        for year, sizes in by_year.items()
+        if len(sizes) > 1 and sum(sorted(sizes)[:2]) <= MAX_COMPRESSED_FILE_BYTES
+    )
+    if years and current:
+        table.optimize.compact(
+            target_size=MAX_COMPRESSED_FILE_BYTES,
+            max_concurrent_tasks=1,
+            partition_filters=[(YEAR_PARTITION_COLUMN, "in", sorted(years))],
+        )
+        table.update_incremental()
+    validate_file_actions(
+        table.get_add_actions(flatten=True).to_pylist(), max_file_bytes=MAX_COMPRESSED_FILE_BYTES
+    )
+
+
+class DeltaArrowReader:
+    """One existing snapshot handle for related schema/metadata/value reads."""
+
+    def __init__(self, table_path: Path):
+        if not has_delta_log(table_path):
+            raise FileNotFoundError(f"delta table is missing `_delta_log`: {table_path.as_posix()}")
+        self.path = table_path
+        self._table = open_read_table(table_path, unscoped_open=DeltaTable)
+        self.schema = self._table.to_pyarrow_dataset().schema
+        self.version = self._table.version()
+
+    def _dataset(self, filters: DeltaReadFilters, *, batch: bool):
+        normalized = _normalize_filters_for_schema(filters, self.schema)
+        guard = _enforce_hot_delta_batch_bound if batch else _enforce_hot_delta_read_bound
+        guard(self.path, filters=normalized)
+        return _filtered_delta_dataset(self._table, normalized), normalized
+
+    def read(self, *, columns=None, filters: DeltaReadFilters = None) -> pa.Table:
+        dataset, normalized = self._dataset(filters, batch=False)
+        selected = None if columns is None else [c for c in columns if c in self.schema.names]
+        return dataset.to_table(columns=selected, filter=_filters_to_dataset_expression(normalized))
+
+    def batches(
+        self, *, columns=None, filters: DeltaReadFilters = None, batch_size: int = 32_768
+    ) -> pa.RecordBatchReader:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be > 0")
+        dataset, normalized = self._dataset(filters, batch=True)
+        return dataset.scanner(
+            columns=columns,
+            filter=_filters_to_dataset_expression(normalized),
+            batch_size=batch_size,
+            batch_readahead=1,
+            fragment_readahead=1,
+        ).to_reader()

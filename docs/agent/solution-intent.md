@@ -2,14 +2,12 @@
 
 - Solution Class: staged
 - Critical Contour: data-integration-closure
-- Forbidden Shortcuts: none
-- Closure Evidence: native Spark regression for separated explicit windows and unchanged provenance-only fallback; existing Delta publisher overlap/sidecar regression; physical restoration and pinned Data/research publication recorded separately.
+- Forbidden Shortcuts: direct main push; production data mutation; changed numerical kernels; trusting a hash without complete suffix proof.
+- Closure Evidence: isolated native Delta regressions for bounded packs, exact suffix comparison, pinned one-pass reads, source drift, scoped pairs, metadata conflicts and close-year identity; source AST compatibility proof; required PR gates. This is partial closure, not full target closure of production publication.
 - Shortcut Waiver: none
 
-Change surface: mixed. Product-plane replacement-boundary correction plus required delivery metadata. No domain logic moves into shell.
+Change surface: mixed. Product-plane performance integration plus this required delivery note; no shell behavior changes.
 
-Native Runtime Choice: Spark owns scoped key selection and Delta mutations; Dagster owns replay and downstream continuation. Python coordinates metadata only.
+Native Runtime Choice: Arrow and delta-rs own projected reads, canonical fingerprints, bounded atomic overwrites and close-year finalization. Existing Spark source production and numerical formulas remain authoritative. Dagster remains the publication owner.
 
-An existing explicit publish-scope file defines the authoritative replacement windows, including an empty declared scope. Contract min/max provenance inference remains the compatibility path when no explicit file exists. Disjoint explicit windows must preserve the intervening history.
-
-Self-review: replacement scope no longer unions explicit windows with a broad contract min/max envelope. Tables, business keys, UUIDs and partition layout stay unchanged. The native separated-window regression catches intermediate-bar deletion; provenance-only fallback and the existing delete-only sidecar behavior remain covered. Historical sparse replay requires complete source context and a separate physical publication receipt.
+Self-review: complete logical scopes replace repeated per-partition commits. L2 prepares each partition once, compares its complete native output prefix, and serializes only the changed suffix. Retained history must match values, keys, profile/output identity, physical close-year and warmup metadata. Conflicting newest metadata, omitted decisions and changing inputs are forbidden. Isolated regression tests catch these cases. Production rollout and any new full-dataset timing remain separate from this main integration.

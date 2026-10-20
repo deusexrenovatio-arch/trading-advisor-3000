@@ -6,7 +6,6 @@ from .materialize import (
     materialize_indicator_frames,
     reload_indicator_frames,
 )
-from .mtf import MultiTimeframeBinding
 from .naming import indicator_column_name
 from .registry import (
     IndicatorParameter,
@@ -39,7 +38,6 @@ __all__ = [
     "IndicatorProfile",
     "IndicatorProfileRegistry",
     "IndicatorSpec",
-    "MultiTimeframeBinding",
     "VOLUME_PROFILE_INDICATOR_COLUMNS",
     "VOLUME_PROFILE_INT_COLUMNS",
     "build_indicator_profile_registry",

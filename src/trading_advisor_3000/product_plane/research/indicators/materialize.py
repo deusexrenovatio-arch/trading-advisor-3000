@@ -2192,6 +2192,27 @@ def _materialize_indicator_frames_unlocked(
         ):
             fast_reuse_report = None
     if fast_reuse_report is not None:
+        from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+            delta_table_version,
+            finalize_research_delta_table,
+        )
+
+        path = indicator_output_dir / "research_indicator_frames.delta"
+        finalize_research_delta_table(
+            path,
+            since_version=delta_table_version(path),
+            partition_by=("ts_close_year",),
+        )
+        if (
+            _source_snapshot_hash(
+                dataset_output_dir / "research_bar_views.delta",
+                volume_profile_raw_1m_table_path
+                if _profile_has_volume_profile_spec(resolved_profile)
+                else None,
+            )
+            != source_snapshot_hash
+        ):
+            raise ValueError("L1 inputs changed during snapshot reuse")
         record_stage_timing(
             stage_timings,
             "reuse_decision",
@@ -3075,7 +3096,7 @@ def _materialize_indicator_window_tails(
     diagnostics: dict[str, object] = {}
     refreshed = reused = missing_source = metadata_rebased = migrated = 0
     migration_rows = migration_batches = 0
-    migration_full_partitions = migration_full_rows = 0
+    migration_full_partitions = migration_full_rows = migration_full_batches = 0
     has_volume_profile = _profile_has_volume_profile_spec(profile)
     columns = profile.expected_output_columns()
 
@@ -3089,6 +3110,7 @@ def _materialize_indicator_window_tails(
     def batches() -> Iterator[tuple[IndicatorFramePartitionKey, list[IndicatorFrameRow]]]:
         nonlocal refreshed, reused, missing_source, metadata_rebased, migrated
         nonlocal migration_rows, migration_batches, migration_full_partitions, migration_full_rows
+        nonlocal migration_full_batches
         for partition, count in sorted(
             partition_counts.items(),
             key=lambda item: (
@@ -3340,18 +3362,31 @@ def _materialize_indicator_window_tails(
             assert_source_stable()
             refreshed += 1
             if full_legacy_partition:
+                # A full legacy replacement has no valid suffix boundary.
+                # Keep the existing complete-partition writer and its default
+                # budget/recovery behavior; the batch adapter owns suffixes.
+                migration_source()
+                _, written, writes = write_indicator_frame_partition_batches(
+                    output_dir=indicator_output_dir,
+                    partition_row_batches=((partition, rows),),
+                    profile=profile,
+                )
+                assert_source_stable()
+                migration_source()
                 migration_full_partitions += 1
-                migration_full_rows += len(rows)
-            yield (
-                partition,
-                rows
-                if full_legacy_partition
-                else [row for row in rows if _utc_timestamp(row.ts) >= _utc_timestamp(start)],
-            )
+                migration_full_rows += written
+                migration_full_batches += writes
+            else:
+                yield (
+                    partition,
+                    [row for row in rows if _utc_timestamp(row.ts) >= _utc_timestamp(start)],
+                )
             del series, existing, existing_by_ts, rows, changed_ts, source_ts
 
     started = stage_timer("write_indicator_frames")
-    paths, row_count, batch_count = write_indicator_frame_partition_batches(
+    from .batch_writer import write_indicator_frame_scoped_batches as write_scoped_batches
+
+    paths, row_count, batch_count = write_scoped_batches(
         output_dir=indicator_output_dir,
         partition_row_batches=batches(),
         delete_partitions=deleted_partitions,
@@ -3359,8 +3394,8 @@ def _materialize_indicator_window_tails(
         partition_start_ts=starts,
     )
     assert_source_stable()
-    row_count += migration_rows
-    batch_count += migration_batches
+    row_count += migration_rows + migration_full_rows
+    batch_count += migration_batches + migration_full_batches
     record_stage_timing(
         stage_timings,
         "write_indicator_frames",
