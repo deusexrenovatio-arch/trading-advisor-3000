@@ -11,43 +11,12 @@ def test_reviewed_current_package_is_exact():
     assert owner.reviewed_current_source()
 
 
-def test_reviewed_digest_only_normalizes_one_anchor_and_line_endings(tmp_path):
-    path = tmp_path / "product_plane/research/hash_compatibility.py"
-    path.parent.mkdir(parents=True)
-    content = '_REVIEWED_CURRENT_SOURCE_SHA256 = "' + "a" * 64 + '"\nVALUE = 1\n'
-    path.write_bytes(content.encode())
-    expected = owner.reviewed_source_digest(tmp_path)
-    path.write_bytes(content.replace("a" * 64, "b" * 64).replace("\n", "\r\n").encode())
-    assert owner.reviewed_source_digest(tmp_path) == expected
-    path.write_bytes(content.replace("VALUE = 1", "VALUE = 2").encode())
-    assert owner.reviewed_source_digest(tmp_path) != expected
-    path.write_bytes(content.encode())
-    (tmp_path / "extra.py").write_text("VALUE = 3\n")
-    assert owner.reviewed_source_digest(tmp_path) != expected
-
-
-@pytest.mark.parametrize("kind", ["missing", "duplicate", "malformed"])
-def test_reviewed_digest_rejects_invalid_anchor(tmp_path, kind):
-    path = tmp_path / "product_plane/research/hash_compatibility.py"
-    path.parent.mkdir(parents=True)
-    anchor = '_REVIEWED_CURRENT_SOURCE_SHA256 = "' + "a" * 64 + '"\n'
-    path.write_text(
-        "VALUE = 1\n"
-        if kind == "missing"
-        else anchor * 2
-        if kind == "duplicate"
-        else anchor.replace("a" * 64, "bad")
-    )
-    with pytest.raises(ValueError):
-        owner.reviewed_source_digest(tmp_path)
-
-
 @pytest.mark.parametrize(
     "change", ["source", "dependency", "contract", "extra_key", "current_code"]
 )
 def test_compatibility_never_ignores_unknown_semantics(monkeypatch, change):
     old = {
-        "source_sha256": next(iter(owner.LEGACY_SOURCES)),
+        "source_sha256": owner.NATIVE_LEGACY_SOURCE,
         "dependencies": {"numpy": "same"},
         "contracts_sha256": "same",
     }
@@ -66,11 +35,13 @@ def test_compatibility_never_ignores_unknown_semantics(monkeypatch, change):
 
 def test_known_source_transition_is_finite_and_scope_is_revoked(monkeypatch):
     monkeypatch.setattr(owner, "reviewed_current_source", lambda: True)
-    for source in owner.LEGACY_SOURCES:
-        assert owner.compatible_provenance({"source_sha256": source}, {"source_sha256": "new"})
-        with owner._verified_migration_scope(source):
-            assert owner.migration_source() == source
-        assert owner.migration_source() is None
+    source = owner.NATIVE_LEGACY_SOURCE
+    assert owner.compatible_provenance({"source_sha256": source}, {"source_sha256": "new"})
+    with owner._verified_migration_scope(source):
+        assert owner.migration_source() == source
+    assert owner.migration_source() is None
+    for retired in set(owner.LEGACY_SOURCES) - {source}:
+        assert not owner.compatible_provenance({"source_sha256": retired}, {"source_sha256": "new"})
     with pytest.raises(ValueError):
         with owner._verified_migration_scope("unknown"):
             pass
@@ -124,7 +95,7 @@ def accepted_chain(tmp_path, monkeypatch, request):
         "source_sha256": (
             "8a4432db9fc8e5da29cc3b6668b61972ded6bc270072252e000d4414a6827fbb"
             if getattr(request, "param", None) == "post226"
-            else next(iter(owner.LEGACY_SOURCES))
+            else owner.NATIVE_LEGACY_SOURCE
         ),
         "dependencies": {"numpy": "same"},
     }
@@ -183,6 +154,10 @@ def accepted_chain(tmp_path, monkeypatch, request):
         "parents": [data["snapshot_id"]],
         "parent_manifest_sha256": data["manifest_sha256"],
         "runtime_provenance": current,
+        "semantic_compute_contract": __import__(
+            "trading_advisor_3000.product_plane.research.compute_contract",
+            fromlist=["semantic_compute_contract"],
+        ).semantic_compute_contract(config),
         "quality_checks": {},
         "quality_owners": {},
         "quality_evidence": {},
@@ -266,7 +241,7 @@ def test_pending_resume_stays_strict_despite_compatible_transition(accepted_chai
     pending.update(parameters=checkpoint._parameters(config), code_version="new")
     pending["runtime_provenance"] = {
         **pending["runtime_provenance"],
-        "source_sha256": next(iter(owner.LEGACY_SOURCES)),
+        "source_sha256": owner.NATIVE_LEGACY_SOURCE,
     }
     checkpoint.atomic_json(checkpoint._pending_path(context, config), pending)
     with pytest.raises(ValueError, match="same parameters and code"):

@@ -6,7 +6,6 @@ fallback. Plan/apply require paused writers. No vacuum; receipt supports rollbac
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import inspect
 import json
@@ -24,6 +23,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
 from trading_advisor_3000.product_plane.research.indicators import IndicatorFrameRow
 
+from ..hash_compatibility import BOOTSTRAP_ENGINE, BOOTSTRAP_KERNELS
 from . import materialize as m
 from .retire_mtf import _check_writer, _fingerprint, rollback_retirement
 from .source_frames import (
@@ -45,7 +45,7 @@ LEGACY_IMPLEMENTATION = (
     "632fa2f48e4b94f8bd03c789e8a4bc8c03c70291e6b1f39f2440d4f67f1611fa",
 )
 LEGACY_COMPUTE = "757d937dc25d7ed7e52ba90b7447beca66e7ce173ff7e16aa0fdb549c0b14739"
-NATIVE_KERNEL = "ee0097bca6671f9c417c276fb5cac6f5d8e4648a6bd9a473d85f0ded7b443c93"
+NATIVE_KERNEL = BOOTSTRAP_KERNELS["l2"]
 SOURCE = "research_derived_source_frames"
 DERIVED = "research_derived_indicator_frames"
 INPUTS = (
@@ -77,56 +77,14 @@ MUTABLE = (
 
 
 def native_kernel_digest() -> str:
-    """Freeze audited native formula/helper AST, profile, policies and CF adapter."""
-    research = Path(m.__file__).parent.parent
-    tree = ast.parse(Path(m.__file__).read_text(encoding="utf-8"))
-    prefix = []
-    for node in tree.body:
-        if (
-            isinstance(node, ast.FunctionDef)
-            and node.name == "_derived_projection_contract_changed"
-        ):
-            break
-        prefix.append(ast.dump(node, include_attributes=False))
-    local_hash = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "_source_inputs_hash"
-    )
-    owners = [
-        Path(inspect.getfile(ResearchBarView)),
-        Path(inspect.getfile(IndicatorFrameRow)),
-        research / "datasets/bar_usage.py",
-    ]
-    owner_classes = [
-        ast.dump(ast.parse(path.read_text(encoding="utf-8")), include_attributes=False)
-        for path in owners
-    ]
-    normalization = ast.parse(
-        Path(inspect.getfile(_normalize_loaded_rows)).read_text(encoding="utf-8")
-    )
-    owner_classes.extend(
-        ast.dump(node, include_attributes=False)
-        for node in normalization.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name in {"_normalize_loaded_rows", "_normalize_loaded_value"}
-    )
-    others = [
-        Path(m.__file__).with_name("registry.py"),
-        research / "bar_usage_policy.py",
-        research / "continuous_front_indicators/input_projection.py",
-        research / "continuous_front_indicators/rules.py",
-    ]
-    payload = [
-        prefix,
-        ast.dump(local_hash, include_attributes=False),
-        owner_classes,
-        [
-            ast.dump(ast.parse(p.read_text(encoding="utf-8")), include_attributes=False)
-            for p in others
-        ],
-    ]
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    """One-time legacy adoption uses the audited numerical baseline, not files."""
+    from ..compute_contract import kernel_contract
+    from ..hash_compatibility import reviewed_current_source
+    from ..semantic_fingerprint import engine_identity
+
+    if engine_identity() != BOOTSTRAP_ENGINE or not reviewed_current_source():
+        raise ValueError("native fingerprint authority changed; reviewed migration required")
+    return kernel_contract()["l2"]
 
 
 def _writer_binding():

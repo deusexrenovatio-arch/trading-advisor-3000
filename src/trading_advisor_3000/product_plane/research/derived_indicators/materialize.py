@@ -64,6 +64,7 @@ from trading_advisor_3000.spark_jobs.research_derived_source_frames_job import (
     run_research_derived_source_frames_spark_job,
 )
 
+from ..compute_contract import native_compute_scope
 from .source_frames import (
     DERIVED_SOURCE_FRAME_TABLE,
     DerivedSourceFramePartitionKey,
@@ -1595,6 +1596,42 @@ def _columnar_source_hashes(table, source_indicator_columns):
     return _bars_hash(bars), _indicator_hash(indicators, value_columns=source_indicator_columns)
 
 
+def _merge_derived_values(
+    *, computed, output_columns, computed_columns, existing_by_ts, base_frame
+):
+    values_frame = computed.reindex(columns=output_columns).copy()
+    for column in output_columns:
+        if column not in computed_columns:
+            values_frame[column] = [
+                existing_by_ts[ts].values.get(column) if ts in existing_by_ts else None
+                for ts in base_frame["ts"]
+            ]
+    active = values_frame.columns[values_frame.notna().any()]
+    complete = (
+        values_frame[active].notna().all(axis=1)
+        if len(active)
+        else pd.Series(True, index=values_frame.index)
+    )
+    null_warmup_span = int(np.argmax(complete.to_numpy())) if complete.any() else len(values_frame)
+    return values_frame, null_warmup_span
+
+
+def _derived_output_row(*, original, payload, output_columns, series_mode, **metadata):
+    key = _series_key_from_bar(original, series_mode=series_mode)
+    return DerivedIndicatorFrameRow(
+        contour_id=original.contour_id,
+        series_mode=key.series_mode,
+        series_id=key.series_id,
+        contract_id=original.contract_id,
+        instrument_id=original.instrument_id,
+        timeframe=original.timeframe,
+        ts=original.ts,
+        bar_end_ts=original.bar_end_ts,
+        values={c: _derived_value(c, payload[c]) for c in output_columns},
+        **metadata,
+    )
+
+
 def _build_prepared_partition_rows(
     *,
     dataset_version: str,
@@ -1657,20 +1694,13 @@ def _build_prepared_partition_rows(
     output_columns_hash = output_columns_hash or derived_indicator_output_columns_hash(
         output_columns
     )
-    values_frame = computed.reindex(columns=output_columns).copy()
-    for column in output_columns:
-        if column not in computed_columns:
-            values_frame[column] = [
-                existing_by_ts[ts].values.get(column) if ts in existing_by_ts else None
-                for ts in base_frame["ts"]
-            ]
-    active = values_frame.columns[values_frame.notna().any()]
-    complete = (
-        values_frame[active].notna().all(axis=1)
-        if len(active)
-        else pd.Series(True, index=values_frame.index)
+    values_frame, null_warmup_span = _merge_derived_values(
+        computed=computed,
+        output_columns=output_columns,
+        computed_columns=computed_columns,
+        existing_by_ts=existing_by_ts,
+        base_frame=base_frame,
     )
-    null_warmup_span = int(np.argmax(complete.to_numpy())) if complete.any() else len(values_frame)
     materialized_at = pd.Timestamp.now(tz="UTC")
     previous = pd.to_datetime(previous_created_at, utc=True, errors="coerce")
     if not pd.isna(previous):
@@ -1706,22 +1736,16 @@ def _build_prepared_partition_rows(
     payload_rows = values_frame.iloc[start:].to_dict("records")
     rows: list[DerivedIndicatorFrameRow] = []
     for original, payload in zip(local_series[start:], payload_rows, strict=True):
-        series_key = _series_key_from_bar(original, series_mode=series_mode)
         rows.append(
-            DerivedIndicatorFrameRow(
+            _derived_output_row(
+                original=original,
+                payload=payload,
+                output_columns=output_columns,
+                series_mode=series_mode,
                 dataset_version=dataset_version,
-                contour_id=original.contour_id,
-                series_mode=series_key.series_mode,
-                series_id=series_key.series_id,
                 indicator_set_version=indicator_set_version,
                 derived_indicator_set_version=derived_indicator_set_version,
                 profile_version=profile.version,
-                contract_id=original.contract_id,
-                instrument_id=original.instrument_id,
-                timeframe=original.timeframe,
-                ts=original.ts,
-                bar_end_ts=original.bar_end_ts,
-                values={c: _derived_value(c, payload[c]) for c in output_columns},
                 source_bars_hash=source_bars_hash,
                 source_indicators_hash=source_indicators_hash,
                 source_inputs_hash=source_inputs_hash,
@@ -2194,29 +2218,20 @@ def _delta_source_refs(paths: Sequence[Path]) -> list[dict[str, object]]:
 
 
 def _derived_compute_contract_hash(ladder: tuple[dict[str, object], ...]) -> str:
-    research = Path(__file__).parent.parent
-    files = (
-        Path(__file__),
-        Path(__file__).with_name("registry.py"),
-        Path(__file__).with_name("fingerprints.py"),
-        Path(__file__).with_name("read_cache.py"),
-        Path(__file__).with_name("tails.py"),
-        Path(__file__).with_name("source_frames.py"),
-        research / "bar_usage_policy.py",
-        research / "continuous_front_indicators" / "input_projection.py",
-        research / "continuous_front_indicators" / "rules.py",
-        research.parent.parent / "spark_jobs" / "research_derived_source_frames_job.py",
+    from ..compute_contract import numerical_identity
+    from ..indicators.materialize import _normalize_ladder_rows
+    from ..semantic_fingerprint import digest
+
+    identity = numerical_identity()
+    return digest(
+        {
+            "version": "derived-compute.v2",
+            "engine": identity["engine"],
+            "kernels": {key: identity["kernels"][key] for key in ("l1", "l2")},
+            "dependencies": identity["dependencies"],
+            "ladder": _normalize_ladder_rows(ladder),
+        }
     )
-    payload = {
-        "contract": "derived-native-v1",
-        "implementation": [hashlib.sha256(path.read_bytes()).hexdigest() for path in files],
-        "numpy": np.__version__,
-        "pandas": pd.__version__,
-        "bar_usage": BAR_USAGE_POLICY_ID,
-        "indicator_usage": INDICATOR_USAGE_POLICY_ID,
-        "ladder": sorted(ladder, key=lambda row: json.dumps(row, sort_keys=True, default=str)),
-    }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def _derived_source_snapshot_hash(
@@ -2360,6 +2375,7 @@ def _derived_metadata_fast_reuse(
     }
 
 
+@native_compute_scope
 def materialize_derived_indicator_frames(
     *,
     dataset_output_dir: Path,

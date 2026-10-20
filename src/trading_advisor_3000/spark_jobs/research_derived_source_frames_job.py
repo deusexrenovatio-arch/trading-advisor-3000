@@ -367,6 +367,84 @@ def _filter_to_refresh_windows(
     return dataframe.where(condition)
 
 
+def _join_source_frames(bars, indicators, source_indicator_columns, join_keys):
+    from pyspark.sql import functions as F
+
+    indicator_projection = indicators.select(
+        *[F.col(column) for column in join_keys],
+        F.lit(1).alias("__indicator_present"),
+        F.col("profile_version").alias("indicator_profile_version"),
+        F.col("source_bars_hash").alias("indicator_source_bars_hash"),
+        F.col("source_dataset_bars_hash").alias("indicator_source_dataset_bars_hash"),
+        F.col("row_count").alias("indicator_row_count"),
+        F.col("warmup_span").alias("indicator_warmup_span"),
+        F.col("null_warmup_span").alias("indicator_null_warmup_span"),
+        F.col("created_at").alias("indicator_created_at"),
+        F.col("output_columns_hash").alias("indicator_output_columns_hash"),
+        *[F.col(column) for column in source_indicator_columns],
+    )
+    joined = bars.alias("bar").join(
+        indicator_projection.alias("indicator"),
+        [F.col(f"bar.{column}").eqNullSafe(F.col(f"indicator.{column}")) for column in join_keys],
+        "left",
+    )
+    return joined
+
+
+def _select_source_frame(
+    *,
+    joined,
+    indicator_set_version,
+    derived_profile_version,
+    source_indicator_columns,
+    source_indicator_columns_hash,
+    source_l0_delta_version,
+    source_l1_delta_version,
+    source_l0_delta_hash,
+    source_l1_delta_hash,
+    l0_row_count,
+    l1_row_count,
+    joined_row_count,
+    duplicate_indicator_key_count,
+    missing_indicator_key_count,
+):
+    from pyspark.sql import functions as F
+
+    selected = joined.select(
+        *[
+            F.col(f"bar.{column}").alias(column)
+            for column in research_dataset_store_contract()["research_bar_views"]["columns"]
+        ],
+        F.lit(indicator_set_version).alias("indicator_set_version"),
+        F.lit(derived_profile_version).alias("derived_profile_version"),
+        *[F.col(f"indicator.{column}").alias(column) for column in source_indicator_columns],
+        F.col("indicator.indicator_profile_version").alias("indicator_profile_version"),
+        F.col("indicator.indicator_source_bars_hash").alias("indicator_source_bars_hash"),
+        F.col("indicator.indicator_source_dataset_bars_hash").alias(
+            "indicator_source_dataset_bars_hash"
+        ),
+        F.col("indicator.indicator_row_count").alias("indicator_row_count"),
+        F.col("indicator.indicator_warmup_span").alias("indicator_warmup_span"),
+        F.col("indicator.indicator_null_warmup_span").alias("indicator_null_warmup_span"),
+        F.col("indicator.indicator_created_at").alias("indicator_created_at"),
+        F.col("indicator.indicator_output_columns_hash").alias("indicator_output_columns_hash"),
+        F.lit(source_indicator_columns_hash).alias("source_indicator_columns_hash"),
+        F.lit(source_l0_delta_version).cast("bigint").alias("source_l0_delta_version"),
+        F.lit(source_l1_delta_version).cast("bigint").alias("source_l1_delta_version"),
+        F.lit(source_l0_delta_hash).alias("source_l0_delta_hash"),
+        F.lit(source_l1_delta_hash).alias("source_l1_delta_hash"),
+        F.lit(l0_row_count).cast("bigint").alias("l0_row_count"),
+        F.lit(l1_row_count).cast("bigint").alias("l1_row_count"),
+        F.lit(joined_row_count).cast("bigint").alias("joined_row_count"),
+        F.lit(duplicate_indicator_key_count).cast("bigint").alias("duplicate_indicator_key_count"),
+        F.lit(missing_indicator_key_count).cast("bigint").alias("missing_indicator_key_count"),
+        F.lit("").alias("source_bars_hash"),
+        F.lit("").alias("source_indicators_hash"),
+        F.current_timestamp().alias("source_frame_created_at"),
+    )
+    return selected
+
+
 def run_research_derived_source_frames_spark_job(
     *,
     bar_views_path: Path,
@@ -521,27 +599,7 @@ def run_research_derived_source_frames_spark_job(
                 f"duplicates={duplicate_indicator_key_count}"
             )
 
-        indicator_projection = indicators.select(
-            *[F.col(column) for column in join_keys],
-            F.lit(1).alias("__indicator_present"),
-            F.col("profile_version").alias("indicator_profile_version"),
-            F.col("source_bars_hash").alias("indicator_source_bars_hash"),
-            F.col("source_dataset_bars_hash").alias("indicator_source_dataset_bars_hash"),
-            F.col("row_count").alias("indicator_row_count"),
-            F.col("warmup_span").alias("indicator_warmup_span"),
-            F.col("null_warmup_span").alias("indicator_null_warmup_span"),
-            F.col("created_at").alias("indicator_created_at"),
-            F.col("output_columns_hash").alias("indicator_output_columns_hash"),
-            *[F.col(column) for column in source_indicator_columns],
-        )
-        joined = bars.alias("bar").join(
-            indicator_projection.alias("indicator"),
-            [
-                F.col(f"bar.{column}").eqNullSafe(F.col(f"indicator.{column}"))
-                for column in join_keys
-            ],
-            "left",
-        )
+        joined = _join_source_frames(bars, indicators, source_indicator_columns, join_keys)
         record_stage_timing(stage_timings, "build_join_frame", stage_started)
 
         stage_started = stage_timer()
@@ -584,39 +642,21 @@ def run_research_derived_source_frames_spark_job(
         )
 
         stage_started = stage_timer()
-        selected = joined.select(
-            *[
-                F.col(f"bar.{column}").alias(column)
-                for column in research_dataset_store_contract()["research_bar_views"]["columns"]
-            ],
-            F.lit(indicator_set_version).alias("indicator_set_version"),
-            F.lit(derived_profile_version).alias("derived_profile_version"),
-            *[F.col(f"indicator.{column}").alias(column) for column in source_indicator_columns],
-            F.col("indicator.indicator_profile_version").alias("indicator_profile_version"),
-            F.col("indicator.indicator_source_bars_hash").alias("indicator_source_bars_hash"),
-            F.col("indicator.indicator_source_dataset_bars_hash").alias(
-                "indicator_source_dataset_bars_hash"
-            ),
-            F.col("indicator.indicator_row_count").alias("indicator_row_count"),
-            F.col("indicator.indicator_warmup_span").alias("indicator_warmup_span"),
-            F.col("indicator.indicator_null_warmup_span").alias("indicator_null_warmup_span"),
-            F.col("indicator.indicator_created_at").alias("indicator_created_at"),
-            F.col("indicator.indicator_output_columns_hash").alias("indicator_output_columns_hash"),
-            F.lit(source_indicator_columns_hash).alias("source_indicator_columns_hash"),
-            F.lit(source_l0_delta_version).cast("bigint").alias("source_l0_delta_version"),
-            F.lit(source_l1_delta_version).cast("bigint").alias("source_l1_delta_version"),
-            F.lit(source_l0_delta_hash).alias("source_l0_delta_hash"),
-            F.lit(source_l1_delta_hash).alias("source_l1_delta_hash"),
-            F.lit(l0_row_count).cast("bigint").alias("l0_row_count"),
-            F.lit(l1_row_count).cast("bigint").alias("l1_row_count"),
-            F.lit(joined_row_count).cast("bigint").alias("joined_row_count"),
-            F.lit(duplicate_indicator_key_count)
-            .cast("bigint")
-            .alias("duplicate_indicator_key_count"),
-            F.lit(missing_indicator_key_count).cast("bigint").alias("missing_indicator_key_count"),
-            F.lit("").alias("source_bars_hash"),
-            F.lit("").alias("source_indicators_hash"),
-            F.current_timestamp().alias("source_frame_created_at"),
+        selected = _select_source_frame(
+            joined=joined,
+            indicator_set_version=indicator_set_version,
+            derived_profile_version=derived_profile_version,
+            source_indicator_columns=source_indicator_columns,
+            source_indicator_columns_hash=source_indicator_columns_hash,
+            source_l0_delta_version=source_l0_delta_version,
+            source_l1_delta_version=source_l1_delta_version,
+            source_l0_delta_hash=source_l0_delta_hash,
+            source_l1_delta_hash=source_l1_delta_hash,
+            l0_row_count=l0_row_count,
+            l1_row_count=l1_row_count,
+            joined_row_count=joined_row_count,
+            duplicate_indicator_key_count=duplicate_indicator_key_count,
+            missing_indicator_key_count=missing_indicator_key_count,
         )
         record_stage_timing(stage_timings, "select_source_frame", stage_started)
 
