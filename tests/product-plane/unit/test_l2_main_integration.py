@@ -257,3 +257,67 @@ def test_public_l2_noop_repairs_debt_before_snapshot_capture(native_materializer
     version = table.version()
     assert asset(context)["reused_partition_count"] == 2
     assert DeltaTable(str(path)).version() == version
+
+
+def test_forced_numeric_refresh_cannot_retain_snapshot_or_tail(native_materializer):
+    _, run, _, _ = native_materializer
+    assert run()["refreshed_row_count"] == 48
+    report = run(force_recompute=True)
+    assert report["refreshed_partition_count"] == 2
+    assert report["reused_partition_count"] == 0
+    assert report["refreshed_row_count"] == 48
+    assert run()["refreshed_partition_count"] == 0
+
+
+def test_legacy_admission_cannot_reuse_obsolete_l2_compute_receipt(
+    native_materializer, monkeypatch
+):
+    from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
+
+    _, run, _, _ = native_materializer
+    current = m._derived_compute_contract_hash
+    monkeypatch.setattr(m, "_derived_compute_contract_hash", lambda _: "retired-mtf-recipe")
+    run()
+    monkeypatch.setattr(m, "_derived_compute_contract_hash", current)
+    monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
+    with bridge._verified_migration_scope(next(iter(bridge.LEGACY_SOURCES))):
+        report = run()
+    assert report["recomputed_partition_count"] == 2
+    assert report["reused_partition_count"] == 0
+    assert run()["reused_partition_count"] == 2
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+@pytest.mark.parametrize("damage", ["duplicate", "missing"])
+def test_physical_damage_repairs_without_comparing_corrupt_prefix(
+    native_materializer, bounded, damage
+):
+    _, run, root, _ = native_materializer
+    run()
+    path = root / "research_derived_indicator_frames.delta"
+    table = DeltaTable(str(path))
+    if damage == "duplicate":
+        duplicate = table.to_pyarrow_table(filters=[("instrument_id", "=", "A")]).slice(1, 1)
+        write_deltalake(str(path), duplicate, mode="append")
+    else:
+        first = (
+            table.to_pyarrow_table(filters=[("instrument_id", "=", "A")]).column("ts")[0].as_py()
+        )
+        table.delete("instrument_id = 'A' AND ts = '" + first.isoformat() + "'")
+    request = (
+        {
+            "refresh_windows": [
+                {
+                    "instrument_id": "A",
+                    "timeframe": "15m",
+                    "start_ts": "2026-01-01T00:00:00Z",
+                    "end_ts": "2026-12-31T23:59:59Z",
+                }
+            ]
+        }
+        if bounded
+        else {}
+    )
+    report = run(**request)
+    assert report["refreshed_partition_count"] >= 1
+    assert DeltaTable(str(path)).to_pyarrow_table().num_rows == 48

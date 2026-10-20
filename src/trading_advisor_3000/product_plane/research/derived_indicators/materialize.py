@@ -1444,12 +1444,17 @@ from contextlib import nullcontext  # noqa: E402
 
 import pyarrow.compute as pc  # noqa: E402
 
-from trading_advisor_3000.product_plane.data_plane.delta_runtime import DeltaArrowReader  # noqa: E402
+from trading_advisor_3000.product_plane.data_plane.delta_runtime import (  # noqa: E402
+    DeltaArrowReader,
+)
 
 from .fingerprints import columnar_fingerprint  # noqa: E402
 from .read_cache import PartitionReadCache  # noqa: E402
 from .source_frames import load_derived_source_frame_partition_arrow  # noqa: E402
-from .store import DerivedIndicatorPartitionUpdate, write_derived_indicator_partition_updates  # noqa: E402
+from .store import (  # noqa: E402
+    DerivedIndicatorPartitionUpdate,
+    write_derived_indicator_partition_updates,
+)
 from .tails import suffix_start_index  # noqa: E402
 
 
@@ -1748,9 +1753,15 @@ def _derived_partition_coverage_changed(
     derived_indicator_set_version: str,
     dataset_instrument_ids: Sequence[str],
     series_mode: str,
+    previous_counts: dict[DerivedIndicatorFramePartitionKey, int] | None = None,
+    requested_timeframes: Sequence[str] = (),
     scope: NativeRefreshScope = NativeRefreshScope(),
 ) -> bool:
-    """Compare actual physical publication with full scoped source coverage."""
+    """Require repair unless a complete in-scope count transition is proven.
+
+    Fast metadata reuse supplies no previous counts and remains strict against
+    current source coverage. Only the slow path may prove valid prior coverage.
+    """
     if not has_delta_log(table_path):
         return bool(expected_counts)
     available = set(delta_table_columns(table_path))
@@ -1787,7 +1798,25 @@ def _derived_partition_coverage_changed(
             series_mode=series_mode,
         )
         actual_counts[key] = actual_counts.get(key, 0) + int(row["instrument_id_count"])
-    return actual_counts != expected_counts
+    if actual_counts == expected_counts:
+        return False
+    if (
+        previous_counts is None
+        or actual_counts != previous_counts
+        or actual_counts.keys() != expected_counts.keys()
+    ):
+        return True
+    requested = frozenset(
+        str(value).strip() for value in requested_timeframes if str(value).strip()
+    )
+    return bool(
+        requested
+        and any(
+            key.timeframe not in requested
+            for key in expected_counts
+            if actual_counts[key] != expected_counts[key]
+        )
+    )
 
 
 def _source_inputs_hash(*, profile: DerivedIndicatorProfile, base_frame: pd.DataFrame) -> str:
@@ -2259,6 +2288,7 @@ def materialize_derived_indicator_frames(
     timeframes: Sequence[str] = (),
     dataset_instrument_ids: Sequence[str] = (),
     refresh_windows: Sequence[Mapping[str, object]] = (),
+    force_recompute: bool = False,
 ) -> dict[str, object]:
     requested_scope = NativeRefreshScope.from_request(
         timeframes=timeframes,
@@ -2353,7 +2383,7 @@ def materialize_derived_indicator_frames(
         timeframes=timeframes,
         requested_pairs=requested_scope.pairs,
     )
-    if reused is not None:
+    if reused is not None and not force_recompute:
         from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
             finalize_research_delta_table,
         )
@@ -2493,6 +2523,69 @@ def materialize_derived_indicator_frames(
         for series_key, counts in partition_counts.items()
         for timeframe, row_count in counts.items()
     }
+    table_exists = (
+        derived_indicator_output_dir / "research_derived_indicator_frames.delta" / "_delta_log"
+    ).exists()
+    old_snapshot = (
+        DeltaArrowReader(derived_indicator_output_dir / "research_derived_indicator_frames.delta")
+        if table_exists
+        else None
+    )
+    existing_metadata = (
+        load_derived_indicator_partition_metadata(
+            output_dir=derived_indicator_output_dir,
+            dataset_version=dataset_version,
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
+            contour_id=contour_id,
+            reader=old_snapshot,
+        )
+        if table_exists
+        else []
+    )
+    existing_by_partition = _group_existing_partition_metadata(
+        rows=[
+            row
+            for row in existing_metadata
+            if str(row.get("series_mode") or "contract") == series_mode
+        ],
+        series_mode=series_mode,
+    )
+    # Only complete latest proof carriers can distinguish normal new source
+    # counts from physically incomplete output. Unknown keys/proofs keep repair.
+    previous_counts: dict[DerivedIndicatorFramePartitionKey, int] | None = {}
+    proof_fields = (
+        "source_bars_hash",
+        "source_indicators_hash",
+        "profile_version",
+        "output_columns_hash",
+        "source_inputs_hash",
+        "compute_contract_hash",
+        "source_snapshot_hash",
+    )
+    for partition, rows in existing_by_partition.items():
+        if not requested_scope.matches(partition.instrument_id, partition.timeframe):
+            continue
+        head = rows[0] if rows else {}
+        count = head.get("row_count")
+        warmup = head.get("warmup_span")
+        if (
+            not head.get("_metadata_valid", True)
+            or type(count) is not int
+            or count <= 0
+            or type(warmup) is not int
+            or warmup < 0
+            or any(
+                str(head.get(field) or "").strip().casefold()
+                in {"", "unknown", "unavailable", "none"}
+                for field in proof_fields
+            )
+        ):
+            previous_counts = None
+            break
+        previous_counts[partition] = count
+    # This slow-path flag denotes conservative coverage repair, not whether
+    # source gained rows. The fast-noop call above remains strictly unchanged.
     derived_partition_coverage_changed = _derived_partition_coverage_changed(
         table_path=derived_indicator_output_dir / "research_derived_indicator_frames.delta",
         expected_counts=expected_counts,
@@ -2503,6 +2596,8 @@ def materialize_derived_indicator_frames(
         dataset_instrument_ids=dataset_instrument_ids,
         series_mode=series_mode,
         scope=requested_scope,
+        previous_counts=previous_counts,
+        requested_timeframes=timeframes,
     )
     if derived_partition_coverage_changed and not requested_scope.bounded:
         full_family_repair = True
@@ -2574,34 +2669,6 @@ def materialize_derived_indicator_frames(
             )
         return source_rows_cache[cache_key]
 
-    table_exists = (
-        derived_indicator_output_dir / "research_derived_indicator_frames.delta" / "_delta_log"
-    ).exists()
-    old_snapshot = (
-        DeltaArrowReader(derived_indicator_output_dir / "research_derived_indicator_frames.delta")
-        if table_exists
-        else None
-    )
-    existing_metadata = (
-        load_derived_indicator_partition_metadata(
-            output_dir=derived_indicator_output_dir,
-            dataset_version=dataset_version,
-            indicator_set_version=indicator_set_version,
-            derived_indicator_set_version=derived_indicator_set_version,
-            contour_id=contour_id,
-            reader=old_snapshot,
-        )
-        if table_exists
-        else []
-    )
-    existing_by_partition = _group_existing_partition_metadata(
-        rows=[
-            row
-            for row in existing_metadata
-            if str(row.get("series_mode") or "contract") == series_mode
-        ],
-        series_mode=series_mode,
-    )
     target_output_columns = resolved_profile.output_columns
     target_output_columns_hash = derived_indicator_output_columns_hash(target_output_columns)
     existing_output_columns = (
@@ -2765,6 +2832,8 @@ def materialize_derived_indicator_frames(
                 )
                 if (
                     not full_family_repair
+                    and not derived_partition_coverage_changed
+                    and not force_recompute
                     and stored_indicator_metadata_matches
                     and head.get("_metadata_valid", True)
                     and _existing_partition_matches(
@@ -2819,6 +2888,8 @@ def materialize_derived_indicator_frames(
 
                 source_unchanged = (
                     not full_family_repair
+                    and not derived_partition_coverage_changed
+                    and not force_recompute
                     and stored_indicator_metadata_matches
                     and head.get("compute_contract_hash") == compute_contract_hash
                     and bool(head)
@@ -2888,7 +2959,11 @@ def materialize_derived_indicator_frames(
                     tail_output_dir=derived_indicator_output_dir,
                     old_reader=old_cache,
                     tail_compatible=(
-                        previous_head.get("profile_version") == resolved_profile.version
+                        not force_recompute
+                        and not full_family_repair
+                        and not derived_partition_coverage_changed
+                        and previous_head.get("_metadata_valid", True)
+                        and previous_head.get("profile_version") == resolved_profile.version
                         and previous_head.get("output_columns_hash") == target_output_columns_hash
                     ),
                     source_dataset_bars_hash=current_dataset_bars_hash,

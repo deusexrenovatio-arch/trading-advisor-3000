@@ -2445,7 +2445,7 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
             assert repeated["refreshed_row_count"] == len(bars)
 
 
-def _vp_partition_fixture(tmp_path, monkeypatch):
+def _vp_partition_fixture(tmp_path, monkeypatch, *, with_daily=False):
     from datetime import UTC
 
     from deltalake import DeltaTable
@@ -2464,9 +2464,10 @@ def _vp_partition_fixture(tmp_path, monkeypatch):
     def stamp(value):
         return value.isoformat().replace("+00:00", "Z")
 
+    timeframes = (("15m", 15), ("1h", 60)) + ((("1d", 1440),) if with_daily else ())
     bars = []
     for instrument in ("BR", "SI"):
-        for timeframe, step in (("15m", 15), ("1h", 60)):
+        for timeframe, step in timeframes:
             for index in range(24 * 60 // step):
                 row = _canonical_bar(
                     instrument_id=instrument,
@@ -2483,7 +2484,7 @@ def _vp_partition_fixture(tmp_path, monkeypatch):
     calendars = [
         SessionCalendarEntry(instrument, timeframe, day, day + "T00:00:00Z", day + "T23:59:59Z")
         for instrument in ("BR", "SI")
-        for timeframe in ("15m", "1h")
+        for timeframe, _ in timeframes
         for day in ("2026-03-01", "2026-03-02")
     ]
     dataset, indicator, derived = (tmp_path / name for name in ("dataset", "indicator", "derived"))
@@ -2491,7 +2492,7 @@ def _vp_partition_fixture(tmp_path, monkeypatch):
         manifest_seed=ResearchDatasetManifest(
             dataset_version="vp-scope",
             universe_id="moex-futures",
-            timeframes=("15m", "1h"),
+            timeframes=tuple(timeframe for timeframe, _ in timeframes),
             contour_id="pit_active_front",
             series_mode="continuous_front",
             continuous_front_policy=ContinuousFrontPolicy.from_config({}),
@@ -2570,14 +2571,27 @@ def _vp_partition_fixture(tmp_path, monkeypatch):
         contour_id="pit_active_front",
         profile=DerivedIndicatorProfile(
             version="vp_scope_l2",
-            description="registered EMA MTF consumer",
-            output_columns=("mtf_1h_to_15m_ema_20",),
+            description="registered native EMA consumer",
+            output_columns=("cross_close_ema_20_code",),
             warmup_bars=0,
         ),
     )
     materialize_indicator_frames(**l1)
     materialize_derived_indicator_frames(**l2)
     return l1, l2, raw, columns, minute_rows, stamp(start + timedelta(hours=21, minutes=1))
+
+
+def _vp_derived_rows(output_dir):
+    from trading_advisor_3000.product_plane.research.derived_indicators.store import (
+        load_derived_indicator_frames,
+    )
+
+    return load_derived_indicator_frames(
+        output_dir=output_dir,
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
 
 
 @pytest.mark.parametrize(
@@ -2736,14 +2750,14 @@ def test_vp_partition_invalidation_preserves_unrelated_l1_l2(tmp_path, monkeypat
         contour_id="pit_active_front",
     )
     l2_computed = []
-    build_l2 = derived_materialize_module._build_partition_rows
+    build_l2 = derived_materialize_module._build_prepared_partition_rows
 
     def observe_l2(**kwargs):
         first = kwargs["local_series"][0]
         l2_computed.append((first.instrument_id, first.timeframe))
         return build_l2(**kwargs)
 
-    monkeypatch.setattr(derived_materialize_module, "_build_partition_rows", observe_l2)
+    monkeypatch.setattr(derived_materialize_module, "_build_prepared_partition_rows", observe_l2)
     second = materialize_derived_indicator_frames(**l2)
     expected_l2 = {("BR", "15m"), ("BR", "1h")} if change in ("higher_tf", "native_only") else set()
     assert set(l2_computed) == expected_l2
@@ -2813,3 +2827,671 @@ def test_l2_indicator_hash_tracks_consumed_values_and_keys_only():
         )
         != content
     )
+
+
+# Frozen pre-223 producer proof recipe (parent of f71a467), used to produce real
+# Delta rows through the unchanged native numerical materializer below.
+_PRE223_INPUT_PRODUCER = """from __future__ import annotations
+def _pre223_input_row_hashes(
+    series: list[ResearchBarView],
+    *,
+    compute_contract_hash: str,
+    volume_profile_source_rows: Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None,
+    tick_size_by_instrument: Mapping[str, float] | None,
+    has_volume_profile: bool,
+    required_columns: tuple[str, ...],
+    cached_volume_profile_hashes: Mapping[str, str] | None = None,
+    volume_profile_hashes: dict[str, str] | None = None,
+) -> list[str]:
+    minute_frames: dict[tuple[str, str], pd.DataFrame] = {}
+    input_columns = set(required_columns) | {
+        "dataset_version",
+        "contract_id",
+        "instrument_id",
+        "timeframe",
+        "ts",
+        "session_date",
+        "bar_usage_flags",
+        "contour_id",
+        "series_mode",
+        "series_id",
+    }
+    hashes = []
+    for row in series:
+        payload: dict[str, object] = {
+            "bar": {key: value for key, value in row.to_dict().items() if key in input_columns},
+            "compute": compute_contract_hash,
+        }
+        if has_volume_profile and (cached_volume_profile_hashes or {}).get(row.ts):
+            payload["volume_profile"] = cached_volume_profile_hashes[row.ts]
+        elif has_volume_profile:
+            key = _volume_profile_key(row.instrument_id, _volume_profile_contract_id(row))
+            if key not in minute_frames:
+                minute_frames[key] = _source_rows_frame(
+                    (volume_profile_source_rows or {}).get(key, ())
+                )
+            minute_frame = minute_frames[key]
+            minute_rows = []
+            bar_end = None
+            if not minute_frame.empty:
+                timestamps = minute_frame["_ts_open"]
+                left = int(timestamps.searchsorted(_utc_timestamp(row.ts)))
+                bar_end = _target_bar_close_ts(row)
+                right = int(timestamps.searchsorted(bar_end))
+                minute_rows = minute_frame.iloc[left:right][["low", "high", "volume"]].to_dict(
+                    "records"
+                )
+            elif (tick_size_by_instrument or {}).get(row.instrument_id) is not None:
+                bar_end = _target_bar_close_ts(row)
+            volume_payload = {
+                "configured": volume_profile_source_rows is not None,
+                "tick_size": (tick_size_by_instrument or {}).get(row.instrument_id),
+                "contract": key,
+                "bar_end": bar_end.isoformat() if bar_end is not None else None,
+                "minutes": minute_rows,
+            }
+            payload["volume_profile"] = hashlib.sha256(
+                json.dumps(volume_payload, sort_keys=True, default=str).encode()
+            ).hexdigest()
+        if has_volume_profile and volume_profile_hashes is not None:
+            volume_profile_hashes[row.ts] = str(payload["volume_profile"])
+        hashes.append(
+            hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+        )
+    return hashes
+"""
+
+
+@pytest.mark.parametrize("legacy_index", [0, 1])
+@pytest.mark.parametrize("change", ["none", "minute_correct", "minute_delete", "native_only"])
+def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
+    tmp_path, monkeypatch, legacy_index, change
+):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    source = tuple(bridge.LEGACY_SOURCES)[legacy_index]
+    monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
+    # Execute the authentic old hash function in its original owner namespace.
+    namespace = {}
+    exec(_PRE223_INPUT_PRODUCER, owner.__dict__, namespace)
+    old_producer = namespace["_pre223_input_row_hashes"]
+    with monkeypatch.context() as producer:
+        if legacy_index == 0:
+            producer.setattr(
+                owner,
+                "_indicator_input_row_hashes",
+                lambda *args, series_mode=None, **kwargs: old_producer(*args, **kwargs),
+            )
+        # L1 still has a finite legacy proof bridge. L2 uses the native-only
+        # current producer; retired MTF/JSON recipes confer no L2 reuse.
+        l1, l2, raw, columns, minute_rows, target = _vp_partition_fixture(tmp_path, monkeypatch)
+    before_l1 = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    before_l2 = _vp_derived_rows(l2["derived_indicator_output_dir"])
+    assert before_l2, "L2 readback must include the actual published contour"
+    assert any(value is not None for row in before_l2 for value in row.values.values())
+    predicate = f"instrument_id = 'BR' AND contract_id = 'BR-6.26' AND ts_open = '{target}'"
+    if change == "minute_correct":
+        DeltaTable(str(raw)).update(updates={"high": "90.0"}, predicate=predicate)
+    elif change == "minute_delete":
+        DeltaTable(str(raw)).delete(predicate)
+    elif change == "native_only":
+        DeltaTable(str(l1["dataset_output_dir"] / "research_bar_views.delta")).update(
+            updates={"native_close": "native_close + 4"},
+            predicate="instrument_id = 'BR' AND timeframe = '1h' AND ts = '2026-03-02T06:00:00Z'",
+        )
+    numerical_l1 = owner._build_partition_rows
+    calls = []
+
+    def record(**kwargs):
+        key = (kwargs["series"][0].instrument_id, kwargs["series"][0].timeframe)
+        assert key[0] == "BR" and change != "none", "unchanged partition numerically recomputed"
+        calls.append(key)
+        return numerical_l1(**kwargs)
+
+    monkeypatch.setattr(owner, "_build_partition_rows", record)
+    numerical_l2 = derived_materialize_module._build_prepared_partition_rows
+
+    def record_l2(**kwargs):
+        assert change != "none" and kwargs["local_series"][0].instrument_id == "BR"
+        return numerical_l2(**kwargs)
+
+    monkeypatch.setattr(derived_materialize_module, "_build_prepared_partition_rows", record_l2)
+    with bridge._verified_migration_scope(source):
+        first = materialize_indicator_frames(**l1)
+        second = materialize_derived_indicator_frames(**l2)
+    assert first["refreshed_partition_count"] == (
+        0 if change == "none" else 1 if change == "native_only" else 2
+    )
+    assert first["hash_migrated_partition_count"] == (
+        4 if change == "none" else 3 if change == "native_only" else 2
+    )
+    assert second["refreshed_partition_count"] == (1 if change == "native_only" else 0)
+    after_l1 = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    after_l2 = _vp_derived_rows(l2["derived_indicator_output_dir"])
+
+    def values(rows, unrelated=False):
+        return {
+            (r.instrument_id, r.timeframe, r.ts): r.values
+            for r in rows
+            if not unrelated or r.instrument_id == "SI"
+        }
+
+    if change == "none":
+        assert values(before_l1) == values(after_l1)
+        assert values(before_l2) == values(after_l2)
+        assert any(v is None for r in after_l1 for v in r.values.values())
+    else:
+        assert values(before_l1, True) == values(after_l1, True)
+        assert values(before_l2, True) == values(after_l2, True)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("repeat migrated snapshot read/recomputed historical inputs")
+
+    monkeypatch.setattr(owner, "_load_bar_partition_rows", forbidden)
+    monkeypatch.setattr(
+        derived_materialize_module, "_load_source_frame_rows", forbidden, raising=False
+    )
+    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+    assert materialize_derived_indicator_frames(**l2)["refreshed_partition_count"] == 0
+
+
+@pytest.mark.parametrize("with_migration", [False, True])
+def test_explicit_full_guard_reaches_both_numerical_owners(tmp_path, monkeypatch, with_migration):
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    l1, l2, *_ = _vp_partition_fixture(tmp_path, monkeypatch)
+    calls_l1 = []
+    calls_l2 = []
+    build_l1 = owner._build_partition_rows
+    build_l2 = derived_materialize_module._build_prepared_partition_rows
+
+    def first(**kwargs):
+        assert kwargs.get("existing_rows") is None
+        assert kwargs.get("compute_profile") == kwargs["profile"]
+        calls_l1.append((kwargs["series"][0].instrument_id, kwargs["series"][0].timeframe))
+        return build_l1(**kwargs)
+
+    def second(**kwargs):
+        assert kwargs.get("existing_rows") is None
+        assert kwargs.get("compute_profile") == kwargs["profile"]
+        calls_l2.append(
+            (kwargs["local_series"][0].instrument_id, kwargs["local_series"][0].timeframe)
+        )
+        return build_l2(**kwargs)
+
+    monkeypatch.setattr(owner, "_build_partition_rows", first)
+    monkeypatch.setattr(derived_materialize_module, "_build_prepared_partition_rows", second)
+    from contextlib import nullcontext
+
+    from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
+
+    monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
+    scope = (
+        bridge._verified_migration_scope(next(iter(bridge.LEGACY_SOURCES)))
+        if with_migration
+        else nullcontext()
+    )
+    with scope:
+        first_report = materialize_indicator_frames(**l1, force_recompute=True)
+        second_report = materialize_derived_indicator_frames(**l2, force_recompute=True)
+    assert first_report["refreshed_partition_count"] == 4
+    assert second_report["refreshed_partition_count"] == 4
+    assert len(calls_l1) == len(calls_l2) == 4
+
+
+def test_metadata_migration_uses_exact_atomic_partition_budget(tmp_path, monkeypatch):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    l1, *_ = _vp_partition_fixture(tmp_path, monkeypatch)
+    before = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    writer = owner.write_indicator_frame_partition_batches
+    allowances = []
+
+    def small_budget(**kwargs):
+        explicit = kwargs.get("max_rows_per_delta_write")
+        if explicit is not None:
+            batches = tuple(kwargs["partition_row_batches"])
+            assert len(batches) == 1
+            assert explicit == len(batches[0][1]) > 2
+            kwargs["partition_row_batches"] = batches
+            allowances.append(explicit)
+        else:
+            kwargs["max_rows_per_delta_write"] = 2
+        return writer(**kwargs)
+
+    monkeypatch.setattr(owner, "write_indicator_frame_partition_batches", small_budget)
+    monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
+    with bridge._verified_migration_scope(tuple(bridge.LEGACY_SOURCES)[1]):
+        result = materialize_indicator_frames(**l1)
+    assert sorted(allowances) == [24, 24, 96, 96]
+    assert result["hash_migrated_partition_count"] == 4
+    assert result["hash_migrated_row_count"] == result["refreshed_row_count"] == 240
+    assert result["write_batch_count"] == 4
+    after = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    assert {(r.instrument_id, r.timeframe, r.ts): r.values for r in before} == {
+        (r.instrument_id, r.timeframe, r.ts): r.values for r in after
+    }
+    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+    # An ordinary computed tail does not inherit the metadata-only allowance.
+    DeltaTable(str(l1["volume_profile_raw_1m_table_path"])).update(
+        updates={"high": "90.0"}, predicate="instrument_id='BR' AND ts_open='2026-03-02T06:01:00Z'"
+    )
+    from trading_advisor_3000.product_plane.research.indicators import batch_writer
+
+    scoped_writer = batch_writer.write_indicator_frame_scoped_batches
+    suffixes = []
+
+    def ordinary_suffixes(**kwargs):
+        assert "max_rows_per_delta_write" not in kwargs
+        batches = kwargs["partition_row_batches"]
+
+        def inspect():
+            for partition, rows in batches:
+                assert partition in kwargs["partition_start_ts"]
+                suffixes.append((partition, len(rows)))
+                yield partition, rows
+
+        kwargs["partition_row_batches"] = inspect()
+        return scoped_writer(**kwargs)
+
+    monkeypatch.setattr(batch_writer, "write_indicator_frame_scoped_batches", ordinary_suffixes)
+    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 2
+    assert len(suffixes) == 4
+    assert all(count == 1 for partition, count in suffixes if partition.instrument_id == "SI")
+
+
+def test_changed_pre223_partition_uses_native_full_writer_without_suffix_allowance(
+    tmp_path, monkeypatch
+):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
+    namespace = {}
+    exec(_PRE223_INPUT_PRODUCER, owner.__dict__, namespace)
+    old_producer = namespace["_pre223_input_row_hashes"]
+    with monkeypatch.context() as producer:
+        producer.setattr(
+            owner,
+            "_indicator_input_row_hashes",
+            lambda *args, series_mode=None, **kwargs: old_producer(*args, **kwargs),
+        )
+        l1, _, raw, _, _, target = _vp_partition_fixture(tmp_path, monkeypatch)
+    before = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+    DeltaTable(str(raw)).update(
+        updates={"high": "90.0"}, predicate=f"instrument_id='BR' AND ts_open='{target}'"
+    )
+    writer, builder = owner.write_indicator_frame_partition_batches, owner._build_partition_rows
+    full_writes, full_builds = [], []
+
+    def small_budget(**kwargs):
+        explicit = kwargs.get("max_rows_per_delta_write")
+        if explicit is None:
+            kwargs["max_rows_per_delta_write"] = 2
+            batches = kwargs["partition_row_batches"]
+
+            def inspect():
+                for partition, rows in batches:
+                    assert partition.instrument_id == "BR"
+                    assert partition not in kwargs.get("partition_start_ts", {})
+                    assert len(rows) in (24, 96)
+                    full_writes.append((partition.instrument_id, partition.timeframe))
+                    yield partition, rows
+
+            kwargs["partition_row_batches"] = inspect()
+        return writer(**kwargs)
+
+    def native_full(**kwargs):
+        assert kwargs["series"][0].instrument_id == "BR"
+        assert kwargs["existing_rows"] is None
+        assert kwargs["volume_profile_refresh_ts"] is None
+        rows = builder(**kwargs)
+        full_builds.append(rows)
+        return rows
+
+    monkeypatch.setattr(owner, "write_indicator_frame_partition_batches", small_budget)
+    monkeypatch.setattr(owner, "_build_partition_rows", native_full)
+    with bridge._verified_migration_scope(next(iter(bridge.LEGACY_SOURCES))):
+        result = materialize_indicator_frames(**l1)
+    assert result["migration_full_partition_count"] == 2
+    assert result["migration_full_row_count"] == 120
+    assert result["refreshed_partition_count"] == 2
+    assert result["hash_migrated_partition_count"] == 2
+    assert len(full_builds) == len(full_writes) == 2
+    after = reload_indicator_frames(
+        indicator_output_dir=l1["indicator_output_dir"],
+        dataset_version="vp-scope",
+        indicator_set_version="indicators-v1",
+        contour_id="pit_active_front",
+    )
+
+    def values(rows, instrument):
+        return {(r.timeframe, r.ts): r.values for r in rows if r.instrument_id == instrument}
+
+    assert values(before, "SI") == values(after, "SI")
+    # Independent full numerical references for the affected partitions use no
+    # old prefix or VP values, and must match every written value/NULL.
+    expected = []
+    for timeframe in ("15m", "1h"):
+        partition = next(
+            row.partition_key(series_mode="continuous_front")
+            for row in after
+            if row.instrument_id == "BR" and row.timeframe == timeframe
+        )
+        series = owner._load_bar_partition_rows(
+            dataset_output_dir=l1["dataset_output_dir"],
+            dataset_version="vp-scope",
+            contour_id="pit_active_front",
+            partition=partition,
+        )
+        expected.extend(
+            builder(
+                dataset_version="vp-scope",
+                indicator_set_version="indicators-v1",
+                profile=l1["profile"],
+                series=series,
+                series_mode="continuous_front",
+                existing_rows=None,
+                volume_profile_raw_1m_table_path=raw,
+                volume_profile_tick_size_by_instrument=l1["volume_profile_tick_size_by_instrument"],
+                native_full_compute=True,
+            )
+        )
+    assert values(expected, "BR") == values(after, "BR")
+    assert any(value is None for row in after for value in row.values.values())
+    monkeypatch.setattr(
+        owner, "_build_partition_rows", lambda **_: pytest.fail("repeat rebuilt partition")
+    )
+    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+
+
+def test_post223_migration_retains_verified_prefix_and_small_vp_tail(tmp_path, monkeypatch):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    l1, _, raw, _, minute_rows, _ = _vp_partition_fixture(tmp_path, monkeypatch)
+    last = max(row["ts_open"] for row in minute_rows if row["instrument_id"] == "BR")
+    DeltaTable(str(raw)).update(
+        updates={"high": "90.0"}, predicate=f"instrument_id='BR' AND ts_open='{last}'"
+    )
+    from trading_advisor_3000.product_plane.research.indicators import batch_writer
+
+    writer, builder, vp = (
+        batch_writer.write_indicator_frame_scoped_batches,
+        owner._build_partition_rows,
+        owner._compute_volume_profile_columns,
+    )
+    written, volumes = [], []
+
+    def small_budget(**kwargs):
+        if "max_rows_per_delta_write" not in kwargs:
+            batches = kwargs["partition_row_batches"]
+
+            def inspect():
+                for partition, rows in batches:
+                    assert partition in kwargs["partition_start_ts"]
+                    assert len(rows) == 1 and partition.instrument_id == "BR"
+                    written.append(partition.timeframe)
+                    yield partition, rows
+
+            kwargs["partition_row_batches"] = inspect()
+        return writer(**kwargs)
+
+    def check_builder(**kwargs):
+        assert kwargs["existing_rows"] and len(kwargs["volume_profile_refresh_ts"]) == 1
+        return builder(**kwargs)
+
+    def check_vp(**kwargs):
+        volumes.append(len(kwargs["local_series"]))
+        return vp(**kwargs)
+
+    monkeypatch.setattr(batch_writer, "write_indicator_frame_scoped_batches", small_budget)
+    monkeypatch.setattr(owner, "_build_partition_rows", check_builder)
+    monkeypatch.setattr(owner, "_compute_volume_profile_columns", check_vp)
+    monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
+    with bridge._verified_migration_scope(tuple(bridge.LEGACY_SOURCES)[1]):
+        result = materialize_indicator_frames(**l1)
+    assert result["migration_full_partition_count"] == result["migration_full_row_count"] == 0
+    assert result["refreshed_partition_count"] == 2
+    assert result["hash_migrated_partition_count"] == 2
+    assert sorted(written) == ["15m", "1h"] and volumes == [1, 1]
+    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+
+
+@pytest.mark.parametrize("legacy_index", [0, 1])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "append",
+        "source_delete",
+        "higher_tf",
+        "append_outside_scope",
+        "delete_key",
+        "append_missing_row",
+        "append_duplicate_row",
+        "append_unknown_proof",
+        "append_empty_proof",
+        "append_bad_count",
+    ],
+)
+def test_legacy_l2_append_preserves_unrelated_proof_migration(
+    tmp_path, monkeypatch, legacy_index, change
+):
+    import pyarrow as pa
+    from deltalake import DeltaTable, write_deltalake
+
+    from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    source = tuple(bridge.LEGACY_SOURCES)[legacy_index]
+    monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
+    namespace = {}
+    exec(_PRE223_INPUT_PRODUCER, owner.__dict__, namespace)
+    old_producer = namespace["_pre223_input_row_hashes"]
+    with monkeypatch.context() as producer:
+        if legacy_index == 0:
+            producer.setattr(
+                owner,
+                "_indicator_input_row_hashes",
+                lambda *args, series_mode=None, **kwargs: old_producer(*args, **kwargs),
+            )
+        # L1 still has a finite legacy proof bridge. L2 uses the native-only
+        # current producer; retired MTF/JSON recipes confer no L2 reuse.
+        l1, l2, raw, _, minute_rows, _ = _vp_partition_fixture(
+            tmp_path, monkeypatch, with_daily=True
+        )
+    before = _vp_derived_rows(l2["derived_indicator_output_dir"])
+    assert before, "L2 readback must include the actual published contour"
+    assert any(value is not None for row in before for value in row.values.values())
+    damage = change.startswith("append_") and change != "append_outside_scope"
+    if damage:
+        output_path = l2["derived_indicator_output_dir"] / "research_derived_indicator_frames.delta"
+        table = DeltaTable(str(output_path))
+        predicate = "instrument_id = 'SI' AND timeframe = '1d'"
+        if change == "append_missing_row":
+            table.delete(predicate)
+        elif change == "append_duplicate_row":
+            duplicate = table.to_pyarrow_table(
+                filters=[("instrument_id", "=", "SI"), ("timeframe", "=", "1d")]
+            )
+            write_deltalake(str(output_path), duplicate, mode="append")
+        else:
+            field = "row_count" if change == "append_bad_count" else "source_snapshot_hash"
+            value = (
+                "-1"
+                if change == "append_bad_count"
+                else "''"
+                if change == "append_empty_proof"
+                else "'unknown'"
+            )
+            table.update(updates={field: value}, predicate=predicate)
+    bars_path = l1["dataset_output_dir"] / "research_bar_views.delta"
+    if change.startswith("append"):
+        bars_table = DeltaTable(str(bars_path)).to_pyarrow_table(
+            filters=[("instrument_id", "=", "BR"), ("timeframe", "=", "15m")]
+        )
+        row = max(bars_table.to_pylist(), key=lambda item: item["ts"])
+        row["bar_index"] += 1
+        for field in ("ts", "bar_end_ts"):
+            value = row[field]
+            row[field] = (
+                value + timedelta(minutes=15)
+                if isinstance(value, datetime)
+                else (datetime.fromisoformat(value.replace("Z", "+00:00")) + timedelta(minutes=15))
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
+        write_deltalake(
+            str(bars_path), pa.Table.from_pylist([row], schema=bars_table.schema), mode="append"
+        )
+        raw_table = DeltaTable(str(raw)).to_pyarrow_table()
+        minute = raw_table.to_pylist()[0]
+        new_minutes = []
+        for index in range(15):
+            stamp = datetime.fromisoformat(str(row["ts"]).replace("Z", "+00:00")) + timedelta(
+                minutes=index
+            )
+            new_minutes.append(
+                {**minute, "instrument_id": "BR", "contract_id": "BR-6.26", "ts_open": stamp}
+            )
+        write_deltalake(
+            str(raw), pa.Table.from_pylist(new_minutes, schema=raw_table.schema), mode="append"
+        )
+    elif change == "source_delete":
+        DeltaTable(str(bars_path)).delete(
+            "instrument_id = 'BR' AND timeframe = '15m' AND ts = '2026-03-02T08:45:00Z'"
+        )
+    elif change == "higher_tf":
+        DeltaTable(str(bars_path)).update(
+            updates={
+                "high": "high + 4",
+                "close": "close + 3",
+                "native_high": "native_high + 4",
+                "native_close": "native_close + 3",
+            },
+            predicate="instrument_id = 'BR' AND timeframe = '1h' AND ts = '2026-03-02T07:00:00Z'",
+        )
+    elif change == "delete_key":
+        DeltaTable(str(bars_path)).delete("instrument_id = 'BR' AND timeframe = '1d'")
+    if change == "append_outside_scope":
+        l2 = {**l2, "timeframes": ("1h",)}
+    l1_builder = owner._build_partition_rows
+    l2_builder = derived_materialize_module._build_prepared_partition_rows
+    calls = []
+
+    def only_changed_l1(**kwargs):
+        key = kwargs["series"][0]
+        assert (key.instrument_id, key.timeframe) == (
+            "BR",
+            "1h" if change == "higher_tf" else "15m",
+        )
+        return l1_builder(**kwargs)
+
+    def only_changed_l2(**kwargs):
+        key = kwargs["local_series"][0]
+        if not damage and change not in {"append_outside_scope", "delete_key"}:
+            assert key.instrument_id == "BR" and key.timeframe in (
+                {"1h"} if change == "higher_tf" else {"15m"}
+            ), "unrelated L2 partition recomputed after scoped source change"
+        calls.append((key.instrument_id, key.timeframe))
+        return l2_builder(**kwargs)
+
+    monkeypatch.setattr(owner, "_build_partition_rows", only_changed_l1)
+    monkeypatch.setattr(
+        derived_materialize_module, "_build_prepared_partition_rows", only_changed_l2
+    )
+    with bridge._verified_migration_scope(source):
+        materialize_indicator_frames(**l1)
+        result = materialize_derived_indicator_frames(**l2)
+    refreshed = (
+        0
+        if change == "append_outside_scope"
+        else 6
+        if damage
+        else 5
+        if change == "delete_key"
+        else 1
+    )
+    assert result["refreshed_partition_count"] == refreshed
+    expected_reuse = (
+        2
+        if change == "append_outside_scope"
+        else 0
+        if damage or change == "delete_key"
+        else 6 - refreshed
+    )
+    assert result["reused_partition_count"] == expected_reuse
+    assert len(calls) == refreshed
+    after = _vp_derived_rows(l2["derived_indicator_output_dir"])
+    if change == "append_outside_scope":
+        # The 1h request cannot consume a changed 15m partition. A later
+        # explicit full-scope fixture call processes that pending native input.
+        assert len(after) == len(before)
+        assert {(r.instrument_id, r.timeframe, r.ts): r.values for r in after} == {
+            (r.instrument_id, r.timeframe, r.ts): r.values for r in before
+        }
+        l2 = {**l2, "timeframes": ()}
+        assert materialize_derived_indicator_frames(**l2)["refreshed_partition_count"] == 1
+        after = _vp_derived_rows(l2["derived_indicator_output_dir"])
+
+    def unrelated(rows):
+        return {
+            (r.instrument_id, r.timeframe, r.ts): r.values
+            for r in rows
+            if r.instrument_id == "SI" or r.timeframe == "1d" and change != "delete_key"
+        }
+
+    assert unrelated(before) == unrelated(after)
+    difference = (
+        1 if change.startswith("append") else -1 if change in {"source_delete", "delete_key"} else 0
+    )
+    assert len(after) == len(before) + difference
+    if change == "higher_tf":
+        assert {
+            r.ts: r.values for r in before if r.instrument_id == "BR" and r.timeframe == "15m"
+        } == {r.ts: r.values for r in after if r.instrument_id == "BR" and r.timeframe == "15m"}
+    assert materialize_derived_indicator_frames(**l2)["refreshed_partition_count"] == 0
+    monkeypatch.setattr(derived_materialize_module, "_build_prepared_partition_rows", l2_builder)
+    reference = {**l2, "timeframes": ()}
+    materialize_derived_indicator_frames(**reference, force_recompute=True)
+    full = _vp_derived_rows(l2["derived_indicator_output_dir"])
+
+    def values(rows):
+        return {(r.instrument_id, r.timeframe, r.ts): r.values for r in rows}
+
+    assert values(after) == values(full)

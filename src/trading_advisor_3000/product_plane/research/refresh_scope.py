@@ -9,6 +9,7 @@ from pathlib import Path
 
 from trading_advisor_3000.product_plane.common.data_snapshots import (
     SnapshotUnavailableError,
+    assert_tables_unchanged,
     capture_table,
     current_snapshot,
     load_snapshot,
@@ -61,6 +62,7 @@ def resolve_refresh_scope(
     dataset_version: str,
     timeframes: Sequence[str],
     configuration: Mapping | None = None,
+    _completed_outputs: Sequence[str] = (),
 ) -> dict | None:
     """Return one frozen scope before either Dagster sensor can decide NOOP."""
     data = load_snapshot(data_manifest_path)
@@ -84,22 +86,59 @@ def resolve_refresh_scope(
         or set(research["parameters"].get("timeframes", [])) != set(timeframes)
     ):
         return {**full, "reason": "missing_or_legacy_research_scope"}
+    compatibility = {}
     if configuration is not None:
         ignored = {
             "changed_windows",
             "refresh_scope_version",
             "force_full_refresh",
             "data_snapshot_manifest_path",
+            "hash_compatibility",
         }
-        if (
-            any(
-                research["parameters"].get(key) != value
-                for key, value in _parameters(configuration).items()
-                if key not in ignored
-            )
-            or research["parameters"].get("runtime_provenance") != runtime_provenance()
+        if any(
+            research["parameters"].get(key) != value
+            for key, value in _parameters(configuration).items()
+            if key not in ignored
         ):
             return {**full, "reason": "research_semantics_changed"}
+        if research["parameters"].get("runtime_provenance") != runtime_provenance():
+            from .hash_compatibility import REQUIRED_QUALITY, compatible_provenance
+
+            old = research["parameters"].get("runtime_provenance", {})
+            try:
+                parent = load_snapshot(root / "manifests" / f"{research['parents'][0]}.json")
+            except (FileNotFoundError, SnapshotUnavailableError):
+                return {**full, "reason": "data_ancestry_unavailable"}
+            if (
+                not compatible_provenance(old, runtime_provenance())
+                or not REQUIRED_QUALITY.issubset(research["quality_checks"])
+                or any(research["quality_checks"][key] != "PASS" for key in REQUIRED_QUALITY)
+            ):
+                return {**full, "reason": "research_semantics_changed"}
+            try:
+                if any(
+                    research["tables"].get(name) != ref for name, ref in parent["tables"].items()
+                ):
+                    return {**full, "reason": "accepted_data_inputs_mismatch"}
+                for reference in parent["tables"].values():
+                    open_pinned_table(reference)
+                assert_tables_unchanged(
+                    {
+                        name: ref
+                        for name, ref in research["tables"].items()
+                        if name not in parent["tables"] and name not in _completed_outputs
+                    }
+                )
+            except (ValueError, OSError, SnapshotUnavailableError):
+                return {**full, "reason": "accepted_research_outputs_changed"}
+            compatibility = {
+                "hash_compatibility": {
+                    "version": 1,
+                    "snapshot_id": research["snapshot_id"],
+                    "manifest_sha256": research["manifest_sha256"],
+                    "source_sha256": old["source_sha256"],
+                }
+            }
     volume_profile_name = Path(
         str((configuration or {}).get("volume_profile_raw_1m_table_path", "raw_moex_history.delta"))
     ).stem
@@ -133,6 +172,24 @@ def resolve_refresh_scope(
             if len(cursor["parents"]) != 1:
                 return {**full, "reason": "missing_data_ancestry"}
             parent = load_snapshot(root / "manifests" / f"{cursor['parents'][0]}.json")
+            if compatibility:
+                if set(cursor["tables"]) != set(parent["tables"]):
+                    return {**full, "reason": "data_table_set_changed"}
+                for name, reference in cursor["tables"].items():
+                    previous = parent["tables"][name]
+                    if any(
+                        reference.get(key) != previous.get(key)
+                        for key in (
+                            "table_path",
+                            "table_id",
+                            "schema_hash",
+                            "layout_version",
+                            "partition_columns",
+                        )
+                    ):
+                        return {**full, "reason": f"data_contract_changed:{name}"}
+                    open_pinned_table(reference)
+                    open_pinned_table(previous)
             for name in cursor["tables"].keys() | parent["tables"].keys():
                 if not (
                     name.startswith("canonical_")
@@ -155,12 +212,20 @@ def resolve_refresh_scope(
     windows = [dict(window) for scope in scopes for window in scope.get("windows", [])]
     intervals = [item for scope in scopes for item in scope.get("effective_intervals", [])]
     if not windows and not intervals:
-        return {"refresh_scope_version": 1, "force_full_refresh": False, "windows": []}
+        return {
+            "refresh_scope_version": 1,
+            "force_full_refresh": False,
+            "windows": [],
+            **compatibility,
+        }
     references = [
         reference for manifest in (data, research) for reference in manifest["tables"].values()
     ]
     try:
-        references.extend(capture_table(path) for path in materialized_output_dir.glob("*.delta"))
+        if not compatibility:
+            references.extend(
+                capture_table(path) for path in materialized_output_dir.glob("*.delta")
+            )
         tails = [value for reference in references if (value := _tail(reference)) is not None]
         tails.extend(_stamp(window["end_ts"]) for window in windows)
         if not tails:
@@ -200,6 +265,7 @@ def resolve_refresh_scope(
     return {
         "refresh_scope_version": 1,
         "force_full_refresh": False,
+        **compatibility,
         "windows": [
             {
                 "instrument_id": instrument,
