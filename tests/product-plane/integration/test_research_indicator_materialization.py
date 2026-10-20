@@ -2902,7 +2902,7 @@ def _pre223_input_row_hashes(
 """
 
 
-@pytest.mark.parametrize("legacy_index", [0, 1])
+@pytest.mark.parametrize("legacy_index", [0, 1, 2])
 @pytest.mark.parametrize("change", ["none", "minute_correct", "minute_delete", "native_only"])
 def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
     tmp_path, monkeypatch, legacy_index, change
