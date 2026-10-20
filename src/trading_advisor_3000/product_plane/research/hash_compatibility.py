@@ -1,4 +1,4 @@
-"""Finite, reviewed proof migration for audited deployed sources.
+"""Semantic accepted-snapshot admission and one-time presemantic bootstrap.
 
 Raw runtime provenance remains the strict resume/publication contract. This
 adapter admits an accepted snapshot, never arbitrary caller permission.
@@ -6,13 +6,9 @@ adapter admits an accepted snapshot, never arbitrary caller permission.
 
 from __future__ import annotations
 
-import hashlib
-import re
 from contextlib import contextmanager
 from contextvars import ContextVar
-from pathlib import Path
 
-_REVIEWED_CURRENT_SOURCE_SHA256 = "048dfb4406d4fac2e504b0505dc7b8e5d74ad4b6a3f74728576a43f6c85939fa"
 # Exact post-226 production79257fa3, reconstructed from its CRLF Git checkout.
 NATIVE_LEGACY_SOURCE = "8a4432db9fc8e5da29cc3b6668b61972ded6bc270072252e000d4414a6827fbb"
 LEGACY_NATIVE_L2_IMPLEMENTATION = (
@@ -56,41 +52,60 @@ REQUIRED_QUALITY = frozenset(
 _source: ContextVar[str | None] = ContextVar("reviewed_hash_migration", default=None)
 
 
-def reviewed_source_digest(package: Path | None = None) -> str:
-    package = package or Path(__file__).resolve().parents[2]
-    anchor = b'_REVIEWED_CURRENT_SOURCE_SHA256 = "' + b"[0-9a-f]{64}" + b'"'
-    digest = hashlib.sha256()
-    found = 0
-    for path in sorted(package.rglob("*.py")):
-        content = path.read_bytes().replace(b"\r\n", b"\n")
-        if path.relative_to(package).as_posix() == "product_plane/research/hash_compatibility.py":
-            pattern = b"(?m)^" + anchor + b"$"
-            found = len(re.findall(pattern, content))
-            if found != 1:
-                raise ValueError("ambiguous reviewed source anchor")
-            content = re.sub(pattern, b'_REVIEWED_CURRENT_SOURCE_SHA256 = "REVIEWED"', content)
-        digest.update(path.relative_to(package).as_posix().encode())
-        digest.update(b"\0")
-        digest.update(content)
-    if found != 1:
-        raise ValueError("missing reviewed source anchor")
-    return digest.hexdigest()
+# Fixed ONCE for the audited old792 -> v1 numerical baseline migration.
+# Ordinary future releases compare their persisted semantic contracts directly.
+BOOTSTRAP_KERNELS = {
+    "cf": "9c1d7d5784c79cf748078cffe96ad9d4a1e196a74e3bc874e805d279933d721d",
+    "l0": "9bd5c855759d7bedfbf095eaddb21d569b5ffe58ec85ef3a77f213bb4e75638e",
+    "l1": "fb2aaa135c70444bb31355cea88981968f09c97def44074440d03f6a15fc4466",
+    "l2": "2d5463704336a5676d1a7c1d6bf74dbf7210929dd9897f2b5d3379f7cb982080",
+    "sidecar": "b52597f218b6783378e96cd0235050384a1c94f5a467ad67637c15851cc1b275",
+    "proof": "c1ea5683400d6401f3b9b9bc51da41fe1f511c267ce3a2a8acb016f79aa8930d",
+    "quality": "4e4f4b3f0aaf9af01f3c9cfa85112c0caa19ee4adfa96c5827ffff0dc1c21186",
+}
+BOOTSTRAP_ENGINE = "c00f66d72676fc94012c3f063a56b14a5fe875d7d6ecdc4331d5aa01ccfb9be2"
+
+
+BOOTSTRAP_CONTRACT_DIGEST = "2aea7705130ee86a42f77b15312550e03ce9d829c10e5c4941688a2771060ede"
 
 
 def reviewed_current_source() -> bool:
-    try:
-        return reviewed_source_digest() == _REVIEWED_CURRENT_SOURCE_SHA256
-    except (OSError, ValueError):
-        return False
+    from .compute_contract import semantic_compute_contract
+
+    return semantic_compute_contract()["digest"] == BOOTSTRAP_CONTRACT_DIGEST
 
 
-def compatible_provenance(old: dict, current: dict) -> bool:
+def compatible_provenance(
+    old: dict, current: dict, old_contract=None, current_contract=None
+) -> bool:
+    if old_contract is not None:
+        from .compute_contract import compare_contracts
+
+        return compare_contracts(old_contract, current_contract)
     return (
-        old.get("source_sha256") in LEGACY_SOURCES
+        old.get("source_sha256") == NATIVE_LEGACY_SOURCE
         and {k: v for k, v in old.items() if k != "source_sha256"}
         == {k: v for k, v in current.items() if k != "source_sha256"}
         and reviewed_current_source()
+        and (
+            current_contract is None or current_contract.get("digest") == BOOTSTRAP_CONTRACT_DIGEST
+        )
     )
+
+
+def compatibility_receipt(accepted: dict, current: dict, contract: dict) -> dict | None:
+    parameters = accepted["parameters"]
+    if not compatible_provenance(
+        parameters.get("runtime_provenance", {}),
+        current,
+        parameters.get("semantic_compute_contract"),
+        contract,
+    ):
+        return None
+    base = {"snapshot_id": accepted["snapshot_id"], "manifest_sha256": accepted["manifest_sha256"]}
+    if parameters.get("semantic_compute_contract") is not None:
+        return {"version": 2, **base, "compute_digest": contract["digest"]}
+    return {"version": 1, **base, "source_sha256": NATIVE_LEGACY_SOURCE}
 
 
 def migration_source() -> str | None:
@@ -103,7 +118,7 @@ def migration_source() -> str | None:
 @contextmanager
 def _verified_migration_scope(source: str):
     # Only the snapshot owner calls this after validating accepted state/QC.
-    if source not in LEGACY_SOURCES or not reviewed_current_source():
+    if source != NATIVE_LEGACY_SOURCE or not reviewed_current_source():
         raise ValueError("unreviewed hash migration")
     token = _source.set(source)
     try:

@@ -51,6 +51,8 @@ INDICATOR_PARTITION_METADATA_COLUMNS = (
     "source_dataset_bars_hash",
     "created_at",
     "row_count",
+    "warmup_span",
+    "null_warmup_span",
     "output_columns_hash",
     "compute_contract_hash",
     "refresh_context_hash",

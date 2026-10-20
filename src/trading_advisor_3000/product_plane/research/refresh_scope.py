@@ -101,16 +101,25 @@ def resolve_refresh_scope(
             if key not in ignored
         ):
             return {**full, "reason": "research_semantics_changed"}
-        if research["parameters"].get("runtime_provenance") != runtime_provenance():
-            from .hash_compatibility import REQUIRED_QUALITY, compatible_provenance
+        provenance_changed = (
+            research["parameters"].get("runtime_provenance") != runtime_provenance()
+        )
+        if (
+            provenance_changed
+            or research["parameters"].get("semantic_compute_contract") is not None
+        ):
+            from .compute_contract import semantic_compute_contract
+            from .hash_compatibility import REQUIRED_QUALITY, compatibility_receipt
 
-            old = research["parameters"].get("runtime_provenance", {})
             try:
                 parent = load_snapshot(root / "manifests" / f"{research['parents'][0]}.json")
             except (FileNotFoundError, SnapshotUnavailableError):
                 return {**full, "reason": "data_ancestry_unavailable"}
+            receipt = compatibility_receipt(
+                research, runtime_provenance(), semantic_compute_contract(configuration)
+            )
             if (
-                not compatible_provenance(old, runtime_provenance())
+                receipt is None
                 or not REQUIRED_QUALITY.issubset(research["quality_checks"])
                 or any(research["quality_checks"][key] != "PASS" for key in REQUIRED_QUALITY)
             ):
@@ -131,14 +140,8 @@ def resolve_refresh_scope(
                 )
             except (ValueError, OSError, SnapshotUnavailableError):
                 return {**full, "reason": "accepted_research_outputs_changed"}
-            compatibility = {
-                "hash_compatibility": {
-                    "version": 1,
-                    "snapshot_id": research["snapshot_id"],
-                    "manifest_sha256": research["manifest_sha256"],
-                    "source_sha256": old["source_sha256"],
-                }
-            }
+            if provenance_changed:
+                compatibility = {"hash_compatibility": receipt}
     volume_profile_name = Path(
         str((configuration or {}).get("volume_profile_raw_1m_table_path", "raw_moex_history.delta"))
     ).stem

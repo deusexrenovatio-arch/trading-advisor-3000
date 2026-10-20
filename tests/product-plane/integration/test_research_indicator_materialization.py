@@ -2902,7 +2902,7 @@ def _pre223_input_row_hashes(
 """
 
 
-@pytest.mark.parametrize("legacy_index", [0, 1, 2])
+@pytest.mark.parametrize("legacy_index", [2])
 @pytest.mark.parametrize("change", ["none", "minute_correct", "minute_delete", "native_only"])
 def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
     tmp_path, monkeypatch, legacy_index, change
@@ -2912,7 +2912,7 @@ def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
     from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
     from trading_advisor_3000.product_plane.research.indicators import materialize as owner
 
-    source = tuple(bridge.LEGACY_SOURCES)[legacy_index]
+    source = bridge.NATIVE_LEGACY_SOURCE
     monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
     # Execute the authentic old hash function in its original owner namespace.
     namespace = {}
@@ -3040,7 +3040,7 @@ def test_explicit_full_guard_reaches_both_numerical_owners(tmp_path, monkeypatch
 
     monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
     scope = (
-        bridge._verified_migration_scope(next(iter(bridge.LEGACY_SOURCES)))
+        bridge._verified_migration_scope(bridge.NATIVE_LEGACY_SOURCE)
         if with_migration
         else nullcontext()
     )
@@ -3082,7 +3082,7 @@ def test_metadata_migration_uses_exact_atomic_partition_budget(tmp_path, monkeyp
 
     monkeypatch.setattr(owner, "write_indicator_frame_partition_batches", small_budget)
     monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
-    with bridge._verified_migration_scope(tuple(bridge.LEGACY_SOURCES)[1]):
+    with bridge._verified_migration_scope(bridge.NATIVE_LEGACY_SOURCE):
         result = materialize_indicator_frames(**l1)
     assert sorted(allowances) == [24, 24, 96, 96]
     assert result["hash_migrated_partition_count"] == 4
@@ -3184,7 +3184,7 @@ def test_changed_pre223_partition_uses_native_full_writer_without_suffix_allowan
 
     monkeypatch.setattr(owner, "write_indicator_frame_partition_batches", small_budget)
     monkeypatch.setattr(owner, "_build_partition_rows", native_full)
-    with bridge._verified_migration_scope(next(iter(bridge.LEGACY_SOURCES))):
+    with bridge._verified_migration_scope(bridge.NATIVE_LEGACY_SOURCE):
         result = materialize_indicator_frames(**l1)
     assert result["migration_full_partition_count"] == 2
     assert result["migration_full_row_count"] == 120
@@ -3284,7 +3284,7 @@ def test_post223_migration_retains_verified_prefix_and_small_vp_tail(tmp_path, m
     monkeypatch.setattr(owner, "_build_partition_rows", check_builder)
     monkeypatch.setattr(owner, "_compute_volume_profile_columns", check_vp)
     monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
-    with bridge._verified_migration_scope(tuple(bridge.LEGACY_SOURCES)[1]):
+    with bridge._verified_migration_scope(bridge.NATIVE_LEGACY_SOURCE):
         result = materialize_indicator_frames(**l1)
     assert result["migration_full_partition_count"] == result["migration_full_row_count"] == 0
     assert result["refreshed_partition_count"] == 2
@@ -3318,7 +3318,7 @@ def test_legacy_l2_append_preserves_unrelated_proof_migration(
     from trading_advisor_3000.product_plane.research import hash_compatibility as bridge
     from trading_advisor_3000.product_plane.research.indicators import materialize as owner
 
-    source = tuple(bridge.LEGACY_SOURCES)[legacy_index]
+    source = bridge.NATIVE_LEGACY_SOURCE
     monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
     namespace = {}
     exec(_PRE223_INPUT_PRODUCER, owner.__dict__, namespace)
