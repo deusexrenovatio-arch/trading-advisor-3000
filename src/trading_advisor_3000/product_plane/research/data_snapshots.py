@@ -140,12 +140,16 @@ def _initial(context: Any, config: Mapping[str, Any]) -> dict[str, Any]:
     path = _pending_path(context, config)
     parameters = _parameters(config)
     provenance = runtime_provenance()
+    from .compute_contract import semantic_compute_contract
+
+    semantic = semantic_compute_contract(config)
     if path.exists():
         pending = json.loads(path.read_text(encoding="utf-8"))
         if (
             pending["parameters"] != parameters
             or pending["code_version"] != str(config["code_version"])
             or pending["runtime_provenance"] != provenance
+            or pending.get("semantic_compute_contract") != semantic
         ):
             raise ValueError("snapshot resume requires the same parameters and code")
         _assert_current_data_parent(config, pending)
@@ -161,6 +165,7 @@ def _initial(context: Any, config: Mapping[str, Any]) -> dict[str, Any]:
             pending["parameters"] != parameters
             or pending["code_version"] != str(config["code_version"])
             or pending["runtime_provenance"] != provenance
+            or pending.get("semantic_compute_contract") != semantic
         ):
             raise ValueError("snapshot resume requires the same parameters and code")
         source_run = op_context.instance.get_run_by_id(parent_run_id)
@@ -244,6 +249,7 @@ def _initial(context: Any, config: Mapping[str, Any]) -> dict[str, Any]:
         "tables": tables,
         "quality_checks": {},
         "runtime_provenance": provenance,
+        "semantic_compute_contract": semantic,
         "parents": [parent["snapshot_id"]] if parent else [],
         "parent_manifest_sha256": parent["manifest_sha256"] if parent else None,
         "quality_evidence": {},
@@ -364,24 +370,18 @@ def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) 
 
 def _validate_hash_compatibility(config: Mapping, pending: Mapping, instance: Any) -> dict | None:
     """Validate an admission receipt against authoritative accepted state again."""
-    from .hash_compatibility import REQUIRED_QUALITY, SCOPE_PARAMETER_KEYS, compatible_provenance
+    from .hash_compatibility import REQUIRED_QUALITY, SCOPE_PARAMETER_KEYS, compatibility_receipt
 
     receipt = config.get("hash_compatibility")
     if not receipt:
         return None
     accepted = current_snapshot(_registry(config))
-    if not accepted or receipt != {
-        "version": 1,
-        "snapshot_id": accepted["snapshot_id"],
-        "manifest_sha256": accepted["manifest_sha256"],
-        "source_sha256": accepted["parameters"].get("runtime_provenance", {}).get("source_sha256"),
-    }:
+    if not accepted or receipt != compatibility_receipt(
+        accepted, pending["runtime_provenance"], pending["semantic_compute_contract"]
+    ):
         raise ValueError("stale or forged hash compatibility receipt")
     if (
-        not compatible_provenance(
-            accepted["parameters"].get("runtime_provenance", {}), pending["runtime_provenance"]
-        )
-        or any(
+        any(
             accepted["parameters"].get(key) != value
             for key, value in _parameters(config).items()
             if key not in SCOPE_PARAMETER_KEYS
@@ -607,7 +607,7 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
 
             migration = (
                 _verified_migration_scope(config["hash_compatibility"]["source_sha256"])
-                if compatible is not None
+                if compatible is not None and config["hash_compatibility"].get("version") == 1
                 else nullcontext()
             )
             with worker_lease(root, str(context.run_id), function.__name__), migration:
@@ -763,6 +763,7 @@ def publish_research_snapshot(context: Any, *, acceptance: Mapping[str, Any]) ->
         parameters={
             **pending["parameters"],
             "runtime_provenance": pending["runtime_provenance"],
+            "semantic_compute_contract": pending["semantic_compute_contract"],
             "quality_evidence": pending["quality_evidence"],
             "quality_owners": pending.get("quality_owners", {}),
             "recovery_lineage": pending.get("recovery_lineage", []),

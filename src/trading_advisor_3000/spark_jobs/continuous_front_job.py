@@ -756,6 +756,136 @@ def _active_timeline(*, bars, policy: ContinuousFrontPolicy, calendar_bars=None)
     )
 
 
+def _build_native_qc(
+    *,
+    keyed_bars,
+    continuous_bars,
+    timeline_with_rolls,
+    roll_events,
+    policy,
+    dataset_version,
+    run_id,
+    created_at,
+):
+    from pyspark.sql import Window
+    from pyspark.sql import functions as F
+
+    base_qc = keyed_bars.withColumn(
+        "duplicate_row_count",
+        F.count(F.lit(1)).over(
+            Window.partitionBy("contract_id", "instrument_id", "timeframe", "ts")
+        ),
+    )
+    qc_failures = base_qc.groupBy("instrument_id", "timeframe").agg(
+        F.count(F.lit(1)).cast("long").alias("input_row_count"),
+        F.sum(F.when(F.col("duplicate_row_count") > 1, F.lit(1)).otherwise(F.lit(0)))
+        .cast("long")
+        .alias("duplicate_key_count"),
+        F.sum(
+            F.when(
+                (F.col("high") < F.greatest(F.col("open"), F.col("close")))
+                | (F.col("low") > F.least(F.col("open"), F.col("close"))),
+                F.lit(1),
+            ).otherwise(F.lit(0))
+        )
+        .cast("long")
+        .alias("ohlc_error_count"),
+        F.sum(
+            F.when((F.col("volume") < 0) | (F.col("open_interest") < 0), F.lit(1)).otherwise(
+                F.lit(0)
+            )
+        )
+        .cast("long")
+        .alias("negative_volume_oi_count"),
+        F.sum(F.when(F.col("maturity_rank").isNull(), F.lit(1)).otherwise(F.lit(0)))
+        .cast("long")
+        .alias("maturity_parse_error_count"),
+    )
+    output_duplicate_qc = (
+        continuous_bars.withColumn(
+            "output_duplicate_row_count",
+            F.count(F.lit(1)).over(Window.partitionBy("instrument_id", "timeframe", "ts")),
+        )
+        .groupBy("instrument_id", "timeframe")
+        .agg(
+            F.sum(F.when(F.col("output_duplicate_row_count") > 1, F.lit(1)).otherwise(F.lit(0)))
+            .cast("long")
+            .alias("output_duplicate_key_count")
+        )
+    )
+    missing_active = timeline_with_rolls.groupBy("instrument_id", "timeframe").agg(
+        F.sum(F.when(F.col("active_contract_id").isNull(), F.lit(1)).otherwise(F.lit(0)))
+        .cast("long")
+        .alias("missing_active_bar_count")
+    )
+    event_qc = roll_events.groupBy("instrument_id", "timeframe").agg(
+        F.count(F.lit(1)).cast("long").alias("roll_event_count"),
+        F.sum(
+            F.when(
+                F.col("old_reference_price").isNull() | F.col("new_reference_price").isNull(),
+                F.lit(1),
+            ).otherwise(F.lit(0))
+        )
+        .cast("long")
+        .alias("missing_reference_price_count"),
+        F.max(F.abs(F.col("additive_gap"))).alias("gap_abs_max"),
+        F.avg(F.abs(F.col("additive_gap"))).alias("gap_abs_mean"),
+    )
+    output_counts = continuous_bars.groupBy("instrument_id", "timeframe").agg(
+        F.count(F.lit(1)).cast("long").alias("output_row_count")
+    )
+    qc = (
+        qc_failures.join(missing_active, ["instrument_id", "timeframe"], "left")
+        .join(event_qc, ["instrument_id", "timeframe"], "left")
+        .join(output_counts, ["instrument_id", "timeframe"], "left")
+        .join(output_duplicate_qc, ["instrument_id", "timeframe"], "left")
+        .withColumn("dataset_version", F.lit(dataset_version))
+        .withColumn("roll_policy_version", F.lit(policy.roll_policy_version))
+        .withColumn("adjustment_policy_version", F.lit(policy.adjustment_policy_version))
+        .withColumn("run_id", F.lit(run_id))
+        .withColumn("started_at", F.lit(created_at))
+        .withColumn("completed_at", F.lit(_policy_timestamp()))
+        .withColumn("timeline_error_count", F.lit(0).cast("long"))
+        .withColumn("future_causality_violation_count", F.lit(0).cast("long"))
+        .withColumn(
+            "duplicate_key_count",
+            (
+                F.coalesce(F.col("duplicate_key_count"), F.lit(0))
+                + F.coalesce(F.col("output_duplicate_key_count"), F.lit(0))
+            ).cast("long"),
+        )
+        .withColumn(
+            "missing_active_bar_count",
+            F.coalesce("missing_active_bar_count", F.lit(0)).cast("long"),
+        )
+        .withColumn("roll_event_count", F.coalesce("roll_event_count", F.lit(0)).cast("long"))
+        .withColumn(
+            "missing_reference_price_count",
+            F.coalesce("missing_reference_price_count", F.lit(0)).cast("long")
+            + F.col("maturity_parse_error_count"),
+        )
+        .withColumn("output_row_count", F.coalesce("output_row_count", F.lit(0)).cast("long"))
+        .withColumn("gap_abs_max", F.coalesce("gap_abs_max", F.lit(0.0)))
+        .withColumn("gap_abs_mean", F.coalesce("gap_abs_mean", F.lit(0.0)))
+        .withColumn(
+            "blocked_reason",
+            F.when(F.col("missing_active_bar_count") > 0, F.lit("missing_active_bar_count"))
+            .when(F.col("duplicate_key_count") > 0, F.lit("duplicate_key_count"))
+            .when(F.col("ohlc_error_count") > 0, F.lit("ohlc_error_count"))
+            .when(F.col("negative_volume_oi_count") > 0, F.lit("negative_volume_oi_count"))
+            .when(
+                F.col("missing_reference_price_count") > 0, F.lit("missing_reference_price_count")
+            ),
+        )
+        .withColumn(
+            "status",
+            F.when(F.col("blocked_reason").isNotNull(), F.lit("BLOCKED")).otherwise(F.lit("PASS")),
+        )
+        .drop("output_duplicate_key_count")
+    )
+    return qc
+
+
 def _build_spark_native_tables(
     *,
     spark: object,
@@ -1146,118 +1276,15 @@ def _build_spark_native_tables(
         "economics_model_version",
         F.lit(created_at).alias("created_at"),
     )
-    base_qc = keyed_bars.withColumn(
-        "duplicate_row_count",
-        F.count(F.lit(1)).over(
-            Window.partitionBy("contract_id", "instrument_id", "timeframe", "ts")
-        ),
-    )
-    qc_failures = base_qc.groupBy("instrument_id", "timeframe").agg(
-        F.count(F.lit(1)).cast("long").alias("input_row_count"),
-        F.sum(F.when(F.col("duplicate_row_count") > 1, F.lit(1)).otherwise(F.lit(0)))
-        .cast("long")
-        .alias("duplicate_key_count"),
-        F.sum(
-            F.when(
-                (F.col("high") < F.greatest(F.col("open"), F.col("close")))
-                | (F.col("low") > F.least(F.col("open"), F.col("close"))),
-                F.lit(1),
-            ).otherwise(F.lit(0))
-        )
-        .cast("long")
-        .alias("ohlc_error_count"),
-        F.sum(
-            F.when((F.col("volume") < 0) | (F.col("open_interest") < 0), F.lit(1)).otherwise(
-                F.lit(0)
-            )
-        )
-        .cast("long")
-        .alias("negative_volume_oi_count"),
-        F.sum(F.when(F.col("maturity_rank").isNull(), F.lit(1)).otherwise(F.lit(0)))
-        .cast("long")
-        .alias("maturity_parse_error_count"),
-    )
-    output_duplicate_qc = (
-        continuous_bars.withColumn(
-            "output_duplicate_row_count",
-            F.count(F.lit(1)).over(Window.partitionBy("instrument_id", "timeframe", "ts")),
-        )
-        .groupBy("instrument_id", "timeframe")
-        .agg(
-            F.sum(F.when(F.col("output_duplicate_row_count") > 1, F.lit(1)).otherwise(F.lit(0)))
-            .cast("long")
-            .alias("output_duplicate_key_count")
-        )
-    )
-    missing_active = timeline_with_rolls.groupBy("instrument_id", "timeframe").agg(
-        F.sum(F.when(F.col("active_contract_id").isNull(), F.lit(1)).otherwise(F.lit(0)))
-        .cast("long")
-        .alias("missing_active_bar_count")
-    )
-    event_qc = roll_events.groupBy("instrument_id", "timeframe").agg(
-        F.count(F.lit(1)).cast("long").alias("roll_event_count"),
-        F.sum(
-            F.when(
-                F.col("old_reference_price").isNull() | F.col("new_reference_price").isNull(),
-                F.lit(1),
-            ).otherwise(F.lit(0))
-        )
-        .cast("long")
-        .alias("missing_reference_price_count"),
-        F.max(F.abs(F.col("additive_gap"))).alias("gap_abs_max"),
-        F.avg(F.abs(F.col("additive_gap"))).alias("gap_abs_mean"),
-    )
-    output_counts = continuous_bars.groupBy("instrument_id", "timeframe").agg(
-        F.count(F.lit(1)).cast("long").alias("output_row_count")
-    )
-    qc = (
-        qc_failures.join(missing_active, ["instrument_id", "timeframe"], "left")
-        .join(event_qc, ["instrument_id", "timeframe"], "left")
-        .join(output_counts, ["instrument_id", "timeframe"], "left")
-        .join(output_duplicate_qc, ["instrument_id", "timeframe"], "left")
-        .withColumn("dataset_version", F.lit(dataset_version))
-        .withColumn("roll_policy_version", F.lit(policy.roll_policy_version))
-        .withColumn("adjustment_policy_version", F.lit(policy.adjustment_policy_version))
-        .withColumn("run_id", F.lit(run_id))
-        .withColumn("started_at", F.lit(created_at))
-        .withColumn("completed_at", F.lit(_policy_timestamp()))
-        .withColumn("timeline_error_count", F.lit(0).cast("long"))
-        .withColumn("future_causality_violation_count", F.lit(0).cast("long"))
-        .withColumn(
-            "duplicate_key_count",
-            (
-                F.coalesce(F.col("duplicate_key_count"), F.lit(0))
-                + F.coalesce(F.col("output_duplicate_key_count"), F.lit(0))
-            ).cast("long"),
-        )
-        .withColumn(
-            "missing_active_bar_count",
-            F.coalesce("missing_active_bar_count", F.lit(0)).cast("long"),
-        )
-        .withColumn("roll_event_count", F.coalesce("roll_event_count", F.lit(0)).cast("long"))
-        .withColumn(
-            "missing_reference_price_count",
-            F.coalesce("missing_reference_price_count", F.lit(0)).cast("long")
-            + F.col("maturity_parse_error_count"),
-        )
-        .withColumn("output_row_count", F.coalesce("output_row_count", F.lit(0)).cast("long"))
-        .withColumn("gap_abs_max", F.coalesce("gap_abs_max", F.lit(0.0)))
-        .withColumn("gap_abs_mean", F.coalesce("gap_abs_mean", F.lit(0.0)))
-        .withColumn(
-            "blocked_reason",
-            F.when(F.col("missing_active_bar_count") > 0, F.lit("missing_active_bar_count"))
-            .when(F.col("duplicate_key_count") > 0, F.lit("duplicate_key_count"))
-            .when(F.col("ohlc_error_count") > 0, F.lit("ohlc_error_count"))
-            .when(F.col("negative_volume_oi_count") > 0, F.lit("negative_volume_oi_count"))
-            .when(
-                F.col("missing_reference_price_count") > 0, F.lit("missing_reference_price_count")
-            ),
-        )
-        .withColumn(
-            "status",
-            F.when(F.col("blocked_reason").isNotNull(), F.lit("BLOCKED")).otherwise(F.lit("PASS")),
-        )
-        .drop("output_duplicate_key_count")
+    qc = _build_native_qc(
+        keyed_bars=keyed_bars,
+        continuous_bars=continuous_bars,
+        timeline_with_rolls=timeline_with_rolls,
+        roll_events=roll_events,
+        policy=policy,
+        dataset_version=dataset_version,
+        run_id=run_id,
+        created_at=created_at,
     )
     tables = {
         "continuous_front_bars": continuous_bars,

@@ -13,12 +13,17 @@ from trading_advisor_3000.product_plane.research.derived_indicators.store import
 )
 
 
-def test_audited_native_kernel_unchanged():
+def test_audited_native_kernel_unchanged(monkeypatch):
     from trading_advisor_3000.product_plane.research.derived_indicators import (
         adapt_native_metadata as adaptation,
     )
 
     assert adaptation.native_kernel_digest() == adaptation.NATIVE_KERNEL
+    from trading_advisor_3000.product_plane.research import hash_compatibility
+
+    monkeypatch.setattr(hash_compatibility, "reviewed_current_source", lambda: False)
+    with pytest.raises(ValueError, match="reviewed migration"):
+        adaptation.native_kernel_digest()
 
 
 @pytest.mark.parametrize(
@@ -165,7 +170,7 @@ def test_conflicting_carrier_blocks_snapshot_reuse_and_scoped_write(
 @pytest.mark.parametrize(
     "filename", ["fingerprints.py", "read_cache.py", "tails.py", "source_frames.py"]
 )
-def test_extracted_input_and_proof_helpers_invalidate_compute_contract(monkeypatch, filename):
+def test_operational_helper_comments_do_not_invalidate_compute_contract(monkeypatch, filename):
     from pathlib import Path
 
     before = m._derived_compute_contract_hash(())
@@ -176,7 +181,7 @@ def test_extracted_input_and_proof_helpers_invalidate_compute_contract(monkeypat
         return content + b"\n# changed helper contract\n" if path.name == filename else content
 
     monkeypatch.setattr(Path, "read_bytes", changed_read)
-    assert m._derived_compute_contract_hash(()) != before
+    assert m._derived_compute_contract_hash(()) == before
 
 
 def test_public_l2_noop_repairs_debt_before_snapshot_capture(native_materializer, monkeypatch):
@@ -280,7 +285,7 @@ def test_legacy_admission_cannot_reuse_obsolete_l2_compute_receipt(
     run()
     monkeypatch.setattr(m, "_derived_compute_contract_hash", current)
     monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
-    with bridge._verified_migration_scope(next(iter(bridge.LEGACY_SOURCES))):
+    with bridge._verified_migration_scope(bridge.NATIVE_LEGACY_SOURCE):
         report = run()
     assert report["recomputed_partition_count"] == 2
     assert report["reused_partition_count"] == 0

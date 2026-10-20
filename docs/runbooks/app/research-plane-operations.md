@@ -79,31 +79,30 @@ or unproven inputs keep ordinary conservative calculation. Deployment performs
 no unscheduled full-data run; next-night timing/QC/pinned publication remains
 separate acceptance evidence.
 
-The pre/post volume-profile invalidation releases and native post-226 release
-have one finite compatibility bridge in `research/hash_compatibility.py`. Only
-the three recorded deployed source hashes can migrate to its exact reviewed
-package fingerprint. The fingerprint
-covers every Python path and byte, normalizes CRLF, and substitutes only its own
-single anchored digest literal. Any other source/dependency/contract/profile
-change retains conservative admission. Explicit full admission reaches both L1/L2
-numerical owners as `force_recompute`, disabling metadata, partition, extension
-and cached-prefix reuse. Freeze the literal after the final source
-diff; independent review must bind that same diff. Do not add aliases for an
-unreviewed numerical change.
+Research pending checkpoints and accepted manifests persist `parameters.semantic_compute_contract`
+(`research-compute.v1`). Numerical AST closures cover CF/L0/L1/L2/sidecar formulas,
+input selection/conversion and local helpers, with active profiles, schema columns
+and numerical library versions. Comments, docstrings, independent definition order,
+writer batches and observation-only telemetry do not change numerical identity.
+External aliases/reexports are resolved; unknown/dynamic dependencies fail closed.
+This is syntactic compatibility, not an oracle for algebraic equivalence.
 
-`hash_compatibility` is an admission receipt carrying accepted Research id/hash
-and old source, not an operator permission switch. The snapshot owner rechecks
-historical Data pins, unchanged current Research outputs, mandatory PASS QC and
-successful native owners. Changed Data is admitted only through native bounded
-ancestry with exact names/path/ID/schema/layout on every edge. Runtime independently
-resolves and compares complete instrument/TF/UTC windows; contract filters and
-narrowed ranges reject admission. Canonical migration tails come from immutable
-accepted Data/Research pins and native windows. Strict current native CF proof is
-imported before compatibility validation; return still requires validation. Only
-unchanged Data pins permit accepted CF reuse; bounded changes run native CF. Empty bounded scope explicitly dispatches revalidation;
-it does not become a fake window or full refresh. Resume, same-run CF handoff and
-publication still compare exact raw runtime provenance.
+Modern receipts bind the accepted manifest id/hash and compute digest. Later
+operational releases need no source-hash aliases. A formula/profile/numerical-library
+change keeps conservative computation. QC-only changes require pinned-output
+revalidation; schema/proof-codec changes require adaptation. Neither silently
+requests a numerical full refresh. Changed fingerprint authority requires an
+explicit supported migration. Raw provenance remains exact within a run, resume,
+CF handoff and publication.
 
+Only audited native source `8a4432db9fc8e5da29cc3b6668b61972ded6bc270072252e000d4414a6827fbb`
+can bootstrap to the fixed reviewed semantic baseline, including full profiles,
+schemas and dependencies. Pre-223 sources are no longer eligible. Old L1/L2
+input/compute/count/unique-key proofs must match before metadata adoption.
+The receipt also requires accepted PASS QC, successful owners, exact output pins,
+bounded Data ancestry and independently resolved complete refresh windows.
+Force, narrowed scopes, input drift and concurrent changes retain their guards.
+Deployment starts no data run; verify publication/QC on the next scheduled nightly.
 
 Same-code migration recovery may retain a successful stage from a terminal
 failed/canceled owner only when saved recovery lineage and the complete native
