@@ -70,9 +70,18 @@ BOOTSTRAP_CONTRACT_DIGEST = "2aea7705130ee86a42f77b15312550e03ce9d829c10e5c49416
 
 
 def reviewed_current_source() -> bool:
-    from .compute_contract import semantic_compute_contract
+    from .compute_contract import legacy_source_schema_contract, semantic_compute_contract
 
-    return semantic_compute_contract()["digest"] == BOOTSTRAP_CONTRACT_DIGEST
+    return (
+        legacy_source_schema_contract(semantic_compute_contract())["digest"]
+        == BOOTSTRAP_CONTRACT_DIGEST
+    )
+
+
+def _legacy_contract_digest(contract):
+    from .compute_contract import legacy_source_schema_contract
+
+    return legacy_source_schema_contract(contract)["digest"]
 
 
 def compatible_provenance(
@@ -88,22 +97,58 @@ def compatible_provenance(
         == {k: v for k, v in current.items() if k != "source_sha256"}
         and reviewed_current_source()
         and (
-            current_contract is None or current_contract.get("digest") == BOOTSTRAP_CONTRACT_DIGEST
+            current_contract is None
+            or _legacy_contract_digest(current_contract) == BOOTSTRAP_CONTRACT_DIGEST
         )
     )
 
 
 def compatibility_receipt(accepted: dict, current: dict, contract: dict) -> dict | None:
     parameters = accepted["parameters"]
-    if not compatible_provenance(
-        parameters.get("runtime_provenance", {}),
-        current,
-        parameters.get("semantic_compute_contract"),
-        contract,
-    ):
-        return None
+    from .compute_contract import (
+        legacy_source_schema_contract,
+        prove_source_schema_adaptation,
+        validate_contract,
+    )
+    from .semantic_fingerprint import ContractError
+
+    old = parameters.get("semantic_compute_contract")
     base = {"snapshot_id": accepted["snapshot_id"], "manifest_sha256": accepted["manifest_sha256"]}
-    if parameters.get("semantic_compute_contract") is not None:
+    if old is not None:
+        validate_contract(old)
+        validate_contract(contract)
+    if old is not None and old.get("schemas") != contract.get("schemas"):
+        proof = prove_source_schema_adaptation(accepted, contract, old)
+        return {
+            "version": 3,
+            **base,
+            "old_compute_digest": old["digest"],
+            "compute_digest": contract["digest"],
+            "schema_adaptation": proof,
+        }
+    provenance = parameters.get("runtime_provenance", {})
+    if old is None and provenance.get("source_sha256") == NATIVE_LEGACY_SOURCE:
+        legacy = legacy_source_schema_contract(contract)
+        if legacy["digest"] != BOOTSTRAP_CONTRACT_DIGEST:
+            raise ContractError(
+                "legacy source metadata adaptation requires the frozen numerical baseline"
+            )
+        if {k: v for k, v in provenance.items() if k != "source_sha256"} != {
+            k: v for k, v in current.items() if k != "source_sha256"
+        }:
+            raise ContractError("legacy source metadata adaptation runtime provenance changed")
+        proof = prove_source_schema_adaptation(accepted, contract, legacy)
+        return {
+            "version": 3,
+            **base,
+            "old_compute_digest": legacy["digest"],
+            "compute_digest": contract["digest"],
+            "schema_adaptation": proof,
+            "source_sha256": NATIVE_LEGACY_SOURCE,
+        }
+    if not compatible_provenance(provenance, current, old, contract):
+        return None
+    if old is not None:
         return {"version": 2, **base, "compute_digest": contract["digest"]}
     return {"version": 1, **base, "source_sha256": NATIVE_LEGACY_SOURCE}
 

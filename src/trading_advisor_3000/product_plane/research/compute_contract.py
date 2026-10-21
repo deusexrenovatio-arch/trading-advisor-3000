@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import platform
 import re
 from contextvars import ContextVar
@@ -218,6 +219,7 @@ def semantic_compute_contract(configuration=None, *, package: Path | None = None
     from .continuous_front import continuous_front_store_contract
     from .continuous_front_indicators.contracts import continuous_front_indicator_store_contract
     from .datasets import research_dataset_store_contract
+    from .derived_indicators.materialize import _source_indicator_columns_for_profile
     from .derived_indicators.registry import (
         build_derived_indicator_profile_registry,
         current_derived_indicator_profile,
@@ -247,7 +249,7 @@ def semantic_compute_contract(configuration=None, *, package: Path | None = None
         research_derived_indicator_store_contract(l2),
         continuous_front_indicator_store_contract(indicator_profile=l1, derived_profile=l2),
         research_derived_source_frame_store_contract(
-            source_indicator_columns=l1.expected_output_columns()
+            source_indicator_columns=_source_indicator_columns_for_profile(l2)
         ),
     ]
     columns = {name: table["columns"] for store in stores for name, table in store.items()}
@@ -265,10 +267,92 @@ def semantic_compute_contract(configuration=None, *, package: Path | None = None
         "numeric_dependencies": numeric_dependencies(),
     }
     # Normalize tuples and other producer values to the persisted JSON representation.
-    import json
-
     contract = json.loads(json.dumps(contract, allow_nan=False))
     return {**contract, "digest": digest(contract)}
+
+
+def source_frame_schema_pair(contract: dict) -> tuple[dict, dict]:
+    """The sole admitted descriptor correction, for the exact persisted profiles."""
+    from .derived_indicators.materialize import _source_indicator_columns_for_profile
+    from .derived_indicators.registry import build_derived_indicator_profile_registry
+    from .derived_indicators.source_frames import research_derived_source_frame_store_contract
+    from .indicators.registry import build_indicator_profile_registry
+
+    try:
+        l1 = build_indicator_profile_registry().get(contract["profiles"]["l1"]["version"])
+        l2 = build_derived_indicator_profile_registry().get(contract["profiles"]["l2"]["version"])
+    except (KeyError, TypeError) as error:
+        raise ContractError("unknown profiles for source schema adaptation") from error
+    if any(
+        digest(_profile_payload(profile)) != digest(contract["profiles"][key])
+        for key, profile in (("l1", l1), ("l2", l2))
+    ):
+        raise ContractError("changed profiles for source schema adaptation")
+    name = "research_derived_source_frames"
+    old = research_derived_source_frame_store_contract(
+        source_indicator_columns=l1.expected_output_columns()
+    )[name]
+    current = research_derived_source_frame_store_contract(
+        source_indicator_columns=_source_indicator_columns_for_profile(l2)
+    )[name]
+    return old, current
+
+
+def legacy_source_schema_contract(current: dict) -> dict:
+    """Reconstruct exactly the old declaration; never repin its frozen digest."""
+    validate_contract(current)
+    old, expected = source_frame_schema_pair(current)
+    name = "research_derived_source_frames"
+    if current["schemas"].get(name) != expected["columns"]:
+        raise ContractError("source schema adaptation requires the real producer selector")
+    payload = {key: value for key, value in current.items() if key != "digest"}
+    payload["schemas"] = {**current["schemas"], name: old["columns"]}
+    return {**payload, "digest": digest(payload)}
+
+
+def prove_source_schema_adaptation(accepted: dict, current: dict, old: dict) -> dict:
+    """Read-only proof of a declaration correction against the accepted Delta pin."""
+    from trading_advisor_3000.product_plane.common.data_snapshots import (
+        SnapshotUnavailableError,
+        open_pinned_table,
+    )
+    from trading_advisor_3000.spark_jobs.research_derived_source_frames_job import _spark_cast_type
+
+    validate_contract(old)
+    if legacy_source_schema_contract(current) != old:
+        raise ContractError("source metadata adaptation changed another compute component")
+    name = "research_derived_source_frames"
+    _, expected = source_frame_schema_pair(current)
+    try:
+        reference = accepted["tables"][name]
+        table = open_pinned_table(reference)
+    except (KeyError, OSError, ValueError, SnapshotUnavailableError) as error:
+        raise ContractError(
+            "source metadata adaptation requires an available exact Delta pin"
+        ) from error
+    schema = json.loads(table.schema().to_json())
+    physical = {field["name"]: field["type"] for field in schema["fields"]}
+    declared = {**expected["columns"], **expected["physical_columns"]}
+    aliases = {"int": "integer", "bigint": "long"}
+    types = {
+        key: aliases.get(_spark_cast_type(value), _spark_cast_type(value))
+        for key, value in declared.items()
+    }
+    retained = sorted(set(physical) - set(types))
+    if retained not in ([], ["adx_14"]) or any(
+        physical.get(key) != value for key, value in types.items()
+    ):
+        raise ContractError("source metadata adaptation physical fields/types differ from producer")
+    if retained and (physical["adx_14"] != "double" or "adx_14" not in old["schemas"][name]):
+        raise ContractError("source metadata adaptation has unsupported legacy columns")
+    if list(table.metadata().partition_columns) != expected["partition_by"]:
+        raise ContractError("source metadata adaptation partition fields differ from producer")
+    return {
+        "table_reference": dict(reference),
+        "partition_columns": list(table.metadata().partition_columns),
+        "removed_logical_columns": sorted(set(old["schemas"][name]) - set(expected["columns"])),
+        "retained_legacy_columns": retained,
+    }
 
 
 def validate_contract(contract: object) -> dict:
