@@ -340,6 +340,17 @@ class SymbolGraph:
     def _include(self, identity):
         if identity in self.selected:
             return
+        if identity == PACKAGE + ".product_plane.research.indicators.cf_tail.compute":
+            # These private native checkpoint adapters clone native functions.
+            # Bind their complete bytes instead of pretending their dispatch is
+            # statically resolvable. No other project callback gains admission.
+            self.selected[identity] = {
+                name: hashlib.sha256(
+                    self._path(PACKAGE + ".product_plane.research.indicators." + name).read_bytes()
+                ).hexdigest()
+                for name in ("cf_tail", "native_checkpoint")
+            }
+            return
         if identity in self.leaves:
             self.selected[identity] = "native-boundary.v1"
             return
@@ -461,6 +472,22 @@ class SymbolGraph:
                     if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
                 } & arguments
                 admitted = {"cls"} if isinstance(original, ast.ClassDef) else set()
+                if identity in {
+                    PACKAGE + ".product_plane.research.indicators.materialize."
+                    "_compute_profile_frame_unmasked",
+                    PACKAGE
+                    + ".product_plane.research.indicators.materialize._compute_profile_frame",
+                }:
+                    admitted.add("spec_runner")
+                if identity in {
+                    PACKAGE + ".product_plane.research.indicators.materialize."
+                    "_compute_continuous_front_profile_frame",
+                    PACKAGE + ".product_plane.research.indicators.materialize."
+                    "_enforce_continuous_front_native_boundaries",
+                    PACKAGE + ".product_plane.research.indicators.materialize."
+                    "_compute_profile_frame_for_series",
+                }:
+                    admitted.add("checkpoint_runner")
                 if identity in {
                     PACKAGE + ".product_plane.research.bar_usage_policy._missing_policy_columns",
                     PACKAGE

@@ -16,7 +16,11 @@ Arrow IPC when multiple partitions are requested, then reads exact logical scope
 The same lazy cache serves old L2 values for complete native prefix comparison.
 Temporary files are disposable and cleaned on success or failure. No persistent
 prefix proof replaces comparison. The source is prepared and hashed once per
-partition; numerical formulas still receive their full required history.
+partition. L2 verifies per-row semantic input hashes before formulas, then
+computes the changed suffix with eligible lookback and complete touched
+session/week scopes. Confirmed swing state is continued from the verified
+predecessor. Legacy/missing input proof or changed numerical identity uses full
+validation; suffix write comparison remains independent.
 
 The versioned `columnar-v1:` SHA-256 format replaces repeated JSON fingerprints
 in the active refresh path. Standalone DTO/JSON helpers and the native input hash
@@ -37,6 +41,47 @@ are explicit; an omitted update decision is an error.
 
 Validation uses isolated temporary Delta tables. This integration performs no
 production data migration, rebuild, service restart or publication.
+
+## Checkpointed continuous-front calculation
+
+Change surface: product-plane. Architecture impact: contract-change (additive
+optional metadata, existing schema authorities and writers).
+
+`indicators/store.py` owns optional `compute_state_json`; the final L1 row holds
+hidden native smoothing/cumulative/Supertrend state and bounded intermediate
+buffers before public eligibility masks. State is separate per calculation
+group/spec/eligibility and bound to exact input prefix, profile, native source,
+CF ladder and epoch. The prior carrier is cleared in the same scoped write as
+the new final row. No checkpoint table, service or separate state writer exists.
+
+The native library has no state-input API. Private function copies receive
+checkpointed native EMA/RMA helpers; native module globals are unchanged.
+MACD/ADOSC local numpy recurrences and Supertrend bands need explicit state
+adapters. A reviewed exact pandas-ta-classic source/backend pin is mandatory;
+unknown implementations use the original full producer. The two adapter files
+are pinned by complete source bytes in the numerical kernel; their comments
+therefore conservatively invalidate checkpoints too. Other numerical functions
+retain normal AST identity and unknown callbacks still fail closed.
+
+Unchanged append on the supported mature core computes at most 512 eligible
+context rows plus new rows per native operation. A complete dependency group
+of at most 512 rows may bootstrap before it is mature; its old outputs must
+still match, otherwise full validation/replacement is required. Counters report
+this bootstrap separately. Reads, hashing and prefix proof may still scan the
+full partition; bounded formula work is not an end-to-end speedup claim.
+
+Corrections/insertion/deletion before the L1 checkpoint, changed ladder/roll,
+unsupported profile/backend, malformed state or nonmonotonic epochs fail back
+explicitly. Native zero-range regime changes also invalidate the prefix. L2's
+optional `input_row_hash` is owned by `derived_indicators/store.py`; metadata-only
+L1 provenance changes do not invalidate identical numerical input rows.
+
+Verification requires exact keys, NULLs and integer/event codes, numeric
+`rtol=1e-8, atol=1e-8` (native rolling floating-point order), serialized restart,
+eligibility gaps, fallback cases and native Delta producer/consumer readback.
+All acceptance writes stay in an isolated copy. Legacy state can bootstrap only
+through the ordinary requested route; no manual production full rebuild is part
+of this change.
 
 ## Reviewed production hash transition
 

@@ -1052,14 +1052,16 @@ def _append_computed_columns(frame: pd.DataFrame, columns: Mapping[str, pd.Serie
     return pd.concat([frame, output_frame], axis=1)
 
 
-def _compute_profile_frame_unmasked(frame: pd.DataFrame, profile: IndicatorProfile) -> pd.DataFrame:
+def _compute_profile_frame_unmasked(
+    frame: pd.DataFrame, profile: IndicatorProfile, *, spec_runner=None
+) -> pd.DataFrame:
     result = frame.copy()
     pending_outputs: dict[str, pd.Series] = {}
     for spec in profile.indicators:
         if set(spec.required_input_columns) & set(pending_outputs):
             result = _append_computed_columns(result, pending_outputs)
             pending_outputs = {}
-        pending_outputs.update(_compute_spec(result, spec))
+        pending_outputs.update((spec_runner or _compute_spec)(result, spec))
     return _append_computed_columns(result, pending_outputs)
 
 
@@ -1137,10 +1139,12 @@ def _fill_bar_usage_noncomputed_rows(
     return filled
 
 
-def _compute_profile_frame(frame: pd.DataFrame, profile: IndicatorProfile) -> pd.DataFrame:
+def _compute_profile_frame(
+    frame: pd.DataFrame, profile: IndicatorProfile, *, spec_runner=None
+) -> pd.DataFrame:
     assert_indicator_bar_usage_policy_coverage(profile)
     if frame.empty or "bar_usage_flags" not in frame.columns:
-        return _compute_profile_frame_unmasked(frame, profile)
+        return _compute_profile_frame_unmasked(frame, profile, spec_runner=spec_runner)
     result = frame.copy()
     for rule, output_columns in indicator_bar_usage_groups_for_outputs(
         profile.expected_output_columns()
@@ -1154,7 +1158,7 @@ def _compute_profile_frame(frame: pd.DataFrame, profile: IndicatorProfile) -> pd
             computed = pd.DataFrame(index=eligible_frame.index)
         else:
             computed = _compute_profile_frame_unmasked(
-                eligible_frame, _profile_for_specs(profile, specs)
+                eligible_frame, _profile_for_specs(profile, specs), spec_runner=spec_runner
             )
         result = _append_computed_columns(
             result,
@@ -1300,6 +1304,8 @@ def _compute_continuous_front_profile_frame(
     profile: IndicatorProfile,
     *,
     adjustment_ladder_rows: tuple[dict[str, object], ...],
+    checkpoint_runner=None,
+    tail_start=None,
 ) -> pd.DataFrame:
     if frame.empty:
         return _compute_profile_frame(frame, profile)
@@ -1357,6 +1363,8 @@ def _compute_continuous_front_profile_frame(
     for target_epoch in sorted(frame["roll_epoch"].unique()):
         epoch = int(target_epoch)
         target_index = frame.index[frame["roll_epoch"] == epoch]
+        if tail_start is not None and not (target_index >= tail_start).any():
+            continue
         source_frame = frame[frame["roll_epoch"] <= epoch].copy()
         zero_anchor_frame = full_zero_anchor_frame.loc[source_frame.index]
         target_anchor_frame = _asof_adjusted_price_frame(
@@ -1389,12 +1397,18 @@ def _compute_continuous_front_profile_frame(
                                 target_anchor_frame=target_anchor_frame,
                                 native_frame=full_native_frame,
                             )
-                            invariant_compute_cache[cache_key] = _compute_spec(
-                                invariant_frame, spec
+                            invariant_compute_cache[cache_key] = (
+                                checkpoint_runner(invariant_frame, spec, f"{group_id}:invariant")
+                                if checkpoint_runner
+                                else _compute_spec(invariant_frame, spec)
                             )
                         compute_cache[cache_key] = invariant_compute_cache[cache_key]
                     else:
-                        compute_cache[cache_key] = _compute_spec(group_frame, spec)
+                        compute_cache[cache_key] = (
+                            checkpoint_runner(group_frame, spec, f"{group_id}:{epoch}")
+                            if checkpoint_runner
+                            else _compute_spec(group_frame, spec)
+                        )
                 computed_outputs = compute_cache[cache_key]
                 for output_column in output_columns:
                     series = computed_outputs[output_column].reindex(target_anchor_frame.index)
@@ -1407,13 +1421,17 @@ def _compute_continuous_front_profile_frame(
     computed_columns = list(
         dict.fromkeys(column for segment in computed_segments for column in segment.columns)
     )
+    if not computed_segments:
+        return frame.reindex(columns=[*frame.columns, *profile.expected_output_columns()])
     concat_segments = [segment.dropna(axis=1, how="all") for segment in computed_segments]
     computed = pd.concat(concat_segments).sort_index().reindex(columns=computed_columns)
-    return _enforce_continuous_front_native_boundaries(computed, profile)
+    return _enforce_continuous_front_native_boundaries(
+        computed, profile, checkpoint_runner=checkpoint_runner
+    )
 
 
 def _enforce_continuous_front_native_boundaries(
-    frame: pd.DataFrame, profile: IndicatorProfile
+    frame: pd.DataFrame, profile: IndicatorProfile, *, checkpoint_runner=None
 ) -> pd.DataFrame:
     result = frame.copy()
     roll_epoch = pd.to_numeric(result["roll_epoch"], errors="coerce").fillna(0).astype(int)
@@ -1432,9 +1450,13 @@ def _enforce_continuous_front_native_boundaries(
         recomputed_outputs = pd.DataFrame(
             index=result.index, columns=list(spec.output_columns), dtype="object"
         )
-        for _, segment in result.groupby(roll_epoch, sort=False):
+        for epoch, segment in result.groupby(roll_epoch, sort=False):
             recomputed = _compute_profile_frame(
-                segment.copy(), _profile_for_specs(profile, (spec,))
+                segment.copy(),
+                _profile_for_specs(profile, (spec,)),
+                spec_runner=(lambda f, s: checkpoint_runner(f, s, f"reset:{int(epoch)}"))
+                if checkpoint_runner
+                else None,
             )
             segment_outputs = recomputed[list(spec.output_columns)]
             recomputed_outputs.loc[segment_outputs.index, list(spec.output_columns)] = (
@@ -1469,6 +1491,8 @@ def _compute_profile_frame_for_series(
     *,
     series_mode: str,
     adjustment_ladder_rows: tuple[dict[str, object], ...],
+    checkpoint_runner=None,
+    tail_start=None,
 ) -> pd.DataFrame:
     if series_mode != "continuous_front":
         return _compute_profile_frame(frame, profile)
@@ -1477,6 +1501,8 @@ def _compute_profile_frame_for_series(
             frame,
             profile,
             adjustment_ladder_rows=adjustment_ladder_rows,
+            checkpoint_runner=checkpoint_runner,
+            tail_start=tail_start,
         )
     result = frame.copy()
     for rule, output_columns in indicator_bar_usage_groups_for_outputs(
@@ -1494,6 +1520,12 @@ def _compute_profile_frame_for_series(
                 eligible_frame,
                 _profile_for_specs(profile, specs),
                 adjustment_ladder_rows=adjustment_ladder_rows,
+                checkpoint_runner=(
+                    lambda f, s, key: checkpoint_runner(f, s, f"{rule.required_flags}:{key}")
+                )
+                if checkpoint_runner
+                else None,
+                tail_start=tail_start,
             )
         result = _append_computed_columns(
             result,
@@ -1762,8 +1794,21 @@ def _compute_partition_frame(
     existing_by_ts,
     resolved_volume_profile_source_rows,
     volume_profile_tick_size_by_instrument,
+    checkpoint_state=None,
 ):
-    if prefix_length:
+    if series_mode == "continuous_front":
+        from .cf_tail import compute
+
+        computed = compute(
+            frame,
+            compute_profile,
+            series_ladder_rows,
+            cached_rows,
+            prefix_length,
+            diagnostics,
+            checkpoint_state,
+        )
+    elif prefix_length:
         existing_frame = pd.DataFrame([row.values for row in cached_rows[:prefix_length]])
         computed = _compute_cached_profile_frame(
             frame,
@@ -1780,6 +1825,14 @@ def _compute_partition_frame(
             adjustment_ladder_rows=series_ladder_rows,
         )
     if _profile_has_volume_profile_spec(compute_profile):
+        if series_mode == "continuous_front" and prefix_length:
+            # VP input hashes proved this prefix independently of recursive CF
+            # state. Preserve it also when the CF checkpoint engine falls back.
+            for column in VOLUME_PROFILE_INDICATOR_COLUMNS:
+                computed[column] = computed[column].astype(object)
+                computed.loc[: prefix_length - 1, column] = [
+                    cached_rows[i].values.get(column) for i in range(prefix_length)
+                ]
         if volume_profile_refresh_ts is not None:
             cached_indices = [
                 index for index, bar in enumerate(series) if bar.ts not in volume_profile_refresh_ts
@@ -1877,7 +1930,7 @@ def _build_partition_rows(
     prefix_length = 0
     # Native source-hash format is independent of whether a verified prefix
     # can continue computation. Unsupported specs still use full history.
-    if series_mode != "continuous_front" and compute_profile == profile:
+    if compute_profile == profile:
         for original, cached, row_hash in zip(series, cached_rows, input_row_hashes):
             if (
                 cached.ts != original.ts
@@ -1895,6 +1948,7 @@ def _build_partition_rows(
         diagnostics["full_history_spec_count"] = int(
             diagnostics.get("full_history_spec_count", 0)
         ) + len(compute_profile.indicators)
+    checkpoint_state = {}
     computed = _compute_partition_frame(
         frame=frame,
         series=series,
@@ -1908,6 +1962,7 @@ def _build_partition_rows(
         existing_by_ts=existing_by_ts,
         resolved_volume_profile_source_rows=resolved_volume_profile_source_rows,
         volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
+        checkpoint_state=checkpoint_state,
     )
     payload_rows = computed.to_dict("records")
     output_columns = profile.expected_output_columns()
@@ -1983,6 +2038,9 @@ def _build_partition_rows(
                 refresh_context_hash=refresh_context_hash,
                 source_snapshot_hash=source_snapshot_hash,
                 volume_profile_input_hash=volume_profile_hashes.get(original.ts, ""),
+                compute_state_json=json.dumps(checkpoint_state, sort_keys=True, allow_nan=False)
+                if checkpoint_state and index == len(series) - 1
+                else "",
             )
         )
     return rows
@@ -3495,6 +3553,7 @@ def _materialize_indicator_window_tails(
             )
             if not full_legacy_partition:
                 starts[partition] = start
+            diagnostics.pop("cf_full_replacement_required", None)
             rows = _build_partition_rows(
                 dataset_version=partition.dataset_version,
                 indicator_set_version=partition.indicator_set_version,
@@ -3512,6 +3571,15 @@ def _materialize_indicator_window_tails(
                 native_full_compute=True,
                 volume_profile_refresh_ts=None if full_legacy_partition else changed_ts,
             )
+            if partition.series_mode == "continuous_front":
+                if diagnostics.get("cf_full_replacement_required"):
+                    start = series[0].ts
+                    starts[partition] = start
+                elif existing and partition in starts:
+                    # Clear the previous final-row checkpoint atomically with
+                    # the new tail; one bounded state carrier per partition.
+                    start = min(start, existing[-1].ts)
+                    starts[partition] = start
             if _profile_has_volume_profile_spec(profile) and (
                 volume_profile_source_rows is None and volume_profile_raw_1m_table_path is None
             ):

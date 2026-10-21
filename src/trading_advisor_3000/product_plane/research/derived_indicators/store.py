@@ -66,6 +66,7 @@ DERIVED_INDICATOR_PARTITION_METADATA_COLUMNS = (
     "created_at",
 )
 DERIVED_INDICATOR_RESERVED_COLUMNS = {
+    "input_row_hash",
     "ts_close_year",
     "dataset_version",
     "contour_id",
@@ -152,6 +153,7 @@ def _derived_indicator_frame_columns(
         "source_indicator_output_columns_hash": "string",
         "source_indicator_columns_hash": "string",
         "source_inputs_hash": "string",
+        "input_row_hash": "string",
         "source_snapshot_hash": "string",
         "compute_contract_hash": "string",
         "row_count": "int",
@@ -233,6 +235,7 @@ class DerivedIndicatorFrameRow:
     source_indicator_output_columns_hash: str = ""
     source_indicator_columns_hash: str = ""
     source_inputs_hash: str = ""
+    input_row_hash: str = ""
     source_snapshot_hash: str = ""
     compute_contract_hash: str = ""
     contour_id: str = "native_tradable"
@@ -278,6 +281,7 @@ class DerivedIndicatorFrameRow:
             "source_indicator_output_columns_hash": self.source_indicator_output_columns_hash,
             "source_indicator_columns_hash": self.source_indicator_columns_hash,
             "source_inputs_hash": self.source_inputs_hash,
+            "input_row_hash": self.input_row_hash,
             "source_snapshot_hash": self.source_snapshot_hash,
             "compute_contract_hash": self.compute_contract_hash,
             "row_count": self.row_count,
@@ -327,6 +331,7 @@ class DerivedIndicatorFrameRow:
             ),
             source_indicator_columns_hash=str(payload.get("source_indicator_columns_hash") or ""),
             source_inputs_hash=str(payload.get("source_inputs_hash") or ""),
+            input_row_hash=str(payload.get("input_row_hash") or ""),
             source_snapshot_hash=str(payload.get("source_snapshot_hash") or ""),
             compute_contract_hash=str(payload.get("compute_contract_hash") or ""),
             row_count=int(payload["row_count"]),
@@ -753,6 +758,7 @@ def load_derived_indicator_partition_rows(
                 "source_indicator_output_columns_hash",
                 "source_indicator_columns_hash",
                 "source_inputs_hash",
+                "input_row_hash",
                 "source_snapshot_hash",
                 "compute_contract_hash",
                 "row_count",
@@ -814,6 +820,7 @@ def load_derived_indicator_frames(
                     "source_indicator_output_columns_hash",
                     "source_indicator_columns_hash",
                     "source_inputs_hash",
+                    "input_row_hash",
                     "source_snapshot_hash",
                     "compute_contract_hash",
                     "row_count",
