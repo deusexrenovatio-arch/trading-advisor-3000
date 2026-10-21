@@ -7,8 +7,16 @@ import pytest
 from trading_advisor_3000.product_plane.research import hash_compatibility as owner
 
 
-def test_reviewed_current_package_is_exact():
-    assert owner.reviewed_current_source()
+def test_reviewed_current_package_keeps_frozen_numerics_and_environment_guard():
+    from trading_advisor_3000.product_plane.research import compute_contract as c
+
+    contract = c.semantic_compute_contract()
+    assert contract["engine"] == owner.BOOTSTRAP_ENGINE
+    assert c.kernel_contract() == owner.BOOTSTRAP_KERNELS
+    # Runtime package versions can differ from the frozen production baseline.
+    assert owner.reviewed_current_source() == (
+        c.legacy_source_schema_contract(contract)["digest"] == owner.BOOTSTRAP_CONTRACT_DIGEST
+    )
 
 
 @pytest.mark.parametrize(
@@ -113,6 +121,43 @@ def accepted_chain(tmp_path, monkeypatch, request):
         ],
     )
 
+    from trading_advisor_3000.product_plane.research import compute_contract as c
+
+    current_contract = c.semantic_compute_contract(config)
+    # A real native source table participates in every bootstrap admission.
+    _, source_contract = c.source_frame_schema_pair(current_contract)
+    types = {
+        "string": pa.string(),
+        "json": pa.string(),
+        "int": pa.int32(),
+        "bigint": pa.int64(),
+        "double": pa.float64(),
+        "boolean": pa.bool_(),
+        "timestamp": pa.timestamp("us", tz="UTC"),
+        "date": pa.date32(),
+    }
+    source_path = output / "research_derived_source_frames.delta"
+    columns = {**source_contract["columns"], **source_contract["physical_columns"]}
+    schema = pa.schema([pa.field(key, types[value]) for key, value in columns.items()])
+    from datetime import UTC, datetime
+
+    row = {
+        key: datetime(2026, 1, 10, tzinfo=UTC)
+        for key, value in columns.items()
+        if value == "timestamp"
+    }
+    row["ts_close_year"] = 2026
+    write_deltalake(
+        str(source_path), pa.Table.from_pylist([row], schema=schema), partition_by=["ts_close_year"]
+    )
+    tables["research_derived_source_frames"] = snapshots.capture_table(source_path)
+    # The fixture owns its isolated baseline; the deployed constant stays frozen.
+    monkeypatch.setattr(
+        owner,
+        "BOOTSTRAP_CONTRACT_DIGEST",
+        c.legacy_source_schema_contract(current_contract)["digest"],
+    )
+
     def publish(*, quality=None, owners=None, parameters=None):
         research = snapshots.create_snapshot(
             tables=tables,
@@ -140,12 +185,9 @@ def accepted_chain(tmp_path, monkeypatch, request):
             snapshots.save_snapshot(research_registry, research),
             expected_current_id=prior["snapshot_id"] if prior else None,
         )
-        config["hash_compatibility"] = {
-            "version": 1,
-            "snapshot_id": research["snapshot_id"],
-            "manifest_sha256": research["manifest_sha256"],
-            "source_sha256": old["source_sha256"],
-        }
+        config["hash_compatibility"] = owner.compatibility_receipt(
+            research, current, current_contract
+        )
         return research
 
     accepted = publish()
@@ -272,7 +314,10 @@ def test_accepted_cf_revalidation_preserves_qc_and_never_calls_numeric_owner(
         from trading_advisor_3000.product_plane.research.operations import _store_contracts
 
         contract = _store_contracts()[name]
-        fields = set(contract["columns"]) | set(contract.get("physical_columns", ()))
+        fields = sorted(
+            set(contract["columns"]) | set(contract.get("physical_columns", ())),
+            key=lambda field: (field not in {"ts", "ts_close", "bar_end_ts", "end_utc"}, field),
+        )
         write_deltalake(
             str(path),
             pa.table(

@@ -20,9 +20,10 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
-from deltalake import DeltaTable
+from deltalake import DeltaTable, Schema
 
-SCHEMA_VERSION = "data_snapshot.v1"
+SCHEMA_VERSION = "data_snapshot.v2"
+LEGACY_SCHEMA_VERSION = "data_snapshot.v1"
 
 
 def runtime_provenance() -> dict[str, Any]:
@@ -162,8 +163,67 @@ def _validate_reference(reference: Mapping[str, Any]) -> None:
                 raise ValueError(f"invalid snapshot {key}")
 
 
+def _physical_schema(table: DeltaTable) -> dict[str, Any]:
+    return json.loads(table.schema().to_json())
+
+
 def _schema_hash(table: DeltaTable) -> str:
-    return _hash(json.loads(table.schema().to_json()))
+    return _hash(_physical_schema(table))
+
+
+def _validate_physical_schema(schema: object) -> None:
+    try:
+        restored = json.loads(Schema.from_json(_canonical(schema)).to_json())
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid snapshot physical schema") from error
+    if _canonical(restored) != _canonical(schema):
+        raise ValueError("snapshot physical schema requires explicit native fields")
+
+    def unique_fields(value):
+        if not isinstance(value, dict):
+            return
+        kind = value["type"]
+        if kind == "struct":
+            names = [field["name"] for field in value["fields"]]
+            if any(not name for name in names) or len(names) != len(set(names)):
+                raise ValueError("invalid snapshot physical field names")
+            for field in value["fields"]:
+                unique_fields(field["type"])
+        elif kind == "array":
+            unique_fields(value["elementType"])
+        elif kind == "map":
+            unique_fields(value["keyType"])
+            unique_fields(value["valueType"])
+        # Delta field metadata is opaque JSON, never a schema node.
+
+    unique_fields(restored)
+
+
+def _validate_physical_descriptors(manifest: Mapping[str, Any]) -> None:
+    descriptors = manifest.get("physical_schemas")
+    if not isinstance(descriptors, Mapping) or set(descriptors) != set(manifest["tables"]):
+        raise ValueError("snapshot requires physical schemas for every table")
+    for name, reference in manifest["tables"].items():
+        descriptor = descriptors[name]
+        if not isinstance(descriptor, Mapping) or set(descriptor) != {
+            "schema",
+            "partition_columns",
+        }:
+            raise ValueError("invalid snapshot physical schema descriptor")
+        _validate_physical_schema(descriptor["schema"])
+        if _hash(descriptor["schema"]) != reference["schema_hash"]:
+            raise ValueError("snapshot physical schema hash mismatch")
+        partitions = descriptor["partition_columns"]
+        _validate_reference({**reference, "partition_columns": partitions})
+        fields = {field["name"] for field in descriptor["schema"]["fields"]}
+        if set(partitions) - fields:
+            raise ValueError("snapshot partition field missing from physical schema")
+        if "partition_columns" in reference and reference["partition_columns"] != partitions:
+            raise ValueError("snapshot physical partition descriptor mismatch")
+        if "layout_version" in reference and reference["layout_version"] != _hash(
+            {"partition_columns": partitions}
+        ):
+            raise ValueError("snapshot physical partition layout mismatch")
 
 
 def capture_table(path: Path, *, version: int | None = None) -> dict[str, object]:
@@ -228,6 +288,11 @@ def open_pinned_table(reference: Mapping[str, Any]) -> DeltaTable:
             raise SnapshotUnavailableError(f"snapshot table identity mismatch: {path}")
         if _schema_hash(table) != reference["schema_hash"]:
             raise SnapshotUnavailableError(f"snapshot schema changed: {path}")
+        if (
+            "physical_schema" in reference
+            and _physical_schema(table) != reference["physical_schema"]
+        ):
+            raise SnapshotUnavailableError(f"snapshot physical schema description changed: {path}")
         partitions = list(table.metadata().partition_columns)
         if "partition_columns" in reference and list(reference["partition_columns"]) != partitions:
             raise SnapshotUnavailableError(f"snapshot partition layout changed: {path}")
@@ -291,7 +356,14 @@ def create_snapshot(
         "required_tables": list(required_tables),
         "quality_checks": dict(quality_checks),
         "tables": {name: dict(ref) for name, ref in sorted(tables.items())},
+        "physical_schemas": {},
     }
+    for name, reference in payload["tables"].items():
+        table = open_pinned_table(reference)
+        payload["physical_schemas"][name] = {
+            "schema": _physical_schema(table),
+            "partition_columns": list(table.metadata().partition_columns),
+        }
     manifest = {**payload, "manifest_sha256": _hash(payload)}
     _validate(manifest)
     return manifest
@@ -300,7 +372,7 @@ def create_snapshot(
 def _validate(manifest: Mapping[str, Any]) -> None:
     if not isinstance(manifest, Mapping):
         raise ValueError("snapshot manifest must be an object")
-    if manifest.get("schema_version") != SCHEMA_VERSION:
+    if manifest.get("schema_version") not in {SCHEMA_VERSION, LEGACY_SCHEMA_VERSION}:
         raise ValueError("unsupported data snapshot schema")
     payload = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
     if _hash(payload) != manifest.get("manifest_sha256"):
@@ -335,6 +407,8 @@ def _validate(manifest: Mapping[str, Any]) -> None:
         raise ValueError("invalid snapshot quality checks")
     for ref in tables.values():
         _validate_reference(ref)
+    if manifest["schema_version"] == SCHEMA_VERSION or "physical_schemas" in manifest:
+        _validate_physical_descriptors(manifest)
     paths = [_path(ref["table_path"]) for ref in tables.values()]
     if len(paths) != len(set(paths)):
         raise ValueError("snapshot contains duplicate table paths")
@@ -474,12 +548,27 @@ def _thaw(value: Any) -> Any:
 @dataclass(frozen=True)
 class SnapshotReads:
     tables: Mapping[str, Mapping[str, Any]]
+    physical_schemas: Mapping[str, Any]
 
     def reference(self, path: Path) -> dict[str, Any]:
         key = _path(path)
         matches = [ref for ref in self.tables.values() if _path(ref["table_path"]) == key]
         if matches:
-            return _thaw(matches[0])
+            reference = _thaw(matches[0])
+            descriptor = next(
+                (
+                    self.physical_schemas[name]
+                    for name, ref in self.tables.items()
+                    if name in self.physical_schemas and _path(ref["table_path"]) == key
+                ),
+                None,
+            )
+            if descriptor is not None:
+                reference.update(
+                    physical_schema=_thaw(descriptor["schema"]),
+                    partition_columns=_thaw(descriptor["partition_columns"]),
+                )
+            return reference
         raise SnapshotUnavailableError(f"table not pinned in snapshot: {path}")
 
 
@@ -492,7 +581,10 @@ def snapshot_read_scope(
 ) -> Iterator[SnapshotReads]:
     _validate(manifest)
     tables = {name: _freeze(deepcopy(dict(ref))) for name, ref in manifest["tables"].items()}
-    scope = SnapshotReads(tables=MappingProxyType(tables))
+    scope = SnapshotReads(
+        tables=MappingProxyType(tables),
+        physical_schemas=_freeze(deepcopy(manifest.get("physical_schemas", {}))),
+    )
     token = _READS.set(scope)
     try:
         yield scope
@@ -578,6 +670,7 @@ def materialization_snapshot_scope(
     }
     scope = MaterializationSnapshotReads(
         tables=MappingProxyType(tables),
+        physical_schemas=_freeze(deepcopy((manifest or {}).get("physical_schemas", {}))),
         writable_paths=frozenset(_path(path) for path in writable_paths),
         _captured_tables=tables,
         capture_new_inputs=capture_new_inputs,
@@ -630,7 +723,7 @@ def load_process_snapshot(path: Path, path_mapping: Path | None = None) -> dict[
     if path_mapping is None:
         return load_snapshot(path)
     source = json.loads(path.read_text(encoding="utf-8"))
-    if source.get("schema_version") != SCHEMA_VERSION:
+    if source.get("schema_version") not in {SCHEMA_VERSION, LEGACY_SCHEMA_VERSION}:
         raise ValueError("unsupported data snapshot schema")
     _validate_hex(source.get("snapshot_id"), 32, "snapshot ID")
     mapping = json.loads(path_mapping.read_text(encoding="utf-8"))
@@ -641,14 +734,14 @@ def load_process_snapshot(path: Path, path_mapping: Path | None = None) -> dict[
         name: {**ref, "table_path": mapping["paths"][ref["table_path"]]}
         for name, ref in source["tables"].items()
     }
-    return create_snapshot(
-        tables=tables,
-        required_tables=source["required_tables"],
-        dataset_version=source["dataset_version"],
-        run_id=source["run_id"],
-        code_version=source["code_version"],
-        quality_checks=source["quality_checks"],
-        parameters={**source["parameters"], "process_source_manifest_sha256": digest},
-        window=source["window"],
-        parents=source["parents"],
-    )
+    # Remapping is metadata-only, including offline immutable v1 manifests.
+    # Preserve the envelope version and its existing schema descriptions.
+    payload = {
+        **source,
+        "snapshot_id": uuid4().hex,
+        "tables": tables,
+        "parameters": {**source["parameters"], "process_source_manifest_sha256": digest},
+    }
+    manifest = {**payload, "manifest_sha256": _hash(payload)}
+    _validate(manifest)
+    return manifest

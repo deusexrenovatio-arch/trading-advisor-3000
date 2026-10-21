@@ -607,7 +607,7 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
 
             migration = (
                 _verified_migration_scope(config["hash_compatibility"]["source_sha256"])
-                if compatible is not None and config["hash_compatibility"].get("version") == 1
+                if compatible is not None and config["hash_compatibility"].get("source_sha256")
                 else nullcontext()
             )
             with worker_lease(root, str(context.run_id), function.__name__), migration:
