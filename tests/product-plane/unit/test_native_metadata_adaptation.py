@@ -39,6 +39,7 @@ def test_narrow_source_contract_change_requires_metadata_adaptation(tmp_path):
     )
     with pytest.raises(ValueError, match="metadata adaptation"):
         job.run_research_derived_source_frames_spark_job(
+            operation="rebuild",
             bar_views_path=bars,
             indicator_frames_path=indicators,
             output_dir=tmp_path,
@@ -125,6 +126,9 @@ def native_store(tmp_path, monkeypatch):
         indicator_store_contract,
     )
 
+    # This fixture models an independently audited predecessor. The separate
+    # authority regression below rejects the actual unreviewed fingerprint.
+    monkeypatch.setattr(a, "native_kernel_digest", lambda: a.NATIVE_KERNEL)
     p = m.current_derived_indicator_profile()
     cols = m._source_indicator_columns_for_profile(p)
     bars = [
@@ -588,3 +592,14 @@ def test_writer_root_and_mutable_readback_fail_closed(tmp_path, monkeypatch):
     changed[("BR", "1d")][0]["source_inputs_hash"] = "corrupted"
     with pytest.raises(RuntimeError, match="outside selected scope"):
         a._verify_metadata_groups(old, changed, [row], keys, expected, mutable)
+
+
+def test_native_adoption_rejects_unreviewed_fingerprint_authority(monkeypatch):
+    from trading_advisor_3000.product_plane.research import semantic_fingerprint
+    from trading_advisor_3000.product_plane.research.derived_indicators import (
+        adapt_native_metadata as a,
+    )
+
+    monkeypatch.setattr(semantic_fingerprint, "engine_identity", lambda: "unreviewed")
+    with pytest.raises(ValueError, match="fingerprint authority changed"):
+        a.native_kernel_digest()

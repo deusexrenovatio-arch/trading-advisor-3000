@@ -26,6 +26,7 @@ from dagster import (
     sensor,
 )
 
+from trading_advisor_3000.product_plane.common.data_snapshots import SnapshotUnavailableError
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
@@ -40,6 +41,11 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     CANONICAL_BASELINE_BARS_FILENAME,
     CANONICAL_BASELINE_ROOT_RELATIVE_PATH,
     MOEX_HISTORICAL_DATA_ROOT_ENV,
+)
+from trading_advisor_3000.product_plane.research.admission import (
+    configure_admission,
+    issue_admission,
+    validate_admission,
 )
 from trading_advisor_3000.product_plane.research.backtests import (
     DEFAULT_RANKING_MAX_DRAWDOWN_CAP,
@@ -91,7 +97,6 @@ from trading_advisor_3000.product_plane.research.indicators import (
     indicator_store_contract,
     materialize_indicator_frames,
 )
-from trading_advisor_3000.product_plane.research.refresh_scope import resolve_refresh_scope
 from trading_advisor_3000.product_plane.research.registry_store import (
     build_campaign_id,
     build_campaign_run_id,
@@ -737,6 +742,8 @@ def _research_config_schema() -> dict[str, object]:
         "dataset_contract_ids": [str],
         "dataset_instrument_ids": [str],
         "changed_windows": Field([dict], default_value=[], is_required=False),
+        "operation": Field(str, default_value="", is_required=False),
+        "refresh_admission": Field(Permissive(), default_value={}, is_required=False),
         "refresh_scope_version": Field(int, default_value=0, is_required=False),
         "force_full_refresh": Field(bool, default_value=False, is_required=False),
         "hash_compatibility": Field(Permissive(), default_value={}, is_required=False),
@@ -793,6 +800,8 @@ def _research_config_schema() -> dict[str, object]:
 
 def _research_campaign_context_config_schema() -> dict[str, object]:
     return {
+        "operation": Field(str, default_value="", is_required=False),
+        "refresh_admission": Field(Permissive(), default_value={}, is_required=False),
         "campaign_config_path": Field(str, default_value="", is_required=False),
         "campaign_config": Field(dict, default_value={}, is_required=False),
         "repo_root": Field(str, default_value="", is_required=False),
@@ -817,6 +826,8 @@ def _research_campaign_job_config_fn(
     if isinstance(ops_config, Mapping) and ops_config:
         return {"ops": dict(ops_config)}
     context_config = {
+        "operation": str(config.get("operation") or ""),
+        "refresh_admission": dict(config.get("refresh_admission") or {}),
         "campaign_config_path": str(config.get("campaign_config_path") or ""),
         "campaign_config": dict(config.get("campaign_config") or {}),
         "repo_root": str(config.get("repo_root") or ""),
@@ -1201,6 +1212,8 @@ def _target_stage_from_campaign_context_config(context_config: Mapping[str, obje
 
 def build_research_campaign_run_config(
     *,
+    operation: str | None = None,
+    refresh_admission: Mapping[str, object] | None = None,
     campaign_config_path: str | Path | None = None,
     campaign_config: Mapping[str, object] | None = None,
     repo_root: Path | None = None,
@@ -1208,6 +1221,8 @@ def build_research_campaign_run_config(
     run_id: str = "",
 ) -> dict[str, object]:
     context_config: dict[str, object] = {
+        "operation": operation or "",
+        "refresh_admission": dict(refresh_admission or {}),
         "campaign_config_path": Path(campaign_config_path).as_posix()
         if campaign_config_path is not None
         else "",
@@ -1237,6 +1252,9 @@ def build_research_campaign_run_config(
         RESEARCH_CAMPAIGN_CONTEXT_ASSET: {"config": context_config},
     }
     if job_name == RESEARCH_DATA_PREP_JOB_NAME:
+        research_config = configure_admission(
+            research_config, operation=operation, refresh_admission=refresh_admission
+        )
         for op_name in (
             "continuous_front_bars",
             "research_datasets",
@@ -1266,6 +1284,8 @@ def _campaign_run_config_from_context_config(
     raw_config_path = str(context_config.get("campaign_config_path") or "").strip()
     raw_repo_root = str(context_config.get("repo_root") or "").strip()
     return build_research_campaign_run_config(
+        operation=str(context_config.get("operation") or "") or None,
+        refresh_admission=dict(context_config.get("refresh_admission") or {}) or None,
         campaign_config_path=raw_config_path or None,
         campaign_config=campaign_config,
         repo_root=Path(raw_repo_root) if raw_repo_root else None,
@@ -4557,6 +4577,8 @@ def _projection_run_config_from_research_config(
 
 def build_research_data_prep_run_config(
     *,
+    operation: str | None = None,
+    refresh_admission: Mapping[str, object] | None = None,
     canonical_output_dir: Path | None = None,
     materialized_output_dir: Path | None = None,
     results_output_dir: Path | None = None,
@@ -4684,6 +4706,9 @@ def build_research_data_prep_run_config(
     research_config["data_snapshot_manifest_path"] = (
         data_snapshot_manifest_path.resolve().as_posix() if data_snapshot_manifest_path else ""
     )
+    research_config = configure_admission(
+        research_config, operation=operation, refresh_admission=refresh_admission
+    )
     return _research_data_prep_run_config_from_research_config(research_config)
 
 
@@ -4733,6 +4758,9 @@ def _normalize_cf_catch_up_windows(
 
 def _build_moex_cf_catch_up_run_config(
     *,
+    operation: str | None = None,
+    refresh_admission: Mapping[str, object] | None = None,
+    _admission_probe: bool = False,
     canonical_output_dir: Path,
     dataset_version: str,
     campaign_run_id: str,
@@ -4748,7 +4776,12 @@ def _build_moex_cf_catch_up_run_config(
     normalized_windows = (
         _normalize_cf_catch_up_windows(tuple(selected_windows)) if selected_windows else ()
     )
-    if not normalized_windows and not force_full_refresh and not hash_compatibility:
+    if (
+        not normalized_windows
+        and not force_full_refresh
+        and not hash_compatibility
+        and not _admission_probe
+    ):
         raise ValueError("cf_catch_up requires windows or explicit full refresh")
     instrument_ids = _unique_texts([str(item["instrument_id"]) for item in normalized_windows])
     timeframes = _unique_texts([str(item["timeframe"]) for item in normalized_windows])
@@ -4793,7 +4826,10 @@ def _build_moex_cf_catch_up_run_config(
         indicator_profile_version="core_v1",
         derived_indicator_set_version=DEFAULT_DERIVED_INDICATOR_SET_VERSION,
         derived_indicator_profile_version="core_v1",
-        volume_profile_raw_1m_table_path=_default_volume_profile_raw_1m_table_path(),
+        volume_profile_raw_1m_table_path=_env_path(
+            RESEARCH_VOLUME_PROFILE_RAW_1M_TABLE_PATH_ENV,
+            _default_volume_profile_raw_1m_table_path(),
+        ),
         volume_profile_tick_size_by_instrument=_default_volume_profile_tick_size_by_instrument(),
         code_version="moex-cf-catch-up-after-baseline",
         strategy_space_id="",
@@ -4813,6 +4849,10 @@ def _build_moex_cf_catch_up_run_config(
         if data_snapshot_raw_output_dir
         else ""
     )
+    if not _admission_probe:
+        research_config = configure_admission(
+            research_config, operation=operation, refresh_admission=refresh_admission
+        )
     return {"ops": {"continuous_front_bars": {"config": research_config}}}
 
 
@@ -4838,98 +4878,60 @@ def _cf_catch_up_windows_hash(windows: Sequence[Mapping[str, object]]) -> str:
     ),
 )
 def moex_cf_catch_up_after_moex_baseline_sensor(context):
-    windows = _cf_catch_up_windows_from_moex_baseline_update(context.dagster_run.run_config)
+    from dagster import SkipReason
+
     payload = _baseline_update_report_payload_from_run_config(context.dagster_run.run_config) or {}
-    cf_catch_up = payload.get("cf_catch_up", {})
-    cf_catch_up_payload = cf_catch_up if isinstance(cf_catch_up, Mapping) else {}
-    canonical_output_dir = _moex_canonical_output_dir_from_run_config(
+    manifest = str(dict(payload.get("data_snapshot") or {}).get("snapshot_manifest_path") or "")
+    if not manifest:
+        return SkipReason("BLOCKED: missing_data_manifest; accepted Research retained")
+    canonical = _moex_canonical_output_dir_from_run_config(
         context.dagster_run.run_config
+    ) or _env_path(
+        RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV, _default_research_canonical_output_dir()
     )
-    if canonical_output_dir is None:
-        canonical_output_dir = _env_path(
-            RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV,
-            _default_research_canonical_output_dir(),
+    dataset = _env_text(
+        RESEARCH_DATA_PREP_DATASET_VERSION_ENV, DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION
+    )
+    upstream = str(context.dagster_run.run_id)
+    options = dict(
+        canonical_output_dir=canonical,
+        dataset_version=dataset,
+        campaign_run_id=f"cf_catch_up_after_{upstream}",
+        data_snapshot_manifest_path=manifest,
+        data_snapshot_raw_output_dir=str(Path(str(payload["raw_table_path"])).parent)
+        if payload.get("raw_table_path")
+        else "",
+        refresh_scope_version=1,
+    )
+    config = _build_moex_cf_catch_up_run_config(**options, _admission_probe=True)["ops"][
+        "continuous_front_bars"
+    ]["config"]
+    try:
+        receipt = issue_admission(config, operation="daily")
+    except (ValueError, OSError, SnapshotUnavailableError) as exc:
+        return SkipReason(f"BLOCKED: admission_evidence_unavailable: {exc}")
+    if receipt["outcome"] != "SCOPED":
+        return SkipReason(
+            f"{receipt['outcome']}: {receipt['reason'] or 'proven_no_changes'}; "
+            f"admission={receipt['admission_id']}"
         )
-    upstream_run_id = str(context.dagster_run.run_id)
-    dataset_version = _env_text(
-        RESEARCH_DATA_PREP_DATASET_VERSION_ENV,
-        DEFAULT_RESEARCH_DATA_PREP_DATASET_VERSION,
-    )
-    data_manifest_path = str(
-        dict(payload.get("data_snapshot") or {}).get("snapshot_manifest_path") or ""
-    )
-    resolved = (
-        resolve_refresh_scope(
-            data_manifest_path=Path(data_manifest_path),
-            materialized_output_dir=_env_path(
-                RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV,
-                _default_research_materialized_output_dir(),
-            ),
-            dataset_version=dataset_version,
-            timeframes=_split_env_csv(
-                os.environ.get(RESEARCH_DATA_PREP_TIMEFRAMES_ENV, ""),
-                default=DEFAULT_RESEARCH_DATA_PREP_TIMEFRAMES,
-            ),
-            configuration=_build_moex_cf_catch_up_run_config(
-                canonical_output_dir=canonical_output_dir,
-                dataset_version=dataset_version,
-                campaign_run_id="scope-admission",
-                windows=[],
-                refresh_scope_version=1,
-                force_full_refresh=True,
-                data_snapshot_manifest_path=data_manifest_path,
-                data_snapshot_raw_output_dir=str(
-                    Path(str(payload["raw_table_path"])).parent
-                    if payload.get("raw_table_path")
-                    else ""
-                ),
-            )["ops"]["continuous_front_bars"]["config"],
-        )
-        if data_manifest_path
-        else None
-    )
-    if resolved is not None:
-        windows = resolved["windows"]
-    if (
-        not windows
-        and not (resolved or {}).get("force_full_refresh")
-        and not (resolved or {}).get("hash_compatibility")
-    ):
-        return None
-    windows_hash = str(cf_catch_up_payload.get("windows_hash_sha256") or "").strip()
-    if resolved is not None:
-        windows_hash = hashlib.sha256(json.dumps(resolved, sort_keys=True).encode()).hexdigest()
-    elif not windows_hash:
-        windows_hash = _required_window_text(windows[0], "window_hash_sha256")
-    overlap_minutes = str(cf_catch_up_payload.get("overlap_minutes") or "").strip()
     return [
         RunRequest(
-            run_key=f"{MOEX_CF_CATCH_UP_JOB_NAME}:{upstream_run_id}:{windows_hash}",
+            run_key=f"{MOEX_CF_CATCH_UP_JOB_NAME}:{upstream}:{receipt['admission_id']}",
             run_config=_build_moex_cf_catch_up_run_config(
-                canonical_output_dir=canonical_output_dir,
-                dataset_version=dataset_version,
-                campaign_run_id=f"cf_catch_up_after_{upstream_run_id}_{windows_hash[:12]}",
-                windows=windows,
-                refresh_scope_version=(resolved or {}).get("refresh_scope_version", 0),
-                force_full_refresh=(resolved or {}).get("force_full_refresh", False),
-                hash_compatibility=(resolved or {}).get("hash_compatibility"),
-                data_snapshot_manifest_path=str(
-                    dict(payload.get("data_snapshot") or {}).get("snapshot_manifest_path") or ""
-                ),
-                data_snapshot_raw_output_dir=str(
-                    Path(str(payload["raw_table_path"])).parent
-                    if payload.get("raw_table_path")
-                    else ""
-                ),
+                **options,
+                operation="daily",
+                refresh_admission=receipt,
+                windows=receipt["effective_windows"],
+                hash_compatibility=receipt["hash_compatibility"],
             ),
             tags={
                 "ta3000/upstream_job": MOEX_BASELINE_UPDATE_JOB_NAME,
-                "ta3000/upstream_run_id": upstream_run_id,
-                "ta3000/dataset_version": dataset_version,
+                "ta3000/upstream_run_id": upstream,
+                "ta3000/dataset_version": dataset,
                 "ta3000/series_mode": "continuous_front",
-                "ta3000/cf_catch_up_windows_hash": windows_hash,
-                "ta3000/cf_catch_up_window_count": str(len(windows)),
-                "ta3000/cf_catch_up_overlap_minutes": overlap_minutes,
+                "ta3000/cf_catch_up_windows_hash": receipt["admission_id"],
+                "ta3000/refresh_admission_id": receipt["admission_id"],
             },
         )
     ]
@@ -4961,8 +4963,23 @@ def research_data_prep_after_moex_sensor(_context):
 )
 def research_data_prep_after_moex_cf_catch_up_sensor(context):
     cf_config = _research_config_from_run_config(context.dagster_run.run_config)
+    from dagster import SkipReason
+
     if cf_config is None:
-        return None
+        return SkipReason("BLOCKED: missing_cf_admission_configuration")
+    try:
+        receipt = validate_admission(
+            cf_config.get("refresh_admission"),
+            config=cf_config,
+            completed_outputs=(
+                "continuous_front_bars",
+                "continuous_front_roll_events",
+                "continuous_front_adjustment_ladder",
+                "continuous_front_qc_report",
+            ),
+        )
+    except (ValueError, OSError, SnapshotUnavailableError) as exc:
+        return SkipReason(f"BLOCKED: {exc}")
     series_mode = _research_series_mode_from_config(cf_config) or "continuous_front"
     if series_mode != "continuous_front":
         raise ValueError(
@@ -4993,6 +5010,8 @@ def research_data_prep_after_moex_cf_catch_up_sensor(context):
         ),
         asset_selection=[AssetKey(name) for name in RESEARCH_DATA_PREP_JOB_ASSETS],
         run_config=build_research_data_prep_run_config(
+            operation="daily",
+            refresh_admission=receipt,
             canonical_output_dir=Path(str(_config_value(cf_config, "canonical_output_dir"))),
             materialized_output_dir=Path(str(_config_value(cf_config, "materialized_output_dir"))),
             results_output_dir=Path(str(_config_value(cf_config, "results_output_dir"))),
@@ -5105,6 +5124,7 @@ def research_data_prep_after_moex_data_rebuild_sensor(context):
     return RunRequest(
         run_key=f"{RESEARCH_DATA_PREP_JOB_NAME}:{upstream_run_id}",
         run_config=build_research_campaign_run_config(
+            operation="rebuild",
             campaign_config=campaign_config,
             repo_root=_research_campaigns().resolve_repo_root(),
             dagster_job_name=RESEARCH_DATA_PREP_JOB_NAME,
@@ -5561,6 +5581,8 @@ def _research_run_config(
 
 def _materialize_research_assets(
     *,
+    operation: str | None = None,
+    refresh_admission: Mapping[str, object] | None = None,
     canonical_output_dir: Path,
     research_output_dir: Path | None = None,
     materialized_output_dir: Path | None = None,
@@ -5649,6 +5671,32 @@ def _materialize_research_assets(
         materialized_output_dir=materialized_output_dir,
         results_output_dir=results_output_dir,
     )
+    if (
+        reuse_existing_materialization
+        and selected_assets
+        and set(selected_assets).issubset(STRATEGY_REGISTRY_REFRESH_ASSETS)
+    ):
+        # The existing strategy assets consume this DTO through Dagster's IO
+        # manager. Include its read-only producer, never the CF/data writers.
+        read_route = {"research_datasets", *STRATEGY_REGISTRY_REFRESH_ASSETS}
+        expected_materialized_assets = [
+            name
+            for name in _resolve_expected_materialization(selected_assets)
+            if name in read_route
+        ]
+    data_writers = {
+        "continuous_front_bars",
+        "research_datasets",
+        "research_indicator_frames",
+        "research_derived_indicator_frames",
+        "continuous_front_indicator_acceptance_report",
+    }
+    selected_writers = data_writers.intersection(expected_materialized_assets)
+    needs_admission = bool(selected_writers - {"research_datasets"}) or (
+        "research_datasets" in selected_writers and not reuse_existing_materialization
+    )
+    if needs_admission and operation != "rebuild" and refresh_admission is None:
+        raise ValueError("Research materialization admission required; explicitly select rebuild")
     registry_root = research_registry_root(materialized_root=resolved_materialized_output_dir)
     strategy_space_id = ""
     search_specs: list[dict[str, object]] = []
@@ -5759,6 +5807,10 @@ def _materialize_research_assets(
         reuse_existing_materialization=reuse_existing_materialization,
     )
 
+    if needs_admission:
+        research_config = configure_admission(
+            research_config, operation=operation, refresh_admission=refresh_admission
+        )
     op_configs = _research_data_prep_run_config_from_research_config(research_config)["ops"]
     op_configs.update(
         {
@@ -5857,6 +5909,8 @@ def _materialize_research_assets(
 
 def materialize_research_data_prep_assets(
     *,
+    operation: str | None = None,
+    refresh_admission: Mapping[str, object] | None = None,
     canonical_output_dir: Path,
     research_output_dir: Path | None = None,
     materialized_output_dir: Path | None = None,
@@ -5892,6 +5946,8 @@ def materialize_research_data_prep_assets(
     raise_on_error: bool = True,
 ) -> dict[str, object]:
     return _materialize_research_assets(
+        operation=operation,
+        refresh_admission=refresh_admission,
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,
         materialized_output_dir=materialized_output_dir,
@@ -5968,6 +6024,7 @@ def _materialize_moex_layer_rebuild_assets(
     raise_on_error: bool = True,
 ) -> dict[str, object]:
     return _materialize_research_assets(
+        operation="rebuild",
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,
         materialized_output_dir=materialized_output_dir,
@@ -6419,6 +6476,11 @@ def materialize_strategy_registry_refresh_assets(
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
+    if not reuse_existing_materialization:
+        raise ValueError(
+            "strategy registry refresh requires prepared research data; "
+            "run explicit data-prep rebuild first"
+        )
     return _materialize_research_assets(
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,
@@ -6468,12 +6530,15 @@ def materialize_strategy_registry_refresh_assets(
         commission_per_contract=commission_per_contract,
         slippage_ticks=slippage_ticks,
         reuse_existing_materialization=reuse_existing_materialization,
+        expand_dependencies=False,
         raise_on_error=raise_on_error,
     )
 
 
 def materialize_research_backtest_assets(
     *,
+    operation: str | None = None,
+    refresh_admission: Mapping[str, object] | None = None,
     canonical_output_dir: Path,
     research_output_dir: Path | None = None,
     materialized_output_dir: Path | None = None,
@@ -6541,6 +6606,8 @@ def materialize_research_backtest_assets(
     raise_on_error: bool = True,
 ) -> dict[str, object]:
     return _materialize_research_assets(
+        operation=operation,
+        refresh_admission=refresh_admission,
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,
         materialized_output_dir=materialized_output_dir,
@@ -6616,6 +6683,8 @@ def materialize_research_backtest_assets(
 
 def materialize_research_projection_assets(
     *,
+    operation: str | None = None,
+    refresh_admission: Mapping[str, object] | None = None,
     canonical_output_dir: Path,
     research_output_dir: Path | None = None,
     materialized_output_dir: Path | None = None,
@@ -6683,6 +6752,8 @@ def materialize_research_projection_assets(
     raise_on_error: bool = True,
 ) -> dict[str, object]:
     return _materialize_research_assets(
+        operation=operation,
+        refresh_admission=refresh_admission,
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,
         materialized_output_dir=materialized_output_dir,
@@ -6751,5 +6822,6 @@ def materialize_research_projection_assets(
         min_parameter_stability=min_parameter_stability,
         min_slippage_score=min_slippage_score,
         reuse_existing_materialization=reuse_existing_materialization,
+        expand_dependencies=not reuse_existing_materialization,
         raise_on_error=raise_on_error,
     )

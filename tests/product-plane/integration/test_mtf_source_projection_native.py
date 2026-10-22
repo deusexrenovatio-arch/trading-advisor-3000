@@ -246,7 +246,7 @@ def test_real_native_source_contract_repair_preserves_values_before_narrow_windo
     # Reproduce the historical defect through the real Spark writer and L2 owner.
     with monkeypatch.context() as legacy:
         legacy.setattr(owner, "_source_indicator_columns_for_profile", lambda _: old_columns)
-        owner.materialize_derived_indicator_frames(**kwargs)
+        owner.materialize_derived_indicator_frames(operation="rebuild", **kwargs)
     l2_path = derived_dir / "research_derived_indicator_frames.delta"
     mtf_columns = tuple(column for column in profile.output_columns if column.startswith("mtf_"))
     other_columns = tuple(column for column in profile.output_columns if column not in mtf_columns)
@@ -267,7 +267,7 @@ def test_real_native_source_contract_repair_preserves_values_before_narrow_windo
             },
         ),
     )
-    report = owner.materialize_derived_indicator_frames(**kwargs, **narrow)
+    report = owner.materialize_derived_indicator_frames(operation="rebuild", **kwargs, **narrow)
     source_report = report["source_frame_report"]
     assert source_report["source_projection_contract_changed"]
     assert source_report["requested_refresh_window_count"] == 1
@@ -287,7 +287,7 @@ def test_real_native_source_contract_repair_preserves_values_before_narrow_windo
         check_exact=True,
         check_dtype=False,
     )
-    compatible = owner.materialize_derived_indicator_frames(**kwargs, **narrow)
+    compatible = owner.materialize_derived_indicator_frames(operation="rebuild", **kwargs, **narrow)
     assert not compatible["source_projection_contract_changed"]
     assert compatible["source_frame_report"]["mode"] == "exact_snapshot_reuse"
     assert compatible["reused_partition_count"] == 2
@@ -364,7 +364,7 @@ def test_source_commit_l2_failure_narrow_retry_repairs_full_family(
             "_derived_compute_contract_hash",
             lambda *_args, **_kwargs: "previous-native-contract",
         )
-        owner.materialize_derived_indicator_frames(**kwargs)
+        owner.materialize_derived_indicator_frames(operation="rebuild", **kwargs)
     l2_path = derived_dir / "research_derived_indicator_frames.delta"
     l2_pin = _input_pin(l2_path)
     other = tuple(column for column in profile.output_columns if not column.startswith("mtf_"))
@@ -404,7 +404,9 @@ def test_source_commit_l2_failure_narrow_retry_repairs_full_family(
         failure.setattr(delta_runtime, "append_delta_table_rows", fail_after_first_committed_append)
         failure.setattr(owner, "write_derived_indicator_frame_batches", bounded_actual_l2_writer)
         with pytest.raises(RuntimeError, match="injected after committed L2 append"):
-            owner.materialize_derived_indicator_frames(**kwargs, **_narrow_15m())
+            owner.materialize_derived_indicator_frames(
+                operation="rebuild", **kwargs, **_narrow_15m()
+            )
     assert _input_pin(l2_path)[1] > l2_pin[1]
     partial = _read_values(l2_path, ("row_count", "source_indicator_columns_hash"))
     assert len(partial) == 256 - 32 + 16
@@ -419,7 +421,9 @@ def test_source_commit_l2_failure_narrow_retry_repairs_full_family(
         .sum()
         == 16
     )
-    retry = owner.materialize_derived_indicator_frames(**kwargs, **_narrow_15m())
+    retry = owner.materialize_derived_indicator_frames(
+        operation="rebuild", **kwargs, **_narrow_15m()
+    )
     assert not retry["source_projection_contract_changed"]
     assert retry["derived_projection_contract_changed"]
     assert retry["derived_partition_coverage_changed"]
@@ -433,7 +437,9 @@ def test_source_commit_l2_failure_narrow_retry_repairs_full_family(
     assert after["source_indicator_columns_hash"].notna().all()
     assert after["source_inputs_hash"].str.len().eq(64).all()
     assert _input_pin(l1_path) == l1_pin
-    compatible = owner.materialize_derived_indicator_frames(**kwargs, **_narrow_15m())
+    compatible = owner.materialize_derived_indicator_frames(
+        operation="rebuild", **kwargs, **_narrow_15m()
+    )
     assert not compatible["derived_projection_contract_changed"]
     assert compatible["reused_partition_count"] == 2
     assert compatible["refreshed_partition_count"] == 0
@@ -444,12 +450,14 @@ def test_changed_native_15m_recalculation_keeps_other_timeframes_unchanged(
     native_source_runtime,
 ) -> None:
     kwargs, l1_path, derived_dir, profile = _runtime_fixture(tmp_path)
-    owner.materialize_derived_indicator_frames(**kwargs)
+    owner.materialize_derived_indicator_frames(operation="rebuild", **kwargs)
     l2_path = derived_dir / "research_derived_indicator_frames.delta"
     before = _read_values(l2_path, profile.output_columns)
     _revise_fixture_adx(l1_path, timeframe="15m", ts="2026-03-02T16:30:00Z", value=123.0)
     revised_l1_pin = _input_pin(l1_path)
-    report = owner.materialize_derived_indicator_frames(**kwargs, **_narrow_15m())
+    report = owner.materialize_derived_indicator_frames(
+        operation="rebuild", **kwargs, **_narrow_15m()
+    )
     assert not report["source_projection_contract_changed"]
     assert not report["derived_projection_contract_changed"]
     assert report["recomputed_partition_count"] == 1
@@ -469,13 +477,14 @@ def test_higher_tf_change_does_not_invalidate_native_lower_timeframe(
     native_source_runtime,
 ) -> None:
     kwargs, l1_path, derived_dir, profile = _runtime_fixture(tmp_path)
-    owner.materialize_derived_indicator_frames(**kwargs)
+    owner.materialize_derived_indicator_frames(operation="rebuild", **kwargs)
     l2_path = derived_dir / "research_derived_indicator_frames.delta"
     before = _read_values(l2_path, profile.output_columns)
     lower_l1_before = _read_values(l1_path, ("adx_14",)).query("timeframe == '15m'")
     _revise_fixture_adx(l1_path, timeframe="1h", ts="2026-03-02T09:00:00Z", value=22.0)
     revised_l1_pin = _input_pin(l1_path)
     report = owner.materialize_derived_indicator_frames(
+        operation="rebuild",
         **kwargs,
         dataset_instrument_ids=("BR", "Si"),
         timeframes=("1h",),
@@ -508,7 +517,9 @@ def test_higher_tf_change_does_not_invalidate_native_lower_timeframe(
         after.query("instrument_id == 'Si'"),
         check_exact=True,
     )
-    lower = owner.materialize_derived_indicator_frames(**kwargs, **_narrow_15m())
+    lower = owner.materialize_derived_indicator_frames(
+        operation="rebuild", **kwargs, **_narrow_15m()
+    )
     assert lower["recomputed_partition_count"] == 0
     assert lower["reused_partition_count"] == 2
     assert _input_pin(l1_path) == revised_l1_pin
@@ -521,7 +532,7 @@ def test_native_source_append_keeps_other_l2_partitions(
     from deltalake import write_deltalake
 
     kwargs, l1_path, derived_dir, profile = _runtime_fixture(tmp_path)
-    owner.materialize_derived_indicator_frames(**kwargs)
+    owner.materialize_derived_indicator_frames(operation="rebuild", **kwargs)
     l0_path = kwargs["dataset_output_dir"] / "research_bar_views.delta"
     l2_path = derived_dir / "research_derived_indicator_frames.delta"
     before = _read_values(l2_path, profile.output_columns)
@@ -562,7 +573,7 @@ def test_native_source_append_keeps_other_l2_partitions(
         return builder(**arguments)
 
     monkeypatch.setattr(owner, "_build_prepared_partition_rows", affected_only)
-    report = owner.materialize_derived_indicator_frames(**kwargs)
+    report = owner.materialize_derived_indicator_frames(operation="rebuild", **kwargs)
     assert report["refreshed_partition_count"] == report["recomputed_partition_count"] == 1
     assert report["reused_partition_count"] == 7
     assert calls == [("BR", "15m")]
@@ -578,7 +589,9 @@ def test_native_source_append_keeps_other_l2_partitions(
     monkeypatch.setattr(owner, "_build_prepared_partition_rows", builder)
     reference_dir = tmp_path / "reference"
     owner.materialize_derived_indicator_frames(
-        **{**kwargs, "derived_indicator_output_dir": reference_dir}, force_recompute=True
+        operation="rebuild",
+        **{**kwargs, "derived_indicator_output_dir": reference_dir},
+        force_recompute=True,
     )
     pd.testing.assert_frame_equal(
         after,
@@ -593,6 +606,11 @@ def test_native_source_append_keeps_other_l2_partitions(
         pytest.fail("unchanged repeat started source production")
 
     monkeypatch.setattr(owner, "run_research_derived_source_frames_spark_job", forbidden)
-    assert owner.materialize_derived_indicator_frames(**kwargs)["refreshed_partition_count"] == 0
+    assert (
+        owner.materialize_derived_indicator_frames(operation="rebuild", **kwargs)[
+            "refreshed_partition_count"
+        ]
+        == 0
+    )
     assert _input_pin(l2_path) == final_pin
     assert {path: _input_pin(path) for path in pins} == pins

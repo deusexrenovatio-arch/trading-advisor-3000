@@ -104,6 +104,8 @@ def _parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "dataset_contract_ids",
         "dataset_instrument_ids",
         "changed_windows",
+        "refresh_admission",
+        "operation",
         "refresh_scope_version",
         "force_full_refresh",
         "hash_compatibility",
@@ -317,6 +319,8 @@ def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) 
             "start_ts",
             "end_ts",
             "changed_windows",
+            "refresh_admission",
+            "operation",
             "refresh_scope_version",
             "force_full_refresh",
             "hash_compatibility",
@@ -691,13 +695,20 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
             atomic_json(_pending_path(context, config), pending)
             return result
 
-        return wrapped
+        from .admission import admitted_asset
+
+        return admitted_asset(wrapped)
 
     return decorate
 
 
 def publish_research_snapshot(context: Any, *, acceptance: Mapping[str, Any]) -> dict[str, Any]:
     config = _configuration(context)
+    from .admission import validate_admission
+
+    validate_admission(
+        config.get("refresh_admission"), config=config, resolve=False, defer_research_current=True
+    )
     if not config.get("data_snapshot_enabled", False):
         return {"status": "SKIPPED", "reason": "snapshot_owner_not_enabled"}
     pending = _initial(context, config)
@@ -790,6 +801,13 @@ def publish_research_snapshot(context: Any, *, acceptance: Mapping[str, Any]) ->
         }
     path = save_snapshot(root, manifest)
     _assert_current_data_parent(config, pending)
+    completed = [
+        name
+        for stage, status in pending["quality_checks"].items()
+        if status == "PASS"
+        for name in _STAGE_OUTPUTS.get(stage, ())
+    ]
+    validate_admission(config.get("refresh_admission"), config=config, completed_outputs=completed)
     publish_snapshot(root, path, expected_current_id=pending["expected_current_id"])
     return {
         "snapshot_id": manifest["snapshot_id"],

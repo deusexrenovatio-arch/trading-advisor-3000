@@ -816,6 +816,7 @@ def test_continuous_front_indicator_job_writes_governed_sidecar_contract_tables(
     views = _write_continuous_front_materialized_inputs(materialized_dir)
     _write_materialized_indicator_frames(materialized_dir, views)
     report = run_continuous_front_indicator_pandas_job(
+        operation="rebuild",
         materialized_output_dir=materialized_dir,
         dataset_version="cf-dataset-v1",
         indicator_set_version="indicators-v1",
@@ -921,6 +922,7 @@ def test_continuous_front_indicator_job_defaults_to_hot_path_qc(
     monkeypatch.setattr(pandas_job, "_verify_lineage_delta", fail_audit_check)
 
     report = run_continuous_front_indicator_pandas_job(
+        operation="rebuild",
         materialized_output_dir=materialized_dir,
         dataset_version="cf-dataset-v1",
         indicator_set_version="indicators-v1",
@@ -965,6 +967,7 @@ def test_continuous_front_base_indicator_sidecar_job_does_not_write_derived_outp
     indicator_rows, _ = _write_materialized_indicator_frames(materialized_dir, views)
 
     report = run_continuous_front_base_indicator_sidecar_job(
+        operation="rebuild",
         materialized_output_dir=materialized_dir,
         dataset_version="cf-dataset-v1",
         indicator_set_version="indicators-v1",
@@ -1008,6 +1011,7 @@ def test_continuous_front_base_indicator_sidecar_job_reuses_accepted_refresh(
     _write_materialized_indicator_frames(materialized_dir, views)
 
     first = run_continuous_front_base_indicator_sidecar_job(
+        operation="rebuild",
         materialized_output_dir=materialized_dir,
         dataset_version="cf-dataset-v1",
         indicator_set_version="indicators-v1",
@@ -1030,6 +1034,7 @@ def test_continuous_front_base_indicator_sidecar_job_reuses_accepted_refresh(
     monkeypatch.setattr(pandas_job, "_write_base_sidecar_delta", fail_sidecar_write)
 
     second = run_continuous_front_base_indicator_sidecar_job(
+        operation="rebuild",
         materialized_output_dir=materialized_dir,
         dataset_version="cf-dataset-v1",
         indicator_set_version="indicators-v1",
@@ -1067,6 +1072,7 @@ def test_continuous_front_indicator_job_reads_materialized_frames_without_recomp
     monkeypatch.setattr(derived_indicators_api, "build_derived_indicator_frames", fail_recompute)
 
     report = run_continuous_front_indicator_pandas_job(
+        operation="rebuild",
         materialized_output_dir=materialized_dir,
         dataset_version="cf-dataset-v1",
         indicator_set_version="indicators-v1",
@@ -1116,6 +1122,7 @@ def test_continuous_front_indicator_job_avoids_full_row_python_loaders(
     )
 
     report = run_continuous_front_indicator_pandas_job(
+        operation="rebuild",
         materialized_output_dir=materialized_dir,
         dataset_version="cf-dataset-v1",
         indicator_set_version="indicators-v1",
@@ -1146,6 +1153,7 @@ def test_continuous_front_indicator_job_reuses_accepted_sidecar_refresh(
     _write_materialized_indicator_frames(materialized_dir, views)
 
     first = run_continuous_front_indicator_pandas_job(
+        operation="rebuild",
         materialized_output_dir=materialized_dir,
         dataset_version="cf-dataset-v1",
         indicator_set_version="indicators-v1",
@@ -1169,6 +1177,7 @@ def test_continuous_front_indicator_job_reuses_accepted_sidecar_refresh(
     monkeypatch.setattr(pandas_job, "_write_derived_sidecar_delta", fail_sidecar_write)
 
     second = run_continuous_front_indicator_pandas_job(
+        operation="rebuild",
         materialized_output_dir=materialized_dir,
         dataset_version="cf-dataset-v1",
         indicator_set_version="indicators-v1",
@@ -1236,6 +1245,7 @@ def test_continuous_front_indicator_job_auto_fails_when_spark_unavailable(
         match="java missing",
     ):
         run_continuous_front_indicator_pandas_job(
+            operation="rebuild",
             materialized_output_dir=materialized_dir,
             dataset_version="cf-dataset-v1",
             indicator_set_version="indicators-v1",
@@ -1250,6 +1260,7 @@ def test_continuous_front_indicator_job_auto_fails_when_spark_unavailable(
 def test_continuous_front_indicator_job_rejects_python_sidecar_mode(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="sidecar_materialization_mode"):
         run_continuous_front_indicator_pandas_job(
+            operation="rebuild",
             materialized_output_dir=tmp_path,
             dataset_version="cf-dataset-v1",
             indicator_set_version="indicators-v1",
@@ -1258,6 +1269,7 @@ def test_continuous_front_indicator_job_rejects_python_sidecar_mode(tmp_path: Pa
         )
     with pytest.raises(ValueError, match="sidecar_materialization_mode"):
         run_continuous_front_base_indicator_sidecar_job(
+            operation="rebuild",
             materialized_output_dir=tmp_path,
             dataset_version="cf-dataset-v1",
             indicator_set_version="indicators-v1",

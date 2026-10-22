@@ -18,6 +18,12 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
     has_delta_log,
 )
+from trading_advisor_3000.product_plane.research.admission import (
+    admitted_compute,
+    admitted_pairs,
+    filter_spark_pairs,
+    spark_pair_condition,
+)
 from trading_advisor_3000.product_plane.research.continuous_front_indicators import (
     input_projection as cf_input_projection,
 )
@@ -411,6 +417,8 @@ def _write_sidecar_delta_table(
     contract: dict[str, dict[str, object]],
     replace_scope: list[tuple[str, str, object]],
 ) -> None:
+    from pyspark.sql import functions as F
+
     table_path = output_dir / f"{table_name}.delta"
     contract = _sidecar_storage_contract(contract)
     partition_by = list(contract[table_name]["partition_by"])
@@ -444,6 +452,8 @@ def _write_sidecar_delta_table(
     )
     table_path.parent.mkdir(parents=True, exist_ok=True)
     if not exists:
+        if admitted_pairs() is not None:
+            raise ValueError("daily refresh admission BLOCKED: missing sidecar output")
         writer = casted.write.format("delta").mode("overwrite").option("overwriteSchema", "true")
         if partition_by:
             writer = writer.partitionBy(*partition_by)
@@ -458,9 +468,10 @@ def _write_sidecar_delta_table(
 
     from delta.tables import DeltaTable  # type: ignore[import-not-found]
 
-    DeltaTable.forPath(dataframe.sparkSession, str(table_path)).delete(
-        _scoped_delete_condition(replace_scope)
-    )
+    condition = _scoped_delete_condition(replace_scope)
+    if admitted_pairs() is not None:
+        condition = F.expr(condition) & spark_pair_condition()
+    DeltaTable.forPath(dataframe.sparkSession, str(table_path)).delete(condition)
     casted.write.format("delta").mode("append").option("mergeSchema", "true").save(str(table_path))
     if table_name in YEARLY_SIDECAR_TABLES:
         compact_spark_table(dataframe.sparkSession, table_path, family=table_name)
@@ -515,6 +526,7 @@ def _build_input_frame(
             & (F.col("contour_id") == F.lit(contour_id))
         )
     )
+    bars = filter_spark_pairs(bars)
     _assert_unique_by_key(
         bars,
         table_name="research_bar_views",
@@ -555,6 +567,7 @@ def _build_input_frame(
         .orderBy("roll_seq")
         .rowsBetween(Window.unboundedPreceding, Window.currentRow)
     )
+    ladder = filter_spark_pairs(ladder)
     ladder_offsets = ladder.select(
         "instrument_id",
         "timeframe",
@@ -717,13 +730,14 @@ def _derived_sidecar_scope_keys(
         )
         .select(*SIDECAR_JOIN_KEY_COLUMNS)
     )
+    keys = filter_spark_pairs(keys)
     _assert_unique_by_key(
         keys,
         table_name="research_derived_indicator_frames",
         key_columns=SIDECAR_JOIN_KEY_COLUMNS,
         frame_role="continuous-front sidecar derived scope",
     )
-    if int(keys.count()) == 0:
+    if admitted_pairs() is None and int(keys.count()) == 0:
         raise ValueError("continuous-front derived sidecar source scope is empty")
     return keys
 
@@ -771,6 +785,7 @@ def _build_base_sidecar_frame(
             & (F.col("indicator_set_version") == F.lit(indicator_set_version))
         )
     )
+    base_source = filter_spark_pairs(base_source)
     input_projection = input_frame.select(*[F.col(column) for column in INPUT_JOIN_COLUMNS])
     _assert_unique_by_key(
         base_source,
@@ -894,6 +909,7 @@ def _build_derived_sidecar_frame(
         )
     )
     input_projection = input_frame.select(*[F.col(column) for column in INPUT_JOIN_COLUMNS])
+    derived_source = filter_spark_pairs(derived_source)
     base_hash_projection = base_sidecar_frame.select(
         "instrument_id",
         "timeframe",
@@ -1030,6 +1046,23 @@ def _build_derived_sidecar_frame(
     return result
 
 
+@admitted_compute(
+    output="output_dir",
+    sources=(),
+    input_roots=(
+        (
+            "materialized_output_dir",
+            (
+                "research_datasets",
+                "research_bar_views",
+                "research_indicator_frames",
+                "research_derived_indicator_frames",
+                "continuous_front_adjustment_ladder",
+            ),
+        ),
+    ),
+    windows=None,
+)
 def run_continuous_front_indicator_sidecar_spark_job(
     *,
     materialized_output_dir: Path,

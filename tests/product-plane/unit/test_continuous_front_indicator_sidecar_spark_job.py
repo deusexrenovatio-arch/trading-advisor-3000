@@ -522,6 +522,7 @@ def test_public_spark_sidecar_job_writes_scoped_rows_and_readable_delta(
     _write_sidecar_micro_sources(materialized_dir)
 
     report = run_continuous_front_indicator_sidecar_spark_job(
+        operation="rebuild",
         materialized_output_dir=materialized_dir,
         output_dir=output_dir,
         dataset_version="cf-sidecar-v1",
@@ -597,6 +598,7 @@ def test_public_spark_sidecar_job_writes_scoped_rows_and_readable_delta(
 def test_spark_sidecar_job_rejects_native_contour_before_spark(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="pit_active_front"):
         run_continuous_front_indicator_sidecar_spark_job(
+            operation="rebuild",
             materialized_output_dir=tmp_path,
             output_dir=tmp_path,
             dataset_version="cf-dataset-v1",
@@ -630,6 +632,7 @@ def test_spark_sidecar_job_rejects_missing_base_indicator_columns_before_spark(
 
     with pytest.raises(ValueError, match="base indicator columns missing: rsi_14"):
         run_continuous_front_indicator_sidecar_spark_job(
+            operation="rebuild",
             materialized_output_dir=tmp_path,
             output_dir=tmp_path,
             dataset_version="cf-dataset-v1",
@@ -667,6 +670,7 @@ def test_spark_sidecar_job_rejects_ladder_without_policy_columns_before_spark(
         match=("adjustment ladder missing: adjustment_policy_version, roll_policy_version"),
     ):
         run_continuous_front_indicator_sidecar_spark_job(
+            operation="rebuild",
             materialized_output_dir=tmp_path,
             output_dir=tmp_path,
             dataset_version="cf-dataset-v1",
@@ -703,6 +707,7 @@ def test_spark_sidecar_job_rejects_missing_derived_columns_before_spark(
         match="derived indicator columns missing: rolling_high_20",
     ):
         run_continuous_front_indicator_sidecar_spark_job(
+            operation="rebuild",
             materialized_output_dir=tmp_path,
             output_dir=tmp_path,
             dataset_version="cf-dataset-v1",

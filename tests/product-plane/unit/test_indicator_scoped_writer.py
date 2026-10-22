@@ -233,11 +233,17 @@ def test_public_l1_snapshot_noop_repairs_interrupted_finalization(tmp_path, monk
         indicator_set_version="test",
         profile=profile,
     )
-    assert owner.materialize_indicator_frames(**kwargs)["reused_partition_count"] == 2
+    assert (
+        owner.materialize_indicator_frames(operation="rebuild", **kwargs)["reused_partition_count"]
+        == 2
+    )
     table = DeltaTable(str(path))
     assert len(table.file_uris()) == 1
     version = table.version()
-    assert owner.materialize_indicator_frames(**kwargs)["reused_partition_count"] == 2
+    assert (
+        owner.materialize_indicator_frames(operation="rebuild", **kwargs)["reused_partition_count"]
+        == 2
+    )
     assert DeltaTable(str(path)).version() == version
 
     def drift(*args, **kwargs):
@@ -246,4 +252,4 @@ def test_public_l1_snapshot_noop_repairs_interrupted_finalization(tmp_path, monk
 
     monkeypatch.setattr(runtime, "finalize_research_delta_table", drift)
     with pytest.raises(ValueError, match="inputs changed during snapshot reuse"):
-        owner.materialize_indicator_frames(**kwargs)
+        owner.materialize_indicator_frames(operation="rebuild", **kwargs)

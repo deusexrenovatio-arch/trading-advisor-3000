@@ -18,6 +18,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
     has_delta_log,
 )
+from trading_advisor_3000.product_plane.research.admission import admitted_compute
 from trading_advisor_3000.product_plane.research.datasets import (
     ResearchDatasetManifest,
     materialize_research_dataset,
@@ -1593,6 +1594,20 @@ def _validate_tables(output_paths: dict[str, str]) -> list[str]:
     return errors
 
 
+@admitted_compute(
+    output="output_dir",
+    sources=(
+        "canonical_bars_path",
+        "canonical_bar_provenance_path",
+        "canonical_session_intervals_path",
+        "canonical_session_calendar_path",
+        "canonical_roll_map_path",
+        "continuous_front_bars_path",
+        "canonical_contract_economics_path",
+    ),
+    input_roots=(),
+    windows="refresh_windows",
+)
 def run_research_bar_views_spark_job(
     *,
     canonical_bars_path: Path,
@@ -1666,6 +1681,10 @@ def run_research_bar_views_spark_job(
         has_delta_log(output_dir / f"{name}.delta")
         for name in ("research_bar_views", "research_instrument_tree", "research_datasets")
     ):
+        from trading_advisor_3000.product_plane.research.admission import admitted_pairs
+
+        if admitted_pairs() is not None:
+            raise ValueError("daily refresh admission BLOCKED: missing L0 outputs")
         scoped_windows = ()
     compute_instrument_ids = (
         tuple(sorted({str(window["instrument_id"]) for window in scoped_windows}))

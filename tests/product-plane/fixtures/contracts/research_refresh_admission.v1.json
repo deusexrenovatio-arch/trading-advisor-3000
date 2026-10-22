@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "operation": "daily",
+  "outcome": "BLOCKED",
+  "data_parent": null,
+  "research_parent": null,
+  "inputs": {},
+  "domain": {
+    "materialized_output_dir": "/isolated/research",
+    "dataset_version": "fixture",
+    "timeframes": [
+      "15m"
+    ],
+    "dataset_instrument_ids": []
+  },
+  "original_windows": [],
+  "effective_windows": [],
+  "reason": "missing_data_manifest",
+  "hash_compatibility": {},
+  "admission_id": "e50ad4c395f6c573fd9d23bdbaf1bb2e1018fbf122894c42c5469c14323c8f34"
+}
