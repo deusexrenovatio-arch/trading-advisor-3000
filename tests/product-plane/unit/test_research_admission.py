@@ -288,3 +288,21 @@ def test_rebuild_optional_volume_source_omission_preserves_native_binding(admitt
         with pytest.raises(ValueError, match="input path changed"):
             native(**options)
     assert calls == [None, path]
+
+
+def test_reuse_flag_cannot_skip_admission_for_actual_data_writers(tmp_path, monkeypatch):
+    from trading_advisor_3000.dagster_defs import research_assets
+
+    monkeypatch.setattr(
+        research_assets, "materialize", lambda **kw: pytest.fail("unadmitted writer ran")
+    )
+    with pytest.raises(ValueError, match="admission required"):
+        research_assets._materialize_research_assets(
+            canonical_output_dir=tmp_path / "canonical",
+            research_output_dir=tmp_path / "research",
+            dataset_version="blocked",
+            timeframes=("15m",),
+            default_assets=("research_indicator_frames",),
+            allowed_assets=("research_indicator_frames",),
+            reuse_existing_materialization=True,
+        )

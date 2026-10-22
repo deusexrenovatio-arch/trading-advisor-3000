@@ -5678,9 +5678,9 @@ def _materialize_research_assets(
         "research_derived_indicator_frames",
         "continuous_front_indicator_acceptance_report",
     }
-    needs_admission = (
-        bool(data_writers.intersection(expected_materialized_assets))
-        and not reuse_existing_materialization
+    selected_writers = data_writers.intersection(expected_materialized_assets)
+    needs_admission = bool(selected_writers - {"research_datasets"}) or (
+        "research_datasets" in selected_writers and not reuse_existing_materialization
     )
     if needs_admission and operation != "rebuild" and refresh_admission is None:
         raise ValueError("Research materialization admission required; explicitly select rebuild")
@@ -6512,6 +6512,7 @@ def materialize_strategy_registry_refresh_assets(
         commission_per_contract=commission_per_contract,
         slippage_ticks=slippage_ticks,
         reuse_existing_materialization=reuse_existing_materialization,
+        expand_dependencies=False,
         raise_on_error=raise_on_error,
     )
 
@@ -6580,7 +6581,7 @@ def materialize_research_backtest_assets(
     max_candidates_per_partition: int = 1,
     min_robust_score: float = 0.55,
     decision_lag_bars_max: int = 1,
-    reuse_existing_materialization: bool = False,
+    reuse_existing_materialization: bool = True,
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
@@ -6722,7 +6723,7 @@ def materialize_research_projection_assets(
     stress_slippage_bps: float = DEFAULT_RANKING_STRESS_SLIPPAGE_BPS,
     min_parameter_stability: float = DEFAULT_RANKING_MIN_PARAMETER_STABILITY,
     min_slippage_score: float = DEFAULT_RANKING_MIN_SLIPPAGE_SCORE,
-    reuse_existing_materialization: bool = False,
+    reuse_existing_materialization: bool = True,
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
@@ -6795,5 +6796,6 @@ def materialize_research_projection_assets(
         min_parameter_stability=min_parameter_stability,
         min_slippage_score=min_slippage_score,
         reuse_existing_materialization=reuse_existing_materialization,
+        expand_dependencies=not reuse_existing_materialization,
         raise_on_error=raise_on_error,
     )
