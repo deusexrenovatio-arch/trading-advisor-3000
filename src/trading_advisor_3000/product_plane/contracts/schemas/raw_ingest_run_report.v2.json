@@ -23,6 +23,76 @@
     "raw_ingest_error_latest_path"
   ],
   "properties": {
+    "native_change_scope": {
+      "type": "object",
+      "required": [
+        "version",
+        "proven",
+        "input_reference"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "proven": {
+          "type": "boolean"
+        },
+        "input_reference": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "table_path",
+            "table_id",
+            "delta_version"
+          ],
+          "properties": {
+            "table_path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "table_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "delta_version": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        },
+        "output_reference": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "table_path",
+            "table_id",
+            "delta_version"
+          ],
+          "properties": {
+            "table_path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "table_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "delta_version": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
     "contract_version": {
       "const": "raw_ingest_run_report.v2"
     },

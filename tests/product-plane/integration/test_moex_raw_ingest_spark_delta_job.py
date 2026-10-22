@@ -562,7 +562,8 @@ def test_raw_stable_owner_preserves_pins_through_append_correction_delete_noop(
     }
 
     def run(rows, run_id):
-        return run_moex_raw_ingest_spark_delta_job(
+        before = DeltaTable(str(target)).version() if (target / "_delta_log").exists() else None
+        report = run_moex_raw_ingest_spark_delta_job(
             table_path=target,
             source_rows=rows,
             window_scopes=[scope],
@@ -572,6 +573,23 @@ def test_raw_stable_owner_preserves_pins_through_append_correction_delete_noop(
             refresh_overlap_minutes=60,
             **paths,
         )
+        proof = report["native_change_scope"]
+        assert proof["version"] == 1
+        assert proof["proven"] is True, proof
+        assert (proof["input_reference"]["delta_version"] if before is not None else None) == before
+        native = DeltaTable(str(target))
+        assert proof["output_reference"]["delta_version"] == native.version()
+        assert proof["output_reference"]["table_id"] == native.metadata().id
+        from trading_advisor_3000.product_plane.contracts.schema_validation import (
+            load_schema,
+            validate_schema,
+        )
+
+        schema = Path(__file__).resolve().parents[3] / (
+            "src/trading_advisor_3000/product_plane/contracts/schemas/raw_ingest_run_report.v2.json"
+        )
+        validate_schema(load_schema(schema), report)
+        return report
 
     assert run([first], "create")["status"] == "PASS"
     initial = DeltaTable(str(target))

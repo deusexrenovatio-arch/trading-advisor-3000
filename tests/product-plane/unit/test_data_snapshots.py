@@ -810,3 +810,102 @@ def test_materialization_failed_status_never_captures_or_stamps_old_outputs(
     with pytest.raises(ValueError, match="failed QC"):
         failed_stage.__wrapped__(context)
     assert pending["quality_checks"] == {}
+
+
+@pytest.mark.parametrize("verified_version,covered", [(1, False), (2, True)])
+def test_canonical_commit_ownership_binds_the_verified_output_version(
+    tmp_path, verified_version, covered
+):
+    from trading_advisor_3000.product_plane.data_plane.data_snapshots import _downstream_scope
+
+    before = {
+        "table_path": (tmp_path / "canonical_bars.delta").as_posix(),
+        "table_id": "same",
+        "delta_version": 0,
+    }
+    after = {**before, "delta_version": 2}
+    report = {
+        "cf_catch_up": {"windows": [{"instrument_id": "BR", "timeframe": "15m"}]},
+        "canonical_report": {
+            "publish_protocol": {
+                "pre_publish_versions": {"canonical_bars": 0},
+                "target_paths": {"canonical_bars": before["table_path"]},
+                "commit_owner_verified": {
+                    "canonical_bars": {**after, "delta_version": verified_version, "verified": True}
+                },
+            },
+            "sidecar_refresh": {
+                "dependency_scope": {
+                    "version": 1,
+                    "output_delta_versions": {"canonical_bars": after},
+                }
+            },
+        },
+    }
+    scope = _downstream_scope(
+        report=report, tables={"canonical_bars": after}, previous_tables={"canonical_bars": before}
+    )
+    assert ("canonical_bars" in scope["covered_tables"]) is covered
+
+
+@pytest.mark.parametrize(
+    "version,proven,covered",
+    [(1, True, True), (True, True, False), (1, 1, False), (None, True, False)],
+)
+def test_raw_scope_rejects_untyped_or_unversioned_evidence(tmp_path, version, proven, covered):
+    from trading_advisor_3000.product_plane.data_plane.data_snapshots import _downstream_scope
+
+    before = {
+        "table_path": (tmp_path / "raw_moex_history.delta").as_posix(),
+        "table_id": "raw",
+        "delta_version": 0,
+    }
+    after = {**before, "delta_version": 1}
+    report = {
+        "cf_catch_up": {"windows": [{"instrument_id": "BR", "timeframe": "15m"}]},
+        "windowed_input_references": {"raw_moex_history": after},
+        "raw_ingest_scope": {
+            "version": version,
+            "proven": proven,
+            "input_reference": before,
+            "output_reference": after,
+        },
+    }
+    scope = _downstream_scope(
+        report=report,
+        tables={"raw_moex_history": after},
+        previous_tables={"raw_moex_history": before},
+    )
+    assert ("raw_moex_history" in scope["covered_tables"]) is covered
+
+
+@pytest.mark.parametrize("mutation", [None, "input_path", "output_path", "version", "proven"])
+def test_oi_scope_binds_typed_evidence_and_both_native_paths(tmp_path, mutation):
+    from trading_advisor_3000.product_plane.data_plane.data_snapshots import _downstream_scope
+
+    name = "daily_open_interest"
+    before = {
+        "table_path": (tmp_path / (name + ".delta")).as_posix(),
+        "table_id": "oi",
+        "delta_version": 0,
+    }
+    after = {**before, "delta_version": 1}
+    proof = {
+        "version": 1,
+        "scope_proven": True,
+        "input_reference": dict(before),
+        "output_reference": dict(after),
+        "changed_keys": [{"contract_id": "BRM6"}],
+        "windows": [{"instrument_id": "BR", "timeframe": "15m"}],
+    }
+    if mutation in {"input_path", "output_path"}:
+        key = "input_reference" if mutation == "input_path" else "output_reference"
+        proof[key]["table_path"] = (tmp_path / "copied" / (name + ".delta")).as_posix()
+    elif mutation == "version":
+        proof["version"] = True
+    elif mutation == "proven":
+        proof["scope_proven"] = 1
+    scope = _downstream_scope(
+        report={"oi_support_scope": proof}, tables={name: after}, previous_tables={name: before}
+    )
+    assert (name in scope["covered_tables"]) is (mutation is None)
