@@ -856,6 +856,11 @@ def test_spark_publish_blocks_non_monotonic_provenance_without_mutating_target(
     assert report["status"] == "BLOCKED", report
     assert report["mutation_applied"] is False
     assert "source_window_monotonicity" in report["qc_report"]["failed_gates"]
+    for name in ("canonical_session_calendar", "canonical_roll_map"):
+        proof = report["publish_protocol"]["commit_owner_verified"][name]
+        assert proof["verified"] is False
+        assert proof["table_id"] is None
+        assert proof["delta_version"] is None
     assert count_delta_table_rows(target_bars_path) == 1
     assert _read_rows(target_bars_path)[0]["close"] == original_bar["close"]
 
@@ -888,4 +893,8 @@ def test_spark_publish_blocks_zero_checked_contract_rows(tmp_path: Path) -> None
     assert contract_report["status"] == "FAIL"
     assert contract_report["checked_rows"] == 0
     assert "No canonical bars checked: 0 rows" in contract_report["errors"]
+    for proof in report["publish_protocol"]["commit_owner_verified"].values():
+        assert proof["verified"] is False
+        assert proof["table_id"] is None
+        assert proof["delta_version"] is None
     assert not has_delta_log(tmp_path / "target" / "canonical_bars.delta")

@@ -1063,6 +1063,14 @@ def _sidecar_stale_keys(
 
 
 def _native_commit_owner_verified(table_path, before_version, token):
+    if not has_delta_log(table_path):
+        return {
+            "table_path": Path(table_path).resolve().as_posix(),
+            "table_id": None,
+            "delta_version": None,
+            "verified": False,
+        }
+
     from deltalake import DeltaTable as NativeDeltaTable
 
     table = NativeDeltaTable(str(table_path))
