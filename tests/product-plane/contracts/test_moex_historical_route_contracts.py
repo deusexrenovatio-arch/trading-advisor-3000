@@ -13,12 +13,11 @@ from trading_advisor_3000.product_plane.data_plane.moex.historical_route_contrac
     build_parity_manifest_v1,
     build_raw_ingest_run_report_v2,
     heartbeat_technical_route_lease,
-    record_technical_route_blocked_conflict,
     read_technical_route_run_ledger,
+    record_technical_route_blocked_conflict,
     release_technical_route_lease,
     takeover_technical_route_lease,
 )
-
 
 ROOT = Path(__file__).resolve().parents[3]
 SCHEMAS = ROOT / "src" / "trading_advisor_3000" / "product_plane" / "contracts" / "schemas"
@@ -72,9 +71,13 @@ def _assert_schema_valid(schema: dict[str, Any], value: object, *, path: str = "
             if _is_type(candidate, value):
                 resolved_type = candidate
                 break
-        assert resolved_type is not None, f"{path}: value does not match any type in {schema_type!r}"
+        assert resolved_type is not None, (
+            f"{path}: value does not match any type in {schema_type!r}"
+        )
     elif isinstance(schema_type, str):
-        assert _is_type(schema_type, value), f"{path}: expected type `{schema_type}`, got {type(value).__name__}"
+        assert _is_type(schema_type, value), (
+            f"{path}: expected type `{schema_type}`, got {type(value).__name__}"
+        )
         resolved_type = schema_type
     elif schema_type is not None:
         raise AssertionError(f"{path}: unsupported type declaration {schema_type!r}")
@@ -83,15 +86,21 @@ def _assert_schema_valid(schema: dict[str, Any], value: object, *, path: str = "
         min_length = schema.get("minLength")
         if min_length is not None:
             assert isinstance(min_length, int), f"{path}: minLength must be integer"
-            assert len(str(value)) >= min_length, f"{path}: string shorter than minLength={min_length}"
+            assert len(str(value)) >= min_length, (
+                f"{path}: string shorter than minLength={min_length}"
+            )
         max_length = schema.get("maxLength")
         if max_length is not None:
             assert isinstance(max_length, int), f"{path}: maxLength must be integer"
-            assert len(str(value)) <= max_length, f"{path}: string longer than maxLength={max_length}"
+            assert len(str(value)) <= max_length, (
+                f"{path}: string longer than maxLength={max_length}"
+            )
         pattern = schema.get("pattern")
         if pattern is not None:
             assert isinstance(pattern, str), f"{path}: pattern must be string"
-            assert re.fullmatch(pattern, str(value)), f"{path}: value does not match pattern {pattern!r}"
+            assert re.fullmatch(pattern, str(value)), (
+                f"{path}: value does not match pattern {pattern!r}"
+            )
         return
 
     if resolved_type in {"integer", "number"}:
@@ -148,9 +157,7 @@ def _moex_handoff_contract_ids() -> set[str]:
         contracts = row.get("contracts")
         assert isinstance(contracts, list), "contracts must be list"
         return {
-            str(item.get("contract_id", "")).strip()
-            for item in contracts
-            if isinstance(item, dict)
+            str(item.get("contract_id", "")).strip() for item in contracts if isinstance(item, dict)
         }
     raise AssertionError("moex_historical_handoff_contracts boundary must exist")
 
@@ -177,19 +184,22 @@ def test_raw_route_manifest_registers_handoff_contract_boundary() -> None:
 
 def test_raw_route_schema_fixtures_validate() -> None:
     pairs = {
-        "raw_ingest_run_report.v2.json": "raw_ingest_run_report.v2.json",
-        "parity_manifest.v1.json": "parity_manifest.v1.json",
-        "technical_route_run_ledger.v1.json": "technical_route_run_ledger.v1.json",
-        "technical_route_lease_acquire_request.v1.json": "technical_route_lease_acquire_request.v1.json",
-        "technical_route_lease_acquire_response.v1.json": "technical_route_lease_acquire_response.v1.json",
-        "technical_route_lease_heartbeat_request.v1.json": "technical_route_lease_heartbeat_request.v1.json",
-        "technical_route_lease_heartbeat_response.v1.json": "technical_route_lease_heartbeat_response.v1.json",
-        "technical_route_lease_takeover_request.v1.json": "technical_route_lease_takeover_request.v1.json",
-        "technical_route_lease_takeover_response.v1.json": "technical_route_lease_takeover_response.v1.json",
-        "technical_route_lease_release_request.v1.json": "technical_route_lease_release_request.v1.json",
-        "technical_route_lease_release_response.v1.json": "technical_route_lease_release_response.v1.json",
-        "technical_route_lease_record_blocked_conflict_request.v1.json": "technical_route_lease_record_blocked_conflict_request.v1.json",
-        "technical_route_lease_record_blocked_conflict_response.v1.json": "technical_route_lease_record_blocked_conflict_response.v1.json",
+        name: name
+        for name in (
+            "raw_ingest_run_report.v2.json",
+            "parity_manifest.v1.json",
+            "technical_route_run_ledger.v1.json",
+            "technical_route_lease_acquire_request.v1.json",
+            "technical_route_lease_acquire_response.v1.json",
+            "technical_route_lease_heartbeat_request.v1.json",
+            "technical_route_lease_heartbeat_response.v1.json",
+            "technical_route_lease_takeover_request.v1.json",
+            "technical_route_lease_takeover_response.v1.json",
+            "technical_route_lease_release_request.v1.json",
+            "technical_route_lease_release_response.v1.json",
+            "technical_route_lease_record_blocked_conflict_request.v1.json",
+            "technical_route_lease_record_blocked_conflict_response.v1.json",
+        )
     }
     for schema_name, fixture_name in pairs.items():
         schema = _load_json(SCHEMAS / schema_name)
@@ -316,7 +326,10 @@ def test_raw_route_parity_manifest_rejects_invalid_changed_windows_hash() -> Non
 
     with pytest.raises(
         ValueError,
-        match="`raw_ingest_run_report.changed_windows_hash_sha256` must be 64-char lowercase sha256 hex",
+        match=(
+            "`raw_ingest_run_report.changed_windows_hash_sha256` "
+            "must be 64-char lowercase sha256 hex"
+        ),
     ):
         build_parity_manifest_v1(
             run_id="phase01-parity-invalid-hash",
@@ -325,7 +338,9 @@ def test_raw_route_parity_manifest_rejects_invalid_changed_windows_hash() -> Non
         )
 
 
-def test_raw_route_lease_conflict_is_blocked_and_single_writer_state_is_preserved(tmp_path: Path) -> None:
+def test_raw_route_lease_conflict_is_blocked_and_single_writer_state_is_preserved(
+    tmp_path: Path,
+) -> None:
     ledger = tmp_path / "technical-route-ledger.delta"
     acquire_a = acquire_technical_route_lease(
         ledger_table_path=ledger,
@@ -392,12 +407,16 @@ def test_raw_route_lease_conflict_is_blocked_and_single_writer_state_is_preserve
     )
     assert acquire_b_after_release["status"] == "PASS"
 
-    ledger_rows = read_technical_route_run_ledger(ledger_table_path=ledger, route_id="moex_historical_route")
+    ledger_rows = read_technical_route_run_ledger(
+        ledger_table_path=ledger, route_id="moex_historical_route"
+    )
     statuses = [str(row["status"]) for row in ledger_rows]
     assert statuses == ["PASS", "BLOCKED", "PASS-NOOP", "BLOCKED", "PASS", "PASS"]
 
 
-def test_raw_route_cas_lease_state_machine_supports_heartbeat_takeover_and_conflict_record(tmp_path: Path) -> None:
+def test_raw_route_cas_lease_state_machine_supports_heartbeat_takeover_and_conflict_record(
+    tmp_path: Path,
+) -> None:
     ledger = tmp_path / "technical-route-ledger-cas.delta"
 
     acquire = acquire_technical_route_lease(
@@ -488,7 +507,9 @@ def test_raw_route_cas_lease_state_machine_supports_heartbeat_takeover_and_confl
     assert conflict_record["lease_state"] == "BLOCKED_CONFLICT"
     assert conflict_record["ledger_entry"]["event_kind"] == "LEASE_CONFLICT_BLOCKED"
 
-    rows = read_technical_route_run_ledger(ledger_table_path=ledger, route_id="moex_historical_route")
+    rows = read_technical_route_run_ledger(
+        ledger_table_path=ledger, route_id="moex_historical_route"
+    )
     event_kinds = [str(row["event_kind"]) for row in rows]
     assert event_kinds == [
         "LEASE_ACQUIRE",
@@ -505,7 +526,9 @@ def test_raw_route_lease_api_responses_match_contracts(tmp_path: Path) -> None:
     heartbeat_schema = _load_json(SCHEMAS / "technical_route_lease_heartbeat_response.v1.json")
     takeover_schema = _load_json(SCHEMAS / "technical_route_lease_takeover_response.v1.json")
     release_schema = _load_json(SCHEMAS / "technical_route_lease_release_response.v1.json")
-    conflict_schema = _load_json(SCHEMAS / "technical_route_lease_record_blocked_conflict_response.v1.json")
+    conflict_schema = _load_json(
+        SCHEMAS / "technical_route_lease_record_blocked_conflict_response.v1.json"
+    )
     ledger_schema = _load_json(SCHEMAS / "technical_route_run_ledger.v1.json")
 
     ledger = tmp_path / "technical-route-ledger.delta"
@@ -581,7 +604,9 @@ def test_raw_route_lease_api_responses_match_contracts(tmp_path: Path) -> None:
 def test_raw_route_lease_api_rejects_invalid_changed_windows_hash(tmp_path: Path) -> None:
     ledger = tmp_path / "technical-route-ledger-invalid-hash.delta"
 
-    with pytest.raises(ValueError, match="`changed_windows_hash` must be 64-char lowercase sha256 hex"):
+    with pytest.raises(
+        ValueError, match="`changed_windows_hash` must be 64-char lowercase sha256 hex"
+    ):
         acquire_technical_route_lease(
             ledger_table_path=ledger,
             route_id="moex_historical_route",
@@ -590,3 +615,17 @@ def test_raw_route_lease_api_rejects_invalid_changed_windows_hash(tmp_path: Path
             ttl_seconds=60,
             changed_windows_hash="not-a-sha256",
         )
+
+
+def test_raw_native_scope_proof_is_versioned_and_typed():
+    from trading_advisor_3000.product_plane.contracts.schema_validation import validate_schema
+
+    schema = _load_json(SCHEMAS / "raw_ingest_run_report.v2.json")
+    fixture = _load_json(FIXTURES / "raw_ingest_run_report.v2.json")
+    validate_schema(schema, fixture)
+    invalid = {
+        **fixture,
+        "native_change_scope": {"version": 0, "proven": True, "input_reference": None},
+    }
+    with pytest.raises(ValueError):
+        validate_schema(schema, invalid)

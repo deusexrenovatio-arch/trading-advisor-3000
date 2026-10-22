@@ -31,8 +31,9 @@ any prefix. Snapshot-only no-ops bypass wide reads entirely. Conflicting newest
 metadata, bounded projection repairs and changing source snapshots fail closed.
 
 Each pack is atomic. A failed later pack may leave earlier successful packs;
-the failed run must not publish an accepted snapshot. Retry without refresh
-windows revalidates content and repairs pending fragmentation. Deleted scopes
+the failed run must not publish an accepted snapshot. Daily retry retains the
+same admission, parents, native references and exact windows. Removing windows
+is forbidden. A separately selected rebuild revalidates its declared domain. Deleted scopes
 are explicit; an omitted update decision is an error.
 
 Validation uses isolated temporary Delta tables. This integration performs no
@@ -56,3 +57,33 @@ recipes, changed inputs, damaged output and explicit full refresh never receive
 this admission. No arbitrary source alias or permanently frozen compute hash is
 allowed. Migration runs only inside the accepted-snapshot scope on the ordinary
 scheduled route; no manual full run or pre-nightly production repin is required.
+
+## Daily admission boundary
+
+Daily Data → CF → L0 → L1 → L2 → sidecar/QC → publication carries one
+`research_refresh_admission.v1` receipt in existing Dagster config/checkpoints
+and Research manifest parameters. The authoritative schema is
+`src/trading_advisor_3000/product_plane/contracts/schemas/research_refresh_admission.v1.json`.
+It binds immutable Data/Research parents, native input identities/versions,
+stable dataset domain, original/effective windows, reason and content digest.
+
+| Decision | Meaning |
+| --- | --- |
+| NOOP | Proven unchanged inputs; no compute or publish |
+| SCOPED | Only admitted instrument/timeframe pairs may compute; a touched series may need full history |
+| BLOCKED | Missing, legacy, incompatible or drifting proof; retain accepted Research and pending work |
+
+All former resolver full-refresh reasons block daily execution. `None`, empty
+windows and legacy configs never authorize a global calculation. Sidecar filters
+exact pairs before windows/UDFs and deletes only their declared output scopes,
+including deleted/empty source pairs. Cache misses remain bounded.
+
+Daily manual entry uses the canonical Dagster jobs with a validated receipt.
+Direct native Python/CF CLI calls are rebuild-only: select `operation="rebuild"`
+or `--operation rebuild`, with explicit roots/selectors. Dedicated rebuild jobs
+select that operation themselves. Base-only sidecar cannot serve daily refresh;
+the legacy input-frame writer is retired. Read-only strategy dataset projections
+retain their existing owner and cannot publish Research.
+
+These controls provide scope correctness, not a measured speedup or a memory
+bound for recursive indicators on a single affected full-history series.

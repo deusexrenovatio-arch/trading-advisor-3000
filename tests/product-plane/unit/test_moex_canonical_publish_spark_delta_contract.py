@@ -1034,3 +1034,19 @@ def test_private_stale_keys_read_reaches_merge_without_colliding_with_governed_p
                 payload.to_pylist()
             )
     assert len(deletes) == 4
+
+
+@pytest.mark.parametrize("before_version", [None, 0])
+def test_absent_native_output_is_unverified_without_creating_table(
+    tmp_path: Path, before_version: int | None
+) -> None:
+    from trading_advisor_3000.spark_jobs import moex_canonical_publish_job as owner
+
+    missing = tmp_path / "missing.delta"
+    assert owner._native_commit_owner_verified(missing, before_version, "owner-token") == {
+        "table_path": missing.resolve().as_posix(),
+        "table_id": None,
+        "delta_version": None,
+        "verified": False,
+    }
+    assert not missing.exists()

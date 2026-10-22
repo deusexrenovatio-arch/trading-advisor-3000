@@ -82,17 +82,19 @@ def _business(row):
     }
 
 
-def write_changed_support_rows(table_path, rows, *, columns):
+def write_changed_support_rows(table_path, rows, *, columns, pending_scope_path=None):
     """Native predicate write; compare only requested metadata keys before mutation."""
     if not table_path.is_absolute():
         raise ValueError("native support table path must be absolute")
     if not rows:
         table = DeltaTable(str(table_path))
         return {
-            "table_path": str(table_path),
+            "table_path": table_path.resolve().as_posix(),
             "table_id": table.metadata().id,
             "delta_version": table.version(),
             "changed_rows": 0,
+            "previous_delta_version": table.version(),
+            "changed_keys": [],
         }
     grouped = {}
     for row in rows:
@@ -105,7 +107,16 @@ def write_changed_support_rows(table_path, rows, *, columns):
     identity = table.metadata().id if table is not None else None
     if table is not None and table.metadata().partition_columns:
         raise ValueError("native economics metadata must remain unpartitioned")
-    changed, predicates = [], []
+    previous_reference = (
+        {
+            "table_path": table_path.resolve().as_posix(),
+            "table_id": identity,
+            "delta_version": table.version(),
+        }
+        if table is not None
+        else None
+    )
+    changed, predicates, dirty_keys = [], [], []
     for key, row in grouped.items():
         scope = dict(zip(_KEYS, key, strict=True))
         old = (
@@ -117,9 +128,40 @@ def write_changed_support_rows(table_path, rows, *, columns):
         )
         if len(old) == 1 and _business(old[0]) == _business(row):
             continue
+        if len(old) > 1:
+            raise ValueError("duplicate native support keys; dirty scope unproven")
+        dirty_keys.extend(
+            {key: str(item[key]) for key in ("internal_id", "moex_secid", "trade_date")}
+            for item in [*old, row]
+            if "internal_id" in item
+        )
         changed.append(row)
         predicates.append("(" + delta_equals_predicate(scope) + ")")
     if changed:
+        if pending_scope_path is not None:
+            from trading_advisor_3000.product_plane.common.data_snapshots import atomic_json
+
+            pending = (
+                json.loads(pending_scope_path.read_text(encoding="utf-8"))
+                if pending_scope_path.exists()
+                else {}
+            )
+            previous = pending.get("support_changed_keys", [])
+            expected = pending.get("support_output_reference") or pending.get(
+                "support_input_reference"
+            )
+            if previous and expected != previous_reference:
+                pending["support_scope_unproven"] = True
+            if not previous:
+                pending["support_input_reference"] = previous_reference
+            pending.update(
+                status="PENDING",
+                reason="oi_write_pending_canonical",
+                support_changed_keys=list(
+                    {_json(key): key for key in [*previous, *dirty_keys]}.values()
+                ),
+            )
+            atomic_json(pending_scope_path, pending)
         write_delta_table_rows(
             table_path=table_path,
             rows=changed,
@@ -129,13 +171,27 @@ def write_changed_support_rows(table_path, rows, *, columns):
             replace_predicate=" OR ".join(predicates) if exists else None,
         )
     current = DeltaTable(str(table_path))
+    if pending_scope_path is not None and changed:
+        from trading_advisor_3000.product_plane.common.data_snapshots import atomic_json
+
+        pending = json.loads(pending_scope_path.read_text(encoding="utf-8"))
+        if previous_reference and current.version() != previous_reference["delta_version"] + 1:
+            pending["support_scope_unproven"] = True
+        pending["support_output_reference"] = {
+            "table_path": table_path.resolve().as_posix(),
+            "table_id": current.metadata().id,
+            "delta_version": current.version(),
+        }
+        atomic_json(pending_scope_path, pending)
     if identity is not None and current.metadata().id != identity:
         raise RuntimeError("native support write changed Delta table identity")
     return {
-        "table_path": str(table_path),
+        "table_path": table_path.resolve().as_posix(),
         "table_id": current.metadata().id,
         "delta_version": current.version(),
         "changed_rows": len(changed),
+        "previous_delta_version": table.version() if table is not None else None,
+        "changed_keys": list({_json(key): key for key in dirty_keys}.values()),
     }
 
 
@@ -298,6 +354,7 @@ def refresh_native_history_support(
     current_securities,
     dated_fx_rows,
     run_id,
+    pending_scope_path=None,
 ):
     """Existing public history acquisition, bounded projections and owning native writes."""
     verified = validate_contract_parameter_evidence(base_rules, base_evidence)
@@ -453,7 +510,12 @@ def refresh_native_history_support(
     prepared_ref = write_changed_support_rows(
         prepared_path, rows["prepared"], columns=columns["prepared"]
     )
-    oi_ref = write_changed_support_rows(daily_open_interest_path, rows["oi"], columns=columns["oi"])
+    oi_ref = write_changed_support_rows(
+        daily_open_interest_path,
+        rows["oi"],
+        columns=columns["oi"],
+        pending_scope_path=pending_scope_path,
+    )
     tables = {"raw": raw_ref, "prepared": prepared_ref, "oi": oi_ref}
     proof = _hash(
         dict(

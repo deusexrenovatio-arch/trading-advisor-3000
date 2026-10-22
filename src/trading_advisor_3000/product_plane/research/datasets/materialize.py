@@ -16,6 +16,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_small_delta_table_rows,
     replace_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.research.admission import admitted_compute
 
 from .manifest import ResearchDatasetManifest
 from .splitters import (
@@ -438,6 +439,7 @@ def build_research_dataset_manifest(
     )
 
 
+@admitted_compute(output="output_dir", sources=(), input_roots=(), windows=None)
 def materialize_research_dataset(
     *,
     manifest_seed: ResearchDatasetManifest,

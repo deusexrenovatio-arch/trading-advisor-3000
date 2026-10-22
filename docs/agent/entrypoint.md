@@ -46,6 +46,16 @@ orchestration runtimes, also read:
 17. Before closeout for behavior or contract changes, write the self-review in the final/PR note: changed behavior, moved contract, old behavior now forbidden, test proving it, uncovered edge cases, and residual risk.
 18. Run loop gate before PR prep: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
 
+Architecture admission: follow [Architecture Review](docs/agent/architecture-review.md)
+before dependent implementation of a new decision. Classify `none`,
+`within-contract`, or `contract-change` in the existing task/PR body. Delegate
+triggered design and implementation reviews independently; the PR gate validates
+the current decision and selected-file binding. Global skills and graphs are
+optional, not pipeline dependencies.
+Use the [TA3000 Architecture Standard](docs/architecture/product-plane/architecture-standard.md)
+as the substantive baseline. Triggered review decisions pin its revision and
+both checkpoints assess every criterion with evidence or scoped non-applicability.
+
 ## Critical constraints
 - Mainline is PR-only by default.
 - `run_loop_gate.py` is canonical hot-path gate.

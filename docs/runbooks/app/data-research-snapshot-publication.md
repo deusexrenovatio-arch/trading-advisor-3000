@@ -73,3 +73,100 @@ No production pointers, launcher roots, schedules, deletion, VACUUM or service
 state are changed by this code patch. Existing cutover/rollback operations apply
 only after accepted candidate data and delivered code. Physical fresh-job and
 post-compaction proof are separate from these focused unit guard checks.
+
+## Explicit physical schemas and compatibility
+
+Change surface: product-plane. Architectural impact: contract-change.
+
+`data_snapshot.v2` describes every pinned table in
+`physical_schemas[table_name] = {schema, partition_columns}`. `schema` is the
+native Delta JSON struct, preserving ordered field names, exact types, nullable
+and metadata, including nested fields. Its canonical JSON SHA-256 is exactly
+`tables[table_name].schema_hash`; no parallel hand-maintained physical schema
+exists. Partition columns, including `ts_close_year`, must be real physical
+fields. Capture and enrichment read the exact pinned Delta version. Readers
+validate the descriptor/hash and the native version, identity, schema, partition
+layout and existing active-file guards. Missing or malformed v2 descriptors
+fail closed. Inherited table references remain byte-for-byte equivalent as JSON
+values, preserving Data/Research ancestry comparisons.
+
+The descriptions have separate purposes:
+
+- `physical_schemas`: every actual field in every table, including storage and
+  retained legacy fields, with native nullability and metadata.
+- `semantic_compute_contract.schemas`: logical columns declared by the compute
+  owners, with logical type names. It is not a complete physical storage schema.
+- Store `physical_columns` and `partition_by`: declared physical carriers and
+  partition policy. Their actual types and field metadata live in the manifest.
+
+The L2 source descriptor uses the same existing
+`_source_indicator_columns_for_profile(l2)` selector as its producer. The old
+all-L1 declaration is admitted only through a read-only metadata correction:
+reconstruct that exact old descriptor for the same registered profiles; require
+every other compute component to be identical; verify required physical fields,
+normalized native types and partitions against the accepted Delta pin. Receipt
+v3 binds the accepted snapshot/digest, old/new compute digests and native table
+reference. The only extra physical field admitted is retained legacy
+`adx_14:double`, explicitly recorded in `retained_legacy_columns`. Existing
+migration code already retains it; new source frames do not produce it.
+For the inspected default contour, 42 obsolete logical declarations become 41
+absent physical fields plus retained `adx_14`; fresh frames have 146 physical
+fields and the retained legacy frame has 147. Neither shape is rewritten.
+
+The presemantic bootstrap digest stays frozen. Its compatibility check
+reconstructs the old declaration and requires that frozen complete numerical
+baseline plus the same native schema proof. Failed metadata proof raises
+`ContractError`; it cannot silently request a full refresh. Existing QC,
+ancestry, owner and receipt revalidation remain mandatory.
+
+Immutable `data_snapshot.v1` manifests remain readable without rewriting.
+Metadata-only host/container remapping preserves v1/v2 envelope versions and
+existing descriptors, validates the original digest, and needs no table I/O.
+New snapshots always use v2 and enrich inherited refs from pinned native tables.
+Rollback retains the old code and immutable v1 snapshots; do not point an old
+v1-only reader at a new v2 manifest. Merge, runtime promotion and publication are
+separate operations. This change authorizes no rebuild or production mutation.
+
+## Solution Intent
+
+- Solution Class: staged
+- Critical Contour: data-integration-closure
+- Forbidden Shortcuts: synthetic upstream proof, full refresh, immutable manifest rewrite
+- Closure Evidence: native Delta producer-to-reader regressions; scoped read-only 34-table/1205-column comparison; independent implementation review and focused gates
+- Shortcut Waiver: none
+
+Chosen path: metadata descriptions over the existing Delta owner and producer
+selector, preserving pinned versions and future ordinary scheduled processing.
+This closes the schema-description contract; it does not claim deployed code,
+a fresh production calculation, or a completed live trading journey.
+
+## Daily admission and producer retry
+
+Change surface: product-plane. Architectural impact: contract-change.
+
+Daily execution follows [daily admission](indicator-refresh.md#daily-admission-boundary).
+The publisher revalidates inputs, parents, exact config, successful native step
+owners and all QC before CAS. Repeating the same accepted attempt returns its
+same snapshot only after checkpoint/config/table/QC comparison; it cannot bless
+another attempt or changed output. Failed or partial attempts retain the prior
+accepted Research snapshot. Retry transfers only verified successful steps.
+
+Daily OI writes save old/new contract/date/instrument keys in the existing
+pending-changed-windows payload before committing Delta. Baseline merges them
+into canonical dirty windows before its no-op decision, preserving them until
+accepted Data publication. Coverage requires the complete native reference chain
+from the previous accepted Data pin to the producer output. Economics-only scope
+resolves instrument identity from pinned canonical columns; ambiguous aliases block.
+
+An unreported RAW/canonical commit detected before a later baseline cannot be
+certified by that later run's narrower windows. Its accepted Data manifest keeps
+unbounded ancestry, so Research blocks and retains backlog. Only an exact existing
+OI write-ahead chain can explain the corresponding support drift. This does not
+schedule a rebuild; recovery needs the separately selected native rebuild route.
+
+Producer scope v2 supersedes legacy v1 transitions after the accepted Research
+anchor. RAW binds actual pre/post native versions and permits only its one data
+commit plus native compaction. Canonical binds its native pre-publish versions,
+target paths and commit ownership through Delta userMetadata; unexpected commits
+break coverage. Legacy evidence and missing producer-chain proof block daily
+scope instead of being promoted by a later narrow update.

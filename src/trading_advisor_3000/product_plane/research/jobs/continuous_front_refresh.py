@@ -37,6 +37,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output-dir", required=True, help="Directory for continuous_front Delta outputs."
     )
     parser.add_argument("--dataset-version", required=True)
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--operation", choices=["rebuild"])
+    selection.add_argument(
+        "--admission-path", help="Frozen daily admission JSON issued by Research."
+    )
     parser.add_argument("--run-id", default="continuous_front_refresh")
     parser.add_argument(
         "--instruments", default="", help="Optional comma-separated instrument ids."
@@ -78,6 +83,8 @@ def run_continuous_front_refresh_job(
     canonical_output_dir: Path,
     output_dir: Path,
     dataset_version: str,
+    operation: str | None = None,
+    refresh_admission: dict | None = None,
     run_id: str = "continuous_front_refresh",
     instruments: tuple[str, ...] = (),
     timeframes: tuple[str, ...] = (),
@@ -88,6 +95,9 @@ def run_continuous_front_refresh_job(
     policy: ContinuousFrontPolicy | None = None,
 ) -> dict[str, object]:
     return run_continuous_front_spark_job(
+        operation=operation,
+        refresh_admission=refresh_admission,
+        refresh_windows=(refresh_admission or {}).get("effective_windows"),
         canonical_bars_path=canonical_output_dir / "canonical_bars.delta",
         canonical_session_calendar_path=canonical_output_dir / "canonical_session_calendar.delta",
         canonical_roll_map_path=canonical_output_dir / "canonical_roll_map.delta",
@@ -106,6 +116,11 @@ def run_continuous_front_refresh_job(
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if args.admission_path:
+        raise ValueError(
+            "daily refresh requires the canonical Dagster data-prep job; "
+            "direct native CLI is rebuild-only"
+        )
     policy = ContinuousFrontPolicy.from_config(
         {
             "roll_policy_version": args.roll_policy_version,
@@ -127,6 +142,10 @@ def main(argv: list[str] | None = None) -> int:
         }
     )
     payload = run_continuous_front_refresh_job(
+        operation=args.operation,
+        refresh_admission=json.loads(Path(args.admission_path).read_text(encoding="utf-8"))
+        if args.admission_path
+        else None,
         canonical_output_dir=Path(args.canonical_output_dir),
         output_dir=Path(args.output_dir),
         dataset_version=args.dataset_version,

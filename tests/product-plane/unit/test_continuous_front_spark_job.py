@@ -3,7 +3,9 @@ from __future__ import annotations
 # ruff: noqa: E501
 from pathlib import Path
 
+import pyarrow as pa
 import pytest
+from deltalake import write_deltalake
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
 from trading_advisor_3000.product_plane.data_plane.moex.economics import (
@@ -121,7 +123,7 @@ def test_continuous_front_spark_job_reports_native_spark_wiring_contract(
     calendar_path = tmp_path / "canonical_session_calendar.delta"
     roll_map_path = tmp_path / "canonical_roll_map.delta"
     for table_path in (canonical_bars_path, calendar_path, roll_map_path):
-        (table_path / "_delta_log").mkdir(parents=True)
+        write_deltalake(str(table_path), pa.table({"fixture": [1]}))
 
     fake_spark = _FakeSpark()
     written_roots: list[Path] = []
@@ -157,6 +159,7 @@ def test_continuous_front_spark_job_reports_native_spark_wiring_contract(
     monkeypatch.setattr(job, "count_delta_table_rows", lambda _path, **_kwargs: 1)
 
     report = job.run_continuous_front_spark_job(
+        operation="rebuild",
         canonical_bars_path=canonical_bars_path,
         canonical_session_calendar_path=calendar_path,
         canonical_roll_map_path=roll_map_path,
@@ -202,7 +205,7 @@ def test_continuous_front_spark_job_reports_native_spark_wiring_contract(
 def test_continuous_front_releases_cached_plans_after_write_failure(tmp_path, monkeypatch):
     paths = [tmp_path / f"{name}.delta" for name in ("bars", "calendar", "roll_map")]
     for path in paths:
-        (path / "_delta_log").mkdir(parents=True)
+        write_deltalake(str(path), pa.table({"fixture": [1]}))
     spark = _FakeSpark()
     tables = {name: _FakeDataFrame() for name in CONTINUOUS_FRONT_TABLES}
     monkeypatch.setattr(job, "_build_spark_native_tables", lambda **_: tables)
@@ -214,6 +217,7 @@ def test_continuous_front_releases_cached_plans_after_write_failure(tmp_path, mo
     monkeypatch.setattr(job, "_write_spark_dataframe_tables", fail_write)
     with pytest.raises(RuntimeError, match="injected staging failure"):
         job.run_continuous_front_spark_job(
+            operation="rebuild",
             canonical_bars_path=paths[0],
             canonical_session_calendar_path=paths[1],
             canonical_roll_map_path=paths[2],
@@ -318,6 +322,7 @@ def test_continuous_front_spark_job_rejects_unsupported_policy(
 ) -> None:
     with pytest.raises(RuntimeError, match="does not support"):
         job.run_continuous_front_spark_job(
+            operation="rebuild",
             canonical_bars_path=tmp_path / "canonical_bars.delta",
             canonical_session_calendar_path=tmp_path / "canonical_session_calendar.delta",
             canonical_roll_map_path=tmp_path / "canonical_roll_map.delta",
@@ -333,6 +338,7 @@ def test_continuous_front_spark_job_requires_execution_economics_when_flag_is_se
 ) -> None:
     with pytest.raises(RuntimeError, match="canonical_contract_economics_path is required"):
         job.run_continuous_front_spark_job(
+            operation="rebuild",
             canonical_bars_path=tmp_path / "canonical_bars.delta",
             canonical_session_calendar_path=tmp_path / "canonical_session_calendar.delta",
             canonical_roll_map_path=tmp_path / "canonical_roll_map.delta",
@@ -350,6 +356,7 @@ def test_continuous_front_spark_job_rejects_calendar_expiry_policy_variant(
         RuntimeError, match=r"calendar_expiry_v1\.calendar_roll_offset_trading_days=3"
     ):
         job.run_continuous_front_spark_job(
+            operation="rebuild",
             canonical_bars_path=tmp_path / "canonical_bars.delta",
             canonical_session_calendar_path=tmp_path / "canonical_session_calendar.delta",
             canonical_roll_map_path=tmp_path / "canonical_roll_map.delta",

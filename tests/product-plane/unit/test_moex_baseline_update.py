@@ -1210,6 +1210,7 @@ def test_baseline_update_skips_canonical_when_raw_and_pending_are_noop(
     assert report["cf_catch_up"]["status"] == "NOOP"
     assert report["cf_catch_up"]["windows"] == []
     assert report["canonical_report"] == {
+        "publish_protocol": {},
         "status": "PASS-NOOP",
         "publish_decision": "publish",
         "scoped_source_rows": 0,
@@ -3264,7 +3265,14 @@ def test_native_history_source_failure_preserves_real_fixture_renewal(tmp_path, 
         columns.update(trade_date="date", fetched_at_utc="timestamp", last_settle_price="double")
         for name, path in paths.items():
             refs[name] = write_changed_support_rows(path, [row], columns=columns)
-            assert set(refs[name]) == {"table_path", "table_id", "delta_version", "changed_rows"}
+            assert set(refs[name]) == {
+                "table_path",
+                "table_id",
+                "delta_version",
+                "changed_rows",
+                "previous_delta_version",
+                "changed_keys",
+            }
         observed.update(refs)
         return SimpleNamespace(
             observed_date_start="2026-07-10",
@@ -3338,3 +3346,64 @@ def test_native_history_source_failure_preserves_real_fixture_renewal(tmp_path, 
     )
     assert report["status"] == "PASS-NOOP"
     assert report["native_history_renewal"]["tables"] == observed
+
+
+@pytest.mark.parametrize("mutated", ["raw", "canonical"])
+def test_unreported_native_commit_cannot_be_certified_by_next_raw_noop(
+    tmp_path, monkeypatch, mutated
+):
+    from deltalake import DeltaTable, write_deltalake
+
+    from trading_advisor_3000.product_plane.common import data_snapshots as storage
+    from trading_advisor_3000.product_plane.research.data_snapshots import snapshot_registry
+    from trading_advisor_3000.product_plane.research.refresh_scope import resolve_refresh_scope
+
+    raw, canonical, provenance = _write_empty_baseline(tmp_path)
+    _patch_common_inputs(monkeypatch, [])
+    options = dict(
+        mapping_registry_path=tmp_path / "mapping.yaml",
+        universe_path=tmp_path / "universe.yaml",
+        raw_table_path=raw,
+        canonical_bars_path=canonical,
+        canonical_provenance_path=provenance,
+        evidence_dir=tmp_path / "evidence",
+        timeframes={"5m"},
+        ingest_till_utc="2026-04-22T00:00:00Z",
+        refresh_window_days=7,
+        contract_discovery_lookback_days=45,
+        max_changed_window_days=10,
+    )
+    baseline_module.run_moex_baseline_update(**options, run_id="accepted")
+    accepted = storage.current_snapshot(canonical.parent / ".data_snapshots")
+    research_root = tmp_path / "research"
+    registry = snapshot_registry(research_root, "nightly", "pit_active_front")
+    research = storage.create_snapshot(
+        tables=accepted["tables"],
+        required_tables=list(accepted["tables"]),
+        dataset_version="nightly",
+        run_id="research",
+        code_version="fixture",
+        quality_checks={"fixture": "PASS"},
+        parameters={"refresh_scope_version": 1, "timeframes": ["5m"]},
+        parents=[accepted["snapshot_id"]],
+    )
+    storage.publish_snapshot(
+        registry, storage.save_snapshot(registry, research), expected_current_id=None
+    )
+    target = raw if mutated == "raw" else canonical
+    old = DeltaTable(str(target))
+    write_deltalake(str(target), old.to_pyarrow_table(), mode="overwrite")
+    assert DeltaTable(str(target)).version() > old.version()
+    report = baseline_module.run_moex_baseline_update(**options, run_id="retry-after-lost-report")
+    assert report["status"] == "PASS"  # Data can advance; Research must block.
+    assert target.stem in report["unproven_starting_references"]
+    current = storage.current_snapshot(canonical.parent / ".data_snapshots")
+    assert current["parameters"]["downstream_scope"]["full_refresh"] is True
+    scope = resolve_refresh_scope(
+        data_manifest_path=Path(report["data_snapshot"]["snapshot_manifest_path"]),
+        materialized_output_dir=research_root,
+        dataset_version="nightly",
+        timeframes=("5m",),
+    )
+    assert scope["outcome"] == "BLOCKED" and scope["reason"] == "unbounded_data_scope"
+    assert storage.current_snapshot(registry)["snapshot_id"] == research["snapshot_id"]

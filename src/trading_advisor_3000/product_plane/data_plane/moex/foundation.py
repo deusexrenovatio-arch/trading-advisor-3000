@@ -831,6 +831,9 @@ def ingest_moex_baseline_window(
         if coverage
         else None
     )
+    from trading_advisor_3000.product_plane.common.data_snapshots import capture_table
+
+    raw_before = capture_table(table_path) if (table_path / "_delta_log").exists() else None
     watermarks = compute_raw_watermarks_spark_delta(
         table_path=table_path,
         keys={_watermark_key_for_discovery(item) for item in coverage},
@@ -987,7 +990,7 @@ def ingest_moex_baseline_window(
             latest_path=progress_latest,
             payload=progress_payload,
         )
-        return build_raw_ingest_run_report_v2(
+        report = build_raw_ingest_run_report_v2(
             run_id=run_id,
             ingest_till_utc=ingest_till_utc,
             source_rows=0,
@@ -1001,6 +1004,15 @@ def ingest_moex_baseline_window(
             raw_ingest_error_latest_path=error_latest.as_posix(),
             changed_windows=[],
         )
+
+        raw_after = capture_table(table_path)
+        report["native_change_scope"] = {
+            "version": 1,
+            "proven": raw_before == raw_after,
+            "input_reference": raw_before,
+            "output_reference": raw_after,
+        }
+        return report
 
     return run_moex_raw_ingest_spark_delta_job(
         table_path=table_path,

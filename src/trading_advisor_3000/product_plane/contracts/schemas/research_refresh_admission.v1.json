@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Research refresh admission v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "operation",
+    "outcome",
+    "data_parent",
+    "research_parent",
+    "inputs",
+    "domain",
+    "original_windows",
+    "effective_windows",
+    "reason",
+    "hash_compatibility",
+    "admission_id"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "operation": {"type": "string", "enum": ["daily", "rebuild"]},
+    "outcome": {"type": "string", "enum": ["NOOP", "SCOPED", "BLOCKED"]},
+    "data_parent": {
+      "type": ["object", "null"],
+      "required": ["registry_root", "manifest_path", "snapshot_id", "manifest_sha256"],
+      "properties": {
+        "registry_root": {"type": "string", "minLength": 1},
+        "manifest_path": {"type": "string", "minLength": 1},
+        "snapshot_id": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "research_parent": {
+      "type": ["object", "null"],
+      "required": ["registry_root", "manifest_path", "snapshot_id", "manifest_sha256"],
+      "properties": {
+        "registry_root": {"type": "string", "minLength": 1},
+        "manifest_path": {"type": "string", "minLength": 1},
+        "snapshot_id": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["table_path", "table_id", "delta_version"],
+        "properties": {
+          "table_path": {"type": "string", "minLength": 1},
+          "table_id": {"type": "string", "minLength": 1},
+          "delta_version": {"type": "integer", "minimum": 0}
+        },
+        "additionalProperties": true
+      }
+    },
+    "domain": {
+      "type": "object",
+      "required": ["materialized_output_dir", "dataset_version"],
+      "properties": {
+        "materialized_output_dir": {"type": "string", "minLength": 1},
+        "dataset_version": {"type": "string", "minLength": 1},
+        "timeframes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "dataset_instrument_ids": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": true
+    },
+    "original_windows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["instrument_id", "timeframe", "start_ts", "end_ts"],
+        "properties": {
+          "instrument_id": {"type": "string", "minLength": 1},
+          "timeframe": {"type": "string", "minLength": 1},
+          "start_ts": {"type": "string", "minLength": 1},
+          "end_ts": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": true
+      }
+    },
+    "effective_windows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["instrument_id", "timeframe", "start_ts", "end_ts"],
+        "properties": {
+          "instrument_id": {"type": "string", "minLength": 1},
+          "timeframe": {"type": "string", "minLength": 1},
+          "start_ts": {"type": "string", "minLength": 1},
+          "end_ts": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": true
+      }
+    },
+    "reason": {"type": "string"},
+    "hash_compatibility": {"type": "object"},
+    "admission_id": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

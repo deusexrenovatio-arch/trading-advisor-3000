@@ -10,7 +10,6 @@ import pytest
 from dagster import DagsterInstance
 
 from trading_advisor_3000.dagster_defs import (
-    MOEX_BASELINE_UPDATE_JOB_NAME,
     MOEX_CF_CATCH_UP_ASSETS,
     MOEX_CF_CATCH_UP_JOB_NAME,
     MOEX_CF_REBUILD_ASSETS,
@@ -44,7 +43,6 @@ from trading_advisor_3000.dagster_defs import (
     materialize_research_data_prep_assets,
     materialize_research_projection_assets,
     materialize_strategy_registry_refresh_assets,
-    product_plane_definitions,
     research_assets,
 )
 from trading_advisor_3000.product_plane.data_plane import run_sample_backfill
@@ -774,6 +772,7 @@ def test_research_data_prep_materializes_dataset_indicator_and_derived_layers_on
 
     dagster_dir = tmp_path / "dagster-research-data-prep"
     dagster_report = materialize_research_data_prep_assets(
+        operation="rebuild",
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-dataset-v1",
@@ -848,6 +847,7 @@ def test_research_data_prep_can_source_indicators_from_continuous_front(
 
     dagster_dir = tmp_path / "dagster-continuous"
     dagster_report = materialize_research_data_prep_assets(
+        operation="rebuild",
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-continuous-v1",
@@ -930,6 +930,7 @@ def test_isolated_moex_data_layer_rebuild_jobs_update_only_their_layer(
     monkeypatch.setattr(research_assets, "run_research_bar_views_spark_job", _bar_views_entrypoint)
 
     run_config = build_research_data_prep_run_config(
+        operation="rebuild",
         canonical_output_dir=canonical_dir,
         materialized_output_dir=materialized_dir,
         results_output_dir=results_dir,
@@ -1020,6 +1021,7 @@ def test_research_data_prep_reuse_does_not_reload_full_frames(tmp_path: Path, mo
 
     dagster_dir = tmp_path / "dagster-reuse"
     materialize_research_data_prep_assets(
+        operation="rebuild",
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-reuse-v1",
@@ -1049,6 +1051,7 @@ def test_research_data_prep_reuse_does_not_reload_full_frames(tmp_path: Path, mo
     )
 
     reuse_report = materialize_research_data_prep_assets(
+        operation="rebuild",
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-reuse-v1",
@@ -1076,6 +1079,7 @@ def test_strategy_registry_refresh_is_separate_from_research_data_prep(tmp_path:
 
     dagster_dir = tmp_path / "dagster-strategy"
     materialize_research_data_prep_assets(
+        operation="rebuild",
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-strategy-v1",
@@ -1083,20 +1087,45 @@ def test_strategy_registry_refresh_is_separate_from_research_data_prep(tmp_path:
         indicator_set_version="indicators-v1",
         indicator_profile_version="core_v1",
     )
-    registry_report = materialize_strategy_registry_refresh_assets(
-        canonical_output_dir=canonical_dir,
-        research_output_dir=dagster_dir,
-        dataset_version="dagster-strategy-v1",
-        timeframes=("15m",),
-        indicator_set_version="indicators-v1",
-        indicator_profile_version="core_v1",
-    )
+    from trading_advisor_3000.product_plane.data_plane.delta_runtime import delta_table_version
 
-    assert registry_report["success"] is True
-    assert set(registry_report["selected_assets"]) == set(STRATEGY_REGISTRY_REFRESH_ASSETS)
-    assert set(STRATEGY_REGISTRY_REFRESH_ASSETS).issubset(
-        set(registry_report["materialized_assets"])
+    data_names = (
+        "continuous_front_bars",
+        "research_bar_views",
+        "research_indicator_frames",
+        "research_derived_indicator_frames",
     )
+    versions = {name: delta_table_version(dagster_dir / f"{name}.delta") for name in data_names}
+    for selection in (
+        None,
+        ("research_strategy_templates",),
+        ("research_strategy_template_modules",),
+    ):
+        registry_report = materialize_strategy_registry_refresh_assets(
+            selection=selection,
+            canonical_output_dir=canonical_dir,
+            research_output_dir=dagster_dir,
+            dataset_version="dagster-strategy-v1",
+            timeframes=("15m",),
+            indicator_set_version="indicators-v1",
+            indicator_profile_version="core_v1",
+        )
+
+        assert registry_report["success"] is True
+        assert {
+            name: delta_table_version(dagster_dir / f"{name}.delta") for name in data_names
+        } == versions
+        assert set(registry_report["selected_assets"]) == set(
+            selection or STRATEGY_REGISTRY_REFRESH_ASSETS
+        )
+        assert "research_datasets" in registry_report["materialized_assets"]
+        assert not set(registry_report["materialized_assets"]).intersection(
+            {
+                "continuous_front_bars",
+                "research_indicator_frames",
+                "research_derived_indicator_frames",
+            }
+        )
     assert "research_feature_frames" not in registry_report["materialized_assets"]
     assert registry_report["rows_by_table"]["research_strategy_families"] == len(
         REQUIRED_STG02_ADAPTER_KEYS
@@ -1148,6 +1177,7 @@ def test_research_definitions_expose_isolated_data_layer_jobs_without_moex_succe
     assert RESEARCH_CAMPAIGN_FAILURE_SUMMARY_SENSOR_NAME in isolated_sensor_names
 
     run_config = build_research_data_prep_run_config(
+        operation="rebuild",
         canonical_output_dir=tmp_path / "canonical",
         materialized_output_dir=tmp_path / "materialized",
         results_output_dir=tmp_path / "results",
@@ -1216,287 +1246,85 @@ def _baseline_update_sensor_context(
     )
 
 
-def test_research_data_prep_sensor_skips_moex_baseline_noop(tmp_path: Path) -> None:
+def test_raw_noop_without_manifest_blocks_before_sensor_dispatch(tmp_path):
     context = _baseline_update_sensor_context(
         tmp_path=tmp_path,
-        run_id="baseline-noop-run",
-        report={
-            "status": "PASS",
-            "publish_decision": "publish",
-            "source_rows": 0,
-            "incremental_rows": 0,
-            "pending_changed_windows_in": 0,
-            "current_changed_windows": 0,
-            "effective_changed_windows": 0,
-            "cf_catch_up": {
-                "status": "NOOP",
-                "overlap_minutes": 180,
-                "windows": [],
-                "windows_hash_sha256": "",
-            },
-            "canonical_report": {
-                "status": "PASS-NOOP",
-                "mutation_applied": False,
-                "skipped_reason": "no_raw_or_pending_changed_windows",
-            },
-        },
+        run_id="raw-noop",
+        report={"cf_catch_up": {"status": "NOOP", "windows": []}},
     )
-
+    result = research_assets.moex_cf_catch_up_after_moex_baseline_sensor._run_status_sensor_fn(
+        context
+    )
+    assert result.skip_message.startswith("BLOCKED: missing_data_manifest")
     assert (
         research_assets.research_data_prep_after_moex_sensor._run_status_sensor_fn(context) is None
     )
-    assert (
-        research_assets.moex_cf_catch_up_after_moex_baseline_sensor._run_status_sensor_fn(context)
-        is None
-    )
 
 
-@pytest.mark.parametrize("force_full", [False, True])
-def test_modern_backlog_is_resolved_before_noop_and_handed_off_unchanged(
-    tmp_path, monkeypatch, force_full
-):
-    frozen = {
-        "refresh_scope_version": 1,
-        "force_full_refresh": force_full,
-        "windows": []
-        if force_full
-        else [
-            {
-                "instrument_id": "BR",
-                "timeframe": "15m",
-                "start_ts": "2026-01-01T00:00:00Z",
-                "end_ts": "2026-01-20T00:00:00Z",
-            }
-        ],
-    }
-    monkeypatch.setattr(research_assets, "resolve_refresh_scope", lambda **kwargs: frozen)
+@pytest.mark.parametrize("missing", [True, False])
+def test_raw_noop_does_not_bypass_missing_or_legacy_manifest(tmp_path, missing):
+    path = tmp_path / "data.json"
+    if not missing:
+        path.write_text("{}")
     context = _baseline_update_sensor_context(
         tmp_path=tmp_path,
-        run_id="raw-noop-backlog",
+        run_id="legacy-backlog",
         report={
-            "status": "PASS",
-            "publish_decision": "publish",
             "cf_catch_up": {"status": "NOOP", "windows": []},
-            "data_snapshot": {"snapshot_manifest_path": str(tmp_path / "frozen-data.json")},
+            "data_snapshot": {"snapshot_manifest_path": str(path)},
         },
     )
-    request = _single_sensor_run_request(
-        research_assets.moex_cf_catch_up_after_moex_baseline_sensor, context
+    result = research_assets.moex_cf_catch_up_after_moex_baseline_sensor._run_status_sensor_fn(
+        context
     )
-    config = request.run_config["ops"]["continuous_front_bars"]["config"]
-    assert config["start_ts"] == config["end_ts"] == ""
-    assert config["dataset_instrument_ids"] == []
-    handoff = _single_sensor_run_request(
-        research_assets.research_data_prep_after_moex_cf_catch_up_sensor,
-        SimpleNamespace(
-            dagster_run=SimpleNamespace(
-                run_id="cf-frozen", run_config=request.run_config, tags=request.tags
-            )
-        ),
-    )
-    for op in handoff.run_config["ops"].values():
-        downstream = op["config"]
-        for key in (
-            "changed_windows",
-            "refresh_scope_version",
-            "force_full_refresh",
-            "data_snapshot_manifest_path",
-            "timeframes",
-            "start_ts",
-            "end_ts",
-        ):
-            assert downstream[key] == config[key]
+    assert result.skip_message.startswith("BLOCKED: admission_evidence_unavailable")
 
 
-def test_moex_cf_catch_up_sensor_starts_windowed_job_after_moex_baseline_change(
-    tmp_path: Path,
-) -> None:
+def test_raw_changed_windows_alone_do_not_authorize_native_daily(tmp_path):
     context = _baseline_update_sensor_context(
         tmp_path=tmp_path,
-        run_id="baseline-change-run",
+        run_id="raw-change",
         report={
-            "status": "PASS",
-            "publish_decision": "publish",
-            "source_rows": 128,
-            "incremental_rows": 128,
-            "pending_changed_windows_in": 0,
-            "current_changed_windows": 2,
-            "effective_changed_windows": 2,
             "cf_catch_up": {
-                "status": "READY",
-                "overlap_minutes": 180,
-                "target_timeframes": ["15m"],
+                "status": "SCOPED",
                 "windows": [
                     {
-                        "instrument_id": "FUT_BR",
+                        "instrument_id": "BR",
                         "timeframe": "15m",
-                        "start_ts": "2026-04-20T21:00:00Z",
-                        "end_ts": "2026-04-22T00:00:00Z",
-                        "overlap_minutes": 180,
-                        "source_window_start_utc": "2026-04-21T00:00:00Z",
-                        "source_window_end_utc": "2026-04-22T00:00:00Z",
-                        "source_changed_windows": [],
-                        "source_changed_window_count": 1,
-                        "window_hash_sha256": "a" * 64,
-                    },
-                    {
-                        "instrument_id": "FUT_GOLD",
-                        "timeframe": "1h",
-                        "start_ts": "2026-04-21T21:00:00Z",
-                        "end_ts": "2026-04-23T00:00:00Z",
-                        "overlap_minutes": 180,
-                        "source_window_start_utc": "2026-04-22T00:00:00Z",
-                        "source_window_end_utc": "2026-04-23T00:00:00Z",
-                        "source_changed_windows": [],
-                        "source_changed_window_count": 1,
-                        "window_hash_sha256": "c" * 64,
-                    },
+                        "start_ts": "2026-01-01T00:00:00Z",
+                        "end_ts": "2026-01-02T00:00:00Z",
+                    }
                 ],
-                "windows_hash_sha256": "b" * 64,
-            },
-            "canonical_report": {
-                "status": "PASS",
-                "mutation_applied": True,
-            },
+            }
         },
     )
-
-    assert (
-        research_assets.research_data_prep_after_moex_sensor._run_status_sensor_fn(context) is None
+    result = research_assets.moex_cf_catch_up_after_moex_baseline_sensor._run_status_sensor_fn(
+        context
     )
-    request = _single_sensor_run_request(
-        research_assets.moex_cf_catch_up_after_moex_baseline_sensor,
-        context,
-    )
-
-    assert request.run_key == f"{MOEX_CF_CATCH_UP_JOB_NAME}:baseline-change-run:{'b' * 64}"
-    assert request.tags["ta3000/upstream_job"] == MOEX_BASELINE_UPDATE_JOB_NAME
-    assert request.tags["ta3000/upstream_run_id"] == "baseline-change-run"
-    assert request.tags["ta3000/cf_catch_up_windows_hash"] == "b" * 64
-    assert request.tags["ta3000/cf_catch_up_window_count"] == "2"
-    assert request.tags["ta3000/cf_catch_up_overlap_minutes"] == "180"
-    assert set(request.run_config["ops"]) == {"continuous_front_bars"}
-    op_config = request.run_config["ops"]["continuous_front_bars"]["config"]
-    assert op_config["dataset_instrument_ids"] == ["FUT_BR", "FUT_GOLD"]
-    assert op_config["timeframes"] == ["15m", "1h"]
-    assert op_config["start_ts"] == "2026-04-20T21:00:00Z"
-    assert op_config["end_ts"] == "2026-04-23T00:00:00Z"
-    assert op_config["changed_windows"] == [
-        {
-            "instrument_id": "FUT_BR",
-            "timeframe": "15m",
-            "start_ts": "2026-04-20T21:00:00Z",
-            "end_ts": "2026-04-22T00:00:00Z",
-            "window_hash_sha256": "a" * 64,
-            "overlap_minutes": 180,
-        },
-        {
-            "instrument_id": "FUT_GOLD",
-            "timeframe": "1h",
-            "start_ts": "2026-04-21T21:00:00Z",
-            "end_ts": "2026-04-23T00:00:00Z",
-            "window_hash_sha256": "c" * 64,
-            "overlap_minutes": 180,
-        },
-    ]
-    assert op_config["series_mode"] == "continuous_front"
+    assert result.skip_message.startswith("BLOCKED: missing_data_manifest")
 
 
-def test_research_data_prep_after_moex_cf_catch_up_sensor_starts_scoped_job(
-    tmp_path: Path,
-) -> None:
-    windows = [
-        {
-            "instrument_id": "FUT_BR",
-            "timeframe": "15m",
-            "start_ts": "2026-04-20T21:00:00Z",
-            "end_ts": "2026-04-22T00:00:00Z",
-            "window_hash_sha256": "a" * 64,
-            "overlap_minutes": 180,
-        },
-        {
-            "instrument_id": "FUT_GOLD",
-            "timeframe": "1h",
-            "start_ts": "2026-04-21T21:00:00Z",
-            "end_ts": "2026-04-23T00:00:00Z",
-            "window_hash_sha256": "c" * 64,
-            "overlap_minutes": 180,
-        },
-    ]
-    cf_run_config = research_assets._build_moex_cf_catch_up_run_config(
-        canonical_output_dir=tmp_path / "canonical",
-        dataset_version="partial-data-v1",
-        campaign_run_id="cf-catch-up-run",
-        windows=windows,
-    )
+def test_cf_success_without_admission_blocks_research_handoff(tmp_path):
     context = SimpleNamespace(
         dagster_run=SimpleNamespace(
-            run_id="cf-run-1",
-            run_config=cf_run_config,
-            tags={
-                "ta3000/cf_catch_up_windows_hash": "d" * 64,
-                "ta3000/dataset_version": "partial-data-v1",
+            run_id="legacy-cf",
+            run_config={
+                "ops": {
+                    "continuous_front_bars": {"config": {"materialized_output_dir": str(tmp_path)}}
+                }
             },
+            tags={},
         )
     )
-
-    request = _single_sensor_run_request(
-        research_assets.research_data_prep_after_moex_cf_catch_up_sensor,
-        context,
+    result = research_assets.research_data_prep_after_moex_cf_catch_up_sensor._run_status_sensor_fn(
+        context
     )
-
-    assert request.run_key == (
-        f"{RESEARCH_DATA_PREP_JOB_NAME}:{MOEX_CF_CATCH_UP_JOB_NAME}:cf-run-1:{'d' * 64}"
-    )
-    assert request.tags["ta3000/upstream_job"] == MOEX_CF_CATCH_UP_JOB_NAME
-    assert request.tags["ta3000/upstream_run_id"] == "cf-run-1"
-    assert request.tags["ta3000/dataset_version"] == "partial-data-v1"
-    assert request.tags["ta3000/series_mode"] == "continuous_front"
-    assert request.tags["ta3000/cf_catch_up_windows_hash"] == "d" * 64
-    assert request.asset_selection is not None
-    assert {key.to_user_string() for key in request.asset_selection} == set(
-        research_assets.RESEARCH_DATA_PREP_JOB_ASSETS
-    )
-    job = product_plane_definitions.get_repository_def().get_job(RESEARCH_DATA_PREP_JOB_NAME)
-    data_only_job = job.get_subset(asset_selection=set(request.asset_selection))
-    from dagster._core.execution.api import create_execution_plan
-
-    plan = create_execution_plan(data_only_job, run_config=request.run_config)
-    selected_steps = set(plan.step_keys_to_execute)
-    assert "research_campaign_context" not in selected_steps
-    assert "research_campaign_data_prep_summary" not in selected_steps
-    assert "research_data_snapshot" in selected_steps
-    assert "continuous_front_indicator_acceptance_report" in selected_steps
-    assert request.tags["ta3000/cf_catch_up_window_count"] == "2"
-    assert set(request.run_config["ops"]) == {
-        "continuous_front_bars",
-        "research_datasets",
-        "research_indicator_frames",
-        "research_derived_indicator_frames",
-        "continuous_front_indicator_acceptance_report",
-        "research_data_snapshot",
-    }
-    op_config = request.run_config["ops"]["research_datasets"]["config"]
-    assert request.run_config["ops"]["continuous_front_bars"]["config"] == op_config
-    assert (
-        request.run_config["ops"]["continuous_front_indicator_acceptance_report"]["config"]
-        == op_config
-    )
-    assert op_config["campaign_run_id"] == f"research_data_prep_after_cf_cf-run-1_{'d' * 12}"
-    assert op_config["dataset_version"] == "partial-data-v1"
-    assert op_config["dataset_name"] == "moex-cf-catch-up"
-    assert op_config["code_version"] == "research-data-prep-after-moex-cf-catch-up"
-    assert op_config["dataset_instrument_ids"] == ["FUT_BR", "FUT_GOLD"]
-    assert op_config["timeframes"] == ["15m", "1h"]
-    assert op_config["start_ts"] == "2026-04-20T21:00:00Z"
-    assert op_config["end_ts"] == "2026-04-23T00:00:00Z"
-    assert op_config["changed_windows"] == windows
-    assert op_config["series_mode"] == "continuous_front"
-    assert op_config["start_strategy_cascade"] is False
+    assert result.skip_message.startswith("BLOCKED: refresh admission required")
 
 
 def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: Path) -> None:
     data_only_run_config = build_research_data_prep_run_config(
+        operation="rebuild",
         canonical_output_dir=tmp_path / "canonical",
         materialized_output_dir=tmp_path / "materialized",
         results_output_dir=tmp_path / "results",
@@ -1520,6 +1348,7 @@ def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: P
     )
 
     prep_run_config = build_research_data_prep_run_config(
+        operation="rebuild",
         canonical_output_dir=tmp_path / "canonical",
         materialized_output_dir=tmp_path / "materialized",
         results_output_dir=tmp_path / "results",
@@ -1603,9 +1432,18 @@ def test_research_downstream_cascade_sensors_forward_dataset_context(tmp_path: P
     assert projection_request.tags["ta3000/dataset_version"] == "cascade-data-v1"
 
 
-def test_moex_data_rebuild_research_refresh_sensor_ignores_preview_and_research_only_profiles() -> (
-    None
+def test_moex_data_rebuild_research_refresh_sensor_ignores_preview_and_research_only_profiles(
+    tmp_path, monkeypatch
 ):
+    monkeypatch.setenv(
+        research_assets.RESEARCH_DATA_PREP_CANONICAL_OUTPUT_DIR_ENV, str(tmp_path / "canonical")
+    )
+    monkeypatch.setenv(
+        research_assets.RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV, str(tmp_path / "research")
+    )
+    monkeypatch.setenv(
+        research_assets.RESEARCH_VOLUME_PROFILE_RAW_1M_TABLE_PATH_ENV, str(tmp_path / "raw.delta")
+    )
     promoted_canonical_run_config = {
         "ops": {
             MOEX_DATA_REBUILD_OP_NAME: {
@@ -1710,6 +1548,7 @@ def test_research_data_prep_defaults_follow_moex_historical_data_root(
     monkeypatch.delenv("TA3000_RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR", raising=False)
 
     run_config = build_research_data_prep_run_config(
+        operation="rebuild",
         dataset_version="defaults-data-v1",
         volume_profile_raw_1m_table_path="   ",
     )
@@ -1745,6 +1584,7 @@ def test_research_data_prep_rejects_invalid_volume_profile_tick_size(
 ) -> None:
     with pytest.raises(ValueError, match="invalid volume profile tick_size for FUT_BR"):
         build_research_data_prep_run_config(
+            operation="rebuild",
             canonical_output_dir=tmp_path / "canonical",
             materialized_output_dir=tmp_path / "materialized",
             results_output_dir=tmp_path / "results",
@@ -1765,6 +1605,7 @@ def test_research_data_prep_uses_spark_l0_materialization(tmp_path: Path) -> Non
 
     dagster_dir = tmp_path / "dagster"
     report = materialize_research_data_prep_assets(
+        operation="rebuild",
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="same-dataset-v1",
@@ -1923,6 +1764,7 @@ def test_research_daily_session_date_uses_moscow_provenance_in_both_contours(
         timeframes=("1d",),
     )
     report = run_research_bar_views_spark_job(
+        operation="rebuild",
         canonical_bars_path=canonical_dir / "canonical_bars.delta",
         canonical_bar_provenance_path=canonical_dir / "canonical_bar_provenance.delta",
         canonical_session_intervals_path=canonical_dir / "canonical_session_intervals.delta",
@@ -2069,6 +1911,7 @@ def test_weekly_bar_usage_counts_daily_sessions_by_contract(tmp_path: Path) -> N
 
     output_dir = tmp_path / "research-weekly-contract-gap"
     run_research_bar_views_spark_job(
+        operation="rebuild",
         canonical_bars_path=canonical_dir / "canonical_bars.delta",
         canonical_bar_provenance_path=canonical_dir / "canonical_bar_provenance.delta",
         canonical_session_intervals_path=canonical_dir / "canonical_session_intervals.delta",
@@ -2106,6 +1949,7 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
 
     dagster_dir = tmp_path / "dagster-stage7"
     backtest_report = materialize_research_backtest_assets(
+        operation="rebuild",
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-stage7-v1",
@@ -2216,6 +2060,7 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     )
 
     projection_report = materialize_research_projection_assets(
+        operation="rebuild",
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-stage7-v1",
@@ -2426,7 +2271,7 @@ def test_l0_windowed_job_keeps_global_indices_and_full_tree(tmp_path):
         timeframes=("15m",),
         contours=("native_tradable",),
     )
-    owner.run_research_bar_views_spark_job(**options)
+    owner.run_research_bar_views_spark_job(operation="rebuild", **options)
     path = output / "research_bar_views.delta"
     previous = DeltaTable(str(path)).to_pyarrow_table().to_pylist()
     DeltaTable(str(canonical / "canonical_bars.delta")).update(
@@ -2434,6 +2279,7 @@ def test_l0_windowed_job_keeps_global_indices_and_full_tree(tmp_path):
         predicate="instrument_id = 'BR' AND ts = '2026-03-16T22:00:00Z'",
     )
     report = owner.run_research_bar_views_spark_job(
+        operation="rebuild",
         **options,
         refresh_windows=(
             {
@@ -2471,6 +2317,7 @@ def test_l0_windowed_job_keeps_global_indices_and_full_tree(tmp_path):
         for name in ("research_bar_views", "research_instrument_tree")
     }
     repeated = owner.run_research_bar_views_spark_job(
+        operation="rebuild",
         **options,
         refresh_windows=(
             {
@@ -2487,60 +2334,19 @@ def test_l0_windowed_job_keeps_global_indices_and_full_tree(tmp_path):
     } == versions
 
 
-def test_hash_migration_empty_scope_dispatches_both_native_jobs(tmp_path, monkeypatch):
-    receipt = {
-        "version": 1,
-        "snapshot_id": "accepted",
-        "manifest_sha256": "pinned",
-        "source_sha256": "legacy",
-    }
-    frozen = {
-        "refresh_scope_version": 1,
-        "force_full_refresh": False,
-        "windows": [],
-        "hash_compatibility": receipt,
-    }
-    monkeypatch.setattr(research_assets, "resolve_refresh_scope", lambda **kwargs: frozen)
+def test_empty_migration_scope_cannot_authorize_compute_without_manifest(tmp_path):
     context = _baseline_update_sensor_context(
         tmp_path=tmp_path,
         run_id="migration-noop",
         report={
-            "status": "PASS",
-            "publish_decision": "publish",
             "cf_catch_up": {"status": "NOOP", "windows": []},
             "data_snapshot": {"snapshot_manifest_path": str(tmp_path / "data.json")},
         },
     )
-    request = _single_sensor_run_request(
-        research_assets.moex_cf_catch_up_after_moex_baseline_sensor, context
+    result = research_assets.moex_cf_catch_up_after_moex_baseline_sensor._run_status_sensor_fn(
+        context
     )
-    cf = request.run_config["ops"]["continuous_front_bars"]["config"]
-    assert cf["changed_windows"] == [] and cf["force_full_refresh"] is False
-    assert cf["hash_compatibility"] == receipt
-    handoff = _single_sensor_run_request(
-        research_assets.research_data_prep_after_moex_cf_catch_up_sensor,
-        SimpleNamespace(
-            dagster_run=SimpleNamespace(
-                run_id="migration-cf", run_config=request.run_config, tags=request.tags
-            )
-        ),
-    )
-    for op in handoff.run_config["ops"].values():
-        assert op["config"]["changed_windows"] == []
-        assert op["config"]["force_full_refresh"] is False
-        assert op["config"]["hash_compatibility"] == receipt
-    from dagster._core.execution.api import create_execution_plan
-
-    job = product_plane_definitions.get_repository_def().get_job(RESEARCH_DATA_PREP_JOB_NAME)
-    plan = create_execution_plan(
-        job.get_subset(asset_selection=set(handoff.asset_selection)), run_config=handoff.run_config
-    )
-    assert {
-        "research_data_snapshot",
-        "continuous_front_indicator_acceptance_report",
-        "research_indicator_frames",
-        "research_derived_indicator_frames",
-    } <= set(plan.step_keys_to_execute)
+    assert result.skip_message.startswith("BLOCKED: admission_evidence_unavailable")
 
 
 @pytest.mark.parametrize("full", [False, True])
@@ -2567,8 +2373,10 @@ def test_l1_l2_assets_forward_empty_bounded_scope_and_full_guard(tmp_path, monke
     monkeypatch.setattr(research_assets, "_delta_table_summary", lambda **kw: {})
     monkeypatch.setattr(research_assets, "has_delta_log", lambda _: False)
     context = SimpleNamespace(op_execution_context=SimpleNamespace(op_config=config))
-    research_assets.research_indicator_frames.op.compute_fn.decorated_fn.__wrapped__(context)
-    research_assets.research_derived_indicator_frames.op.compute_fn.decorated_fn.__wrapped__(
+    research_assets.research_indicator_frames.op.compute_fn.decorated_fn.__wrapped__.__wrapped__(
+        context
+    )
+    research_assets.research_derived_indicator_frames.op.compute_fn.decorated_fn.__wrapped__.__wrapped__(
         context
     )
     assert l1[0]["changed_windows"] == (None if full else ())

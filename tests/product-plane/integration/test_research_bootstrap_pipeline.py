@@ -111,6 +111,7 @@ def _load_research_dataset(output_dir: Path, dataset_version: str) -> dict[str, 
 
 def materialize_research_dataset(
     *,
+    operation: str = "rebuild",
     manifest_seed: ResearchDatasetManifest,
     bars: list[CanonicalBar],
     session_calendar: list[SessionCalendarEntry],
@@ -252,6 +253,7 @@ def materialize_research_dataset(
         predicate=predicate,
     )
     return _materialize_research_dataset_manifest(
+        operation="rebuild",
         manifest_seed=manifest,
         output_dir=output_dir,
         bar_view_count=len(view_rows),
@@ -279,6 +281,7 @@ def test_research_dataset_materialization_and_reload_by_dataset_version(tmp_path
 
     research_output_dir = tmp_path / "research"
     report = materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="research-dataset-v1",
             dataset_name="sample contract dataset",
@@ -340,6 +343,7 @@ def test_research_dataset_materialization_supports_continuous_front_mode(tmp_pat
         ),
     ]
     report = materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="research-cf-v1",
             dataset_name="continuous front sample",
