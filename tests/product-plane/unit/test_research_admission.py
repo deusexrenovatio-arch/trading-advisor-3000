@@ -306,3 +306,39 @@ def test_reuse_flag_cannot_skip_admission_for_actual_data_writers(tmp_path, monk
             allowed_assets=("research_indicator_frames",),
             reuse_existing_materialization=True,
         )
+
+
+@pytest.mark.parametrize(
+    "name", ["materialize_research_backtest_assets", "materialize_research_projection_assets"]
+)
+def test_strategy_helpers_cannot_implicitly_rebuild_data(tmp_path, monkeypatch, name):
+    from trading_advisor_3000.dagster_defs import research_assets
+
+    monkeypatch.setattr(
+        research_assets, "materialize", lambda **kw: pytest.fail("implicit data writer ran")
+    )
+    with pytest.raises(ValueError, match="admission required"):
+        getattr(research_assets, name)(
+            canonical_output_dir=tmp_path / "canonical",
+            research_output_dir=tmp_path / "research",
+            dataset_version="blocked",
+            timeframes=("15m",),
+        )
+
+
+def test_strategy_registry_rejects_data_rebuild_before_preparing_registry(tmp_path, monkeypatch):
+    from trading_advisor_3000.dagster_defs import research_assets
+
+    monkeypatch.setattr(
+        research_assets,
+        "_materialize_research_assets",
+        lambda **kw: pytest.fail("registry preparation ran before rejection"),
+    )
+    with pytest.raises(ValueError, match="requires prepared research data"):
+        research_assets.materialize_strategy_registry_refresh_assets(
+            canonical_output_dir=tmp_path / "canonical",
+            research_output_dir=tmp_path / "research",
+            dataset_version="blocked",
+            timeframes=("15m",),
+            reuse_existing_materialization=False,
+        )

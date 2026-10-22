@@ -1087,20 +1087,45 @@ def test_strategy_registry_refresh_is_separate_from_research_data_prep(tmp_path:
         indicator_set_version="indicators-v1",
         indicator_profile_version="core_v1",
     )
-    registry_report = materialize_strategy_registry_refresh_assets(
-        canonical_output_dir=canonical_dir,
-        research_output_dir=dagster_dir,
-        dataset_version="dagster-strategy-v1",
-        timeframes=("15m",),
-        indicator_set_version="indicators-v1",
-        indicator_profile_version="core_v1",
-    )
+    from trading_advisor_3000.product_plane.data_plane.delta_runtime import delta_table_version
 
-    assert registry_report["success"] is True
-    assert set(registry_report["selected_assets"]) == set(STRATEGY_REGISTRY_REFRESH_ASSETS)
-    assert set(STRATEGY_REGISTRY_REFRESH_ASSETS).issubset(
-        set(registry_report["materialized_assets"])
+    data_names = (
+        "continuous_front_bars",
+        "research_bar_views",
+        "research_indicator_frames",
+        "research_derived_indicator_frames",
     )
+    versions = {name: delta_table_version(dagster_dir / f"{name}.delta") for name in data_names}
+    for selection in (
+        None,
+        ("research_strategy_templates",),
+        ("research_strategy_template_modules",),
+    ):
+        registry_report = materialize_strategy_registry_refresh_assets(
+            selection=selection,
+            canonical_output_dir=canonical_dir,
+            research_output_dir=dagster_dir,
+            dataset_version="dagster-strategy-v1",
+            timeframes=("15m",),
+            indicator_set_version="indicators-v1",
+            indicator_profile_version="core_v1",
+        )
+
+        assert registry_report["success"] is True
+        assert {
+            name: delta_table_version(dagster_dir / f"{name}.delta") for name in data_names
+        } == versions
+        assert set(registry_report["selected_assets"]) == set(
+            selection or STRATEGY_REGISTRY_REFRESH_ASSETS
+        )
+        assert "research_datasets" in registry_report["materialized_assets"]
+        assert not set(registry_report["materialized_assets"]).intersection(
+            {
+                "continuous_front_bars",
+                "research_indicator_frames",
+                "research_derived_indicator_frames",
+            }
+        )
     assert "research_feature_frames" not in registry_report["materialized_assets"]
     assert registry_report["rows_by_table"]["research_strategy_families"] == len(
         REQUIRED_STG02_ADAPTER_KEYS
@@ -1924,6 +1949,7 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
 
     dagster_dir = tmp_path / "dagster-stage7"
     backtest_report = materialize_research_backtest_assets(
+        operation="rebuild",
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-stage7-v1",
@@ -2034,6 +2060,7 @@ def test_research_backtest_and_projection_jobs_materialize_research_flow(tmp_pat
     )
 
     projection_report = materialize_research_projection_assets(
+        operation="rebuild",
         canonical_output_dir=canonical_dir,
         research_output_dir=dagster_dir,
         dataset_version="dagster-stage7-v1",

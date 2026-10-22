@@ -5671,6 +5671,19 @@ def _materialize_research_assets(
         materialized_output_dir=materialized_output_dir,
         results_output_dir=results_output_dir,
     )
+    if (
+        reuse_existing_materialization
+        and selected_assets
+        and set(selected_assets).issubset(STRATEGY_REGISTRY_REFRESH_ASSETS)
+    ):
+        # The existing strategy assets consume this DTO through Dagster's IO
+        # manager. Include its read-only producer, never the CF/data writers.
+        read_route = {"research_datasets", *STRATEGY_REGISTRY_REFRESH_ASSETS}
+        expected_materialized_assets = [
+            name
+            for name in _resolve_expected_materialization(selected_assets)
+            if name in read_route
+        ]
     data_writers = {
         "continuous_front_bars",
         "research_datasets",
@@ -6463,6 +6476,11 @@ def materialize_strategy_registry_refresh_assets(
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
+    if not reuse_existing_materialization:
+        raise ValueError(
+            "strategy registry refresh requires prepared research data; "
+            "run explicit data-prep rebuild first"
+        )
     return _materialize_research_assets(
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,
@@ -6519,6 +6537,8 @@ def materialize_strategy_registry_refresh_assets(
 
 def materialize_research_backtest_assets(
     *,
+    operation: str | None = None,
+    refresh_admission: Mapping[str, object] | None = None,
     canonical_output_dir: Path,
     research_output_dir: Path | None = None,
     materialized_output_dir: Path | None = None,
@@ -6581,11 +6601,13 @@ def materialize_research_backtest_assets(
     max_candidates_per_partition: int = 1,
     min_robust_score: float = 0.55,
     decision_lag_bars_max: int = 1,
-    reuse_existing_materialization: bool = True,
+    reuse_existing_materialization: bool = False,
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
     return _materialize_research_assets(
+        operation=operation,
+        refresh_admission=refresh_admission,
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,
         materialized_output_dir=materialized_output_dir,
@@ -6661,6 +6683,8 @@ def materialize_research_backtest_assets(
 
 def materialize_research_projection_assets(
     *,
+    operation: str | None = None,
+    refresh_admission: Mapping[str, object] | None = None,
     canonical_output_dir: Path,
     research_output_dir: Path | None = None,
     materialized_output_dir: Path | None = None,
@@ -6723,11 +6747,13 @@ def materialize_research_projection_assets(
     stress_slippage_bps: float = DEFAULT_RANKING_STRESS_SLIPPAGE_BPS,
     min_parameter_stability: float = DEFAULT_RANKING_MIN_PARAMETER_STABILITY,
     min_slippage_score: float = DEFAULT_RANKING_MIN_SLIPPAGE_SCORE,
-    reuse_existing_materialization: bool = True,
+    reuse_existing_materialization: bool = False,
     selection: Sequence[str] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, object]:
     return _materialize_research_assets(
+        operation=operation,
+        refresh_admission=refresh_admission,
         canonical_output_dir=canonical_output_dir,
         research_output_dir=research_output_dir,
         materialized_output_dir=materialized_output_dir,

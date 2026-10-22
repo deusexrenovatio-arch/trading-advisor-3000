@@ -303,8 +303,9 @@ blocks daily execution. Standalone rebuild requires explicit operation selection
 Do not treat implementation modules or benchmark tooling as separate supported run paths.
 
 
-Standalone strategy registry, backtest and projection helpers consume existing
-Research materialization. Their default route does not expand into Data/CF/L0/L1/L2
-writers. Missing prepared outputs fail instead of triggering data preparation.
-An explicit data-prep rebuild still requires admission even with `reuse=True`;
-that flag cannot authorize a writer or a global fallback.
+Standalone strategy registry uses a read-only dataset context without expanding
+into CF/data writers. Backtest/projection helpers either consume existing prepared
+materialization with `reuse_existing_materialization=True`, or explicitly select
+`operation="rebuild"` before expanding into data prep. Missing prepared outputs or
+missing admission fail instead of authorizing an implicit rebuild. A data-prep
+rebuild still requires admission with `reuse=True`; that flag cannot authorize a writer.
