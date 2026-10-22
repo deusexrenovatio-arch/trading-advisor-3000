@@ -218,7 +218,9 @@ For `data_prep`:
 
 For scheduled freshness:
 - `research_data_prep_job` should run after `moex_baseline_update_job` succeeds
-- `research_data_prep_after_moex_sensor` is the Dagster handoff from canonical MOEX refresh to research data prep
+- `moex_cf_catch_up_after_moex_baseline_sensor` admits daily scope;
+  `research_data_prep_after_moex_cf_catch_up_sensor` carries the same receipt to
+  Research. `research_data_prep_after_moex_sensor` is a compatibility no-op.
 - `strategy_registry_refresh_job` remains separate and should be run when strategy inventory or campaign strategy-space inputs change
 
 For materialized-layer freshness:
@@ -295,5 +297,7 @@ If projection fails:
 ## Operational Boundary
 
 Use the matching Dagster research job for operator-driven research runs.
-Use `research_data_prep_job` plus `research_data_prep_after_moex_sensor` for scheduled freshness after MOEX canonical refresh.
+Use the baseline → CF catch-up → Research sensor chain for scheduled freshness.
+See [daily admission](indicator-refresh.md#daily-admission-boundary); missing proof
+blocks daily execution. Standalone rebuild requires explicit operation selection.
 Do not treat implementation modules or benchmark tooling as separate supported run paths.

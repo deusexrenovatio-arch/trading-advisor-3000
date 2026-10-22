@@ -89,6 +89,7 @@ def _canonical_bar(
 
 def materialize_research_dataset(
     *,
+    operation: str = "rebuild",
     manifest_seed: ResearchDatasetManifest,
     bars: list[CanonicalBar],
     session_calendar: list[SessionCalendarEntry],
@@ -242,6 +243,7 @@ def materialize_research_dataset(
         predicate=predicate,
     )
     return _materialize_research_dataset_manifest(
+        operation="rebuild",
         manifest_seed=manifest,
         output_dir=output_dir,
         bar_view_count=len(view_rows),
@@ -405,6 +407,7 @@ def test_indicator_materialization_and_reload_from_dataset_layer(tmp_path: Path)
     dataset_dir = tmp_path / "dataset"
     indicator_dir = tmp_path / "indicators"
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-v3",
             dataset_name="indicator-ready sample",
@@ -424,6 +427,7 @@ def test_indicator_materialization_and_reload_from_dataset_layer(tmp_path: Path)
     )
 
     report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-v3",
@@ -500,6 +504,7 @@ def test_indicator_materialization_recomputes_only_affected_partitions(tmp_path:
         code_version="test",
     )
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=manifest,
         bars=bars_v1,
         session_calendar=session_calendar,
@@ -507,6 +512,7 @@ def test_indicator_materialization_recomputes_only_affected_partitions(tmp_path:
         output_dir=dataset_dir,
     )
     first_report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-inc-v1",
@@ -546,6 +552,7 @@ def test_indicator_materialization_recomputes_only_affected_partitions(tmp_path:
         for row in bars_v1
     ]
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=manifest,
         bars=bars_v2,
         session_calendar=session_calendar,
@@ -553,6 +560,7 @@ def test_indicator_materialization_recomputes_only_affected_partitions(tmp_path:
         output_dir=dataset_dir,
     )
     second_report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-inc-v1",
@@ -639,6 +647,7 @@ def test_indicator_planning_uses_delta_native_aggregates_not_python_row_batches(
     dataset_dir = tmp_path / "dataset-delta-native-planning"
     indicator_dir = tmp_path / "indicators-delta-native-planning"
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-delta-native-planning-v1",
             dataset_name="delta native planning sample",
@@ -677,12 +686,14 @@ def test_indicator_planning_uses_delta_native_aggregates_not_python_row_batches(
     )
 
     first_report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-delta-native-planning-v1",
         indicator_set_version="indicators-v1",
     )
     second_report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-delta-native-planning-v1",
@@ -757,6 +768,7 @@ def test_indicator_materialization_streams_fresh_partitions_into_writer(
     dataset_dir = tmp_path / "dataset-streaming-indicators"
     indicator_dir = tmp_path / "indicators-streaming-indicators"
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-streaming-indicators-v1",
             dataset_name="streaming indicator sample",
@@ -818,6 +830,7 @@ def test_indicator_materialization_streams_fresh_partitions_into_writer(
     )
 
     report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-streaming-indicators-v1",
@@ -870,6 +883,7 @@ def test_indicator_refresh_reuses_planning_series_for_writer(
         ),
     )
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=manifest,
         bars=bars_v1,
         session_calendar=session_calendar,
@@ -877,6 +891,7 @@ def test_indicator_refresh_reuses_planning_series_for_writer(
         output_dir=dataset_dir,
     )
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-refresh-load-reuse-v1",
@@ -904,6 +919,7 @@ def test_indicator_refresh_reuses_planning_series_for_writer(
         for row in bars_v1
     ]
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=manifest,
         bars=bars_v2,
         session_calendar=session_calendar,
@@ -927,6 +943,7 @@ def test_indicator_refresh_reuses_planning_series_for_writer(
     )
 
     report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-refresh-load-reuse-v1",
@@ -949,6 +966,7 @@ def test_indicator_materialization_blocks_existing_writer_lock(tmp_path: Path) -
     dataset_dir = tmp_path / "dataset-writer-lock"
     indicator_dir = tmp_path / "indicators-writer-lock"
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-writer-lock-v1",
             dataset_name="writer lock sample",
@@ -974,6 +992,7 @@ def test_indicator_materialization_blocks_existing_writer_lock(tmp_path: Path) -
 
     with pytest.raises(RuntimeError, match="active research_indicator_frames writer"):
         materialize_indicator_frames(
+            operation="rebuild",
             dataset_output_dir=dataset_dir,
             indicator_output_dir=indicator_dir,
             dataset_version="dataset-writer-lock-v1",
@@ -1018,6 +1037,7 @@ def test_continuous_front_partition_counts_span_roll_contracts(tmp_path: Path) -
     roll_map = [RollMapEntry("BR", "2026-03-01", "BR-6.26", "test")]
     dataset_dir = tmp_path / "dataset-continuous-front-counts"
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-continuous-front-counts-v1",
             dataset_name="continuous front partition count sample",
@@ -1066,6 +1086,7 @@ def test_indicator_materialization_extends_profile_without_recomputing_existing_
     dataset_dir = tmp_path / "dataset-profile-extension"
     indicator_dir = tmp_path / "indicators-profile-extension"
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-profile-extension-v1",
             dataset_name="indicator profile extension sample",
@@ -1116,6 +1137,7 @@ def test_indicator_materialization_extends_profile_without_recomputing_existing_
     )
 
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-profile-extension-v1",
@@ -1131,6 +1153,7 @@ def test_indicator_materialization_extends_profile_without_recomputing_existing_
     first_sma = {row.ts: row.values["sma_10"] for row in first_rows}
 
     report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-profile-extension-v1",
@@ -1165,6 +1188,7 @@ def test_continuous_front_profile_extension_recomputes_existing_columns(
     dataset_dir = tmp_path / "dataset-cf-profile-extension"
     indicator_dir = tmp_path / "indicators-cf-profile-extension"
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-cf-profile-extension-v1",
             dataset_name="continuous front profile extension sample",
@@ -1218,6 +1242,7 @@ def test_continuous_front_profile_extension_recomputes_existing_columns(
     )
 
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-cf-profile-extension-v1",
@@ -1234,6 +1259,7 @@ def test_continuous_front_profile_extension_recomputes_existing_columns(
         ],
     )
     same_profile_report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-cf-profile-extension-v1",
@@ -1269,6 +1295,7 @@ def test_continuous_front_profile_extension_recomputes_existing_columns(
     )
 
     report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-cf-profile-extension-v1",
@@ -1323,6 +1350,7 @@ def test_continuous_front_full_reuse_skips_bar_partition_scan(
         ),
     )
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-cf-full-reuse-fast-path-v1",
             dataset_name="continuous front full reuse fast path sample",
@@ -1385,6 +1413,7 @@ def test_continuous_front_full_reuse_skips_bar_partition_scan(
             "volume_profile_tick_size_by_instrument": {"BR": 0.01},
         }
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-cf-full-reuse-fast-path-v1",
@@ -1408,6 +1437,7 @@ def test_continuous_front_full_reuse_skips_bar_partition_scan(
     )
 
     report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-cf-full-reuse-fast-path-v1",
@@ -1436,6 +1466,7 @@ def test_continuous_front_full_reuse_skips_bar_partition_scan(
         monkeypatch.setattr(materialize_module, "_load_bar_partition_rows", original_rows)
         DeltaTable(str(raw_path)).update(updates={"volume": "volume + 1"})
         changed = materialize_indicator_frames(
+            operation="rebuild",
             dataset_output_dir=dataset_dir,
             indicator_output_dir=indicator_dir,
             dataset_version="dataset-cf-full-reuse-fast-path-v1",
@@ -1459,6 +1490,7 @@ def test_continuous_front_full_reuse_skips_bar_partition_scan(
             updates={"source_snapshot_hash": "NULL"}
         )
         legacy = materialize_indicator_frames(
+            operation="rebuild",
             dataset_output_dir=dataset_dir,
             indicator_output_dir=indicator_dir,
             dataset_version="dataset-cf-full-reuse-fast-path-v1",
@@ -1500,6 +1532,7 @@ def test_indicator_reuse_ignores_stale_partitions_outside_dataset_manifest_timef
         ),
     )
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version=dataset_version,
             dataset_name="continuous front stale timeframe sample",
@@ -1521,6 +1554,7 @@ def test_indicator_reuse_ignores_stale_partitions_outside_dataset_manifest_timef
         output_dir=dataset_dir,
     )
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version=dataset_version,
@@ -1585,6 +1619,7 @@ def test_indicator_reuse_ignores_stale_partitions_outside_dataset_manifest_timef
     )
 
     report = materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version=dataset_version,
@@ -1654,6 +1689,7 @@ def test_derived_indicator_materialization_recomputes_only_affected_partitions(
         code_version="test",
     )
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=manifest,
         bars=bars_v1,
         session_calendar=session_calendar,
@@ -1661,12 +1697,14 @@ def test_derived_indicator_materialization_recomputes_only_affected_partitions(
         output_dir=dataset_dir,
     )
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-derived-inc-v1",
         indicator_set_version="indicators-v1",
     )
     first_report = materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,
@@ -1710,6 +1748,7 @@ def test_derived_indicator_materialization_recomputes_only_affected_partitions(
         for row in bars_v1
     ]
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=manifest,
         bars=bars_v2,
         session_calendar=session_calendar,
@@ -1717,12 +1756,14 @@ def test_derived_indicator_materialization_recomputes_only_affected_partitions(
         output_dir=dataset_dir,
     )
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-derived-inc-v1",
         indicator_set_version="indicators-v1",
     )
     second_report = materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,
@@ -1777,6 +1818,7 @@ def test_derived_indicator_materialization_reuses_when_unrelated_base_indicator_
     indicator_dir = tmp_path / "indicators-derived-base-extension"
     derived_dir = tmp_path / "derived-base-extension"
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-derived-base-extension-v1",
             dataset_name="derived base extension sample",
@@ -1795,12 +1837,14 @@ def test_derived_indicator_materialization_reuses_when_unrelated_base_indicator_
         output_dir=dataset_dir,
     )
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-derived-base-extension-v1",
         indicator_set_version="indicators-v1",
     )
     materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,
@@ -1832,6 +1876,7 @@ def test_derived_indicator_materialization_reuses_when_unrelated_base_indicator_
         ),
     )
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-derived-base-extension-v1",
@@ -1839,6 +1884,7 @@ def test_derived_indicator_materialization_reuses_when_unrelated_base_indicator_
         profile=extended_base_profile,
     )
     report = materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,
@@ -1865,6 +1911,7 @@ def test_derived_indicator_materialization_reuses_when_unrelated_base_indicator_
     )
     assert (
         materialize_derived_indicator_frames(
+            operation="rebuild",
             dataset_output_dir=dataset_dir,
             indicator_output_dir=indicator_dir,
             derived_indicator_output_dir=derived_dir,
@@ -1903,6 +1950,7 @@ def test_derived_indicator_materialization_fails_when_required_source_columns_ar
     indicator_dir = tmp_path / "indicators-derived-missing-source"
     derived_dir = tmp_path / "derived-missing-source"
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-derived-missing-source-v1",
             dataset_name="derived missing source sample",
@@ -1936,6 +1984,7 @@ def test_derived_indicator_materialization_fails_when_required_source_columns_ar
         ),
     )
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-derived-missing-source-v1",
@@ -1948,6 +1997,7 @@ def test_derived_indicator_materialization_fails_when_required_source_columns_ar
         match="derived indicator materialization requires source indicator columns",
     ):
         materialize_derived_indicator_frames(
+            operation="rebuild",
             dataset_output_dir=dataset_dir,
             indicator_output_dir=indicator_dir,
             derived_indicator_output_dir=derived_dir,
@@ -1976,6 +2026,7 @@ def test_derived_indicator_materialization_extends_profile_without_recomputing_e
     indicator_dir = tmp_path / "indicators-derived-profile-extension"
     derived_dir = tmp_path / "derived-profile-extension"
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-derived-profile-extension-v1",
             dataset_name="derived profile extension sample",
@@ -1994,12 +2045,14 @@ def test_derived_indicator_materialization_extends_profile_without_recomputing_e
         output_dir=dataset_dir,
     )
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-derived-profile-extension-v1",
         indicator_set_version="indicators-v1",
     )
     materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,
@@ -2007,6 +2060,7 @@ def test_derived_indicator_materialization_extends_profile_without_recomputing_e
         indicator_set_version="indicators-v1",
     )
     noop_report = materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,
@@ -2031,6 +2085,7 @@ def test_derived_indicator_materialization_extends_profile_without_recomputing_e
         warmup_bars=base_derived_profile.warmup_bars,
     )
     report = materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,
@@ -2082,6 +2137,7 @@ def test_continuous_front_derived_profile_extension_reuses_same_profile_and_reco
     dataset_version = "dataset-cf-derived-profile-extension-v1"
 
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version=dataset_version,
             dataset_name="continuous front derived profile extension sample",
@@ -2103,6 +2159,7 @@ def test_continuous_front_derived_profile_extension_reuses_same_profile_and_reco
         output_dir=dataset_dir,
     )
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version=dataset_version,
@@ -2111,6 +2168,7 @@ def test_continuous_front_derived_profile_extension_reuses_same_profile_and_reco
     )
     base_derived_profile = current_derived_indicator_profile()
     materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,
@@ -2128,6 +2186,7 @@ def test_continuous_front_derived_profile_extension_reuses_same_profile_and_reco
         ],
     )
     same_profile_report = materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,
@@ -2173,6 +2232,7 @@ def test_continuous_front_derived_profile_extension_reuses_same_profile_and_reco
         warmup_bars=base_derived_profile.warmup_bars,
     )
     report = materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,
@@ -2240,6 +2300,7 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
     indicator_dir = tmp_path / "indicators-source-frame"
     derived_dir = tmp_path / "derived-source-frame"
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-source-frame-v1",
             dataset_name="derived source-frame sample",
@@ -2258,6 +2319,7 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
         output_dir=dataset_dir,
     )
     materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         dataset_version="dataset-source-frame-v1",
@@ -2294,6 +2356,7 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
     )
 
     report = materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=dataset_dir,
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,
@@ -2336,6 +2399,7 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
             updates={"open_interest": "NULL"}
         )
         materialize_indicator_frames(
+            operation="rebuild",
             dataset_output_dir=dataset_dir,
             indicator_output_dir=indicator_dir,
             dataset_version="dataset-source-frame-v1",
@@ -2398,10 +2462,10 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
     )
     if change == "concurrent":
         with pytest.raises(ValueError, match="inputs changed during source-frame production"):
-            materialize_derived_indicator_frames(**arguments)
+            materialize_derived_indicator_frames(operation="rebuild", **arguments)
         assert delta_table_version(derived_path) == original_version
     else:
-        repeated = materialize_derived_indicator_frames(**arguments)
+        repeated = materialize_derived_indicator_frames(operation="rebuild", **arguments)
         expected_refresh = 0 if change in {"unchanged", "scope"} else 2 if change == "mtf" else 1
         assert repeated["refreshed_partition_count"] == expected_refresh
         assert calls == ([] if change == "unchanged" else ["spark"])
@@ -2422,7 +2486,12 @@ def test_derived_materialization_uses_source_frame_without_l0_l1_python_join(
                 "run_research_derived_source_frames_spark_job",
                 _blocked_loader,
             )
-            assert materialize_derived_indicator_frames(**arguments)["refreshed_row_count"] == 0
+            assert (
+                materialize_derived_indicator_frames(operation="rebuild", **arguments)[
+                    "refreshed_row_count"
+                ]
+                == 0
+            )
         elif change == "null_oi":
             final_rows = reload_derived_indicator_frames(
                 derived_indicator_output_dir=derived_dir,
@@ -2489,6 +2558,7 @@ def _vp_partition_fixture(tmp_path, monkeypatch, *, with_daily=False):
     ]
     dataset, indicator, derived = (tmp_path / name for name in ("dataset", "indicator", "derived"))
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="vp-scope",
             universe_id="moex-futures",
@@ -2576,8 +2646,8 @@ def _vp_partition_fixture(tmp_path, monkeypatch, *, with_daily=False):
             warmup_bars=0,
         ),
     )
-    materialize_indicator_frames(**l1)
-    materialize_derived_indicator_frames(**l2)
+    materialize_indicator_frames(operation="rebuild", **l1)
+    materialize_derived_indicator_frames(operation="rebuild", **l2)
     return l1, l2, raw, columns, minute_rows, stamp(start + timedelta(hours=21, minutes=1))
 
 
@@ -2682,14 +2752,14 @@ def test_vp_partition_invalidation_preserves_unrelated_l1_l2(tmp_path, monkeypat
 
         monkeypatch.setattr(owner, "_load_volume_profile_source_rows", race)
         with pytest.raises(ValueError, match="inputs changed"):
-            materialize_indicator_frames(**l1)
+            materialize_indicator_frames(operation="rebuild", **l1)
         return
     if change == "roll_epoch":
         with pytest.raises(ValueError, match="requires adjustment ladder rows"):
-            materialize_indicator_frames(**l1)
+            materialize_indicator_frames(operation="rebuild", **l1)
         assert ("BR", "1h") in computed
         return
-    report = materialize_indicator_frames(**l1)
+    report = materialize_indicator_frames(operation="rebuild", **l1)
     expected = (
         {("BR", "1h")}
         if change in ("higher_tf", "native_only", "roll_epoch")
@@ -2758,7 +2828,7 @@ def test_vp_partition_invalidation_preserves_unrelated_l1_l2(tmp_path, monkeypat
         return build_l2(**kwargs)
 
     monkeypatch.setattr(derived_materialize_module, "_build_prepared_partition_rows", observe_l2)
-    second = materialize_derived_indicator_frames(**l2)
+    second = materialize_derived_indicator_frames(operation="rebuild", **l2)
     expected_l2 = {("BR", "15m"), ("BR", "1h")} if change in ("higher_tf", "native_only") else set()
     assert set(l2_computed) == expected_l2
     assert second["refreshed_partition_count"] == len(expected_l2)
@@ -2785,8 +2855,11 @@ def test_vp_partition_invalidation_preserves_unrelated_l1_l2(tmp_path, monkeypat
     monkeypatch.setattr(
         derived_materialize_module, "run_research_derived_source_frames_spark_job", forbidden
     )
-    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
-    assert materialize_derived_indicator_frames(**l2)["refreshed_partition_count"] == 0
+    assert materialize_indicator_frames(operation="rebuild", **l1)["refreshed_partition_count"] == 0
+    assert (
+        materialize_derived_indicator_frames(operation="rebuild", **l2)["refreshed_partition_count"]
+        == 0
+    )
 
 
 def test_l2_indicator_hash_tracks_consumed_values_and_keys_only():
@@ -2965,8 +3038,8 @@ def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
 
     monkeypatch.setattr(derived_materialize_module, "_build_prepared_partition_rows", record_l2)
     with bridge._verified_migration_scope(source):
-        first = materialize_indicator_frames(**l1)
-        second = materialize_derived_indicator_frames(**l2)
+        first = materialize_indicator_frames(operation="rebuild", **l1)
+        second = materialize_derived_indicator_frames(operation="rebuild", **l2)
     assert first["refreshed_partition_count"] == (
         0 if change == "none" else 1 if change == "native_only" else 2
     )
@@ -3004,8 +3077,11 @@ def test_reviewed_hash_migration_preserves_values_without_numeric_rebuild(
     monkeypatch.setattr(
         derived_materialize_module, "_load_source_frame_rows", forbidden, raising=False
     )
-    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
-    assert materialize_derived_indicator_frames(**l2)["refreshed_partition_count"] == 0
+    assert materialize_indicator_frames(operation="rebuild", **l1)["refreshed_partition_count"] == 0
+    assert (
+        materialize_derived_indicator_frames(operation="rebuild", **l2)["refreshed_partition_count"]
+        == 0
+    )
 
 
 @pytest.mark.parametrize("with_migration", [False, True])
@@ -3045,8 +3121,10 @@ def test_explicit_full_guard_reaches_both_numerical_owners(tmp_path, monkeypatch
         else nullcontext()
     )
     with scope:
-        first_report = materialize_indicator_frames(**l1, force_recompute=True)
-        second_report = materialize_derived_indicator_frames(**l2, force_recompute=True)
+        first_report = materialize_indicator_frames(operation="rebuild", **l1, force_recompute=True)
+        second_report = materialize_derived_indicator_frames(
+            operation="rebuild", **l2, force_recompute=True
+        )
     assert first_report["refreshed_partition_count"] == 4
     assert second_report["refreshed_partition_count"] == 4
     assert len(calls_l1) == len(calls_l2) == 4
@@ -3083,7 +3161,7 @@ def test_metadata_migration_uses_exact_atomic_partition_budget(tmp_path, monkeyp
     monkeypatch.setattr(owner, "write_indicator_frame_partition_batches", small_budget)
     monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
     with bridge._verified_migration_scope(bridge.NATIVE_LEGACY_SOURCE):
-        result = materialize_indicator_frames(**l1)
+        result = materialize_indicator_frames(operation="rebuild", **l1)
     assert sorted(allowances) == [24, 24, 96, 96]
     assert result["hash_migrated_partition_count"] == 4
     assert result["hash_migrated_row_count"] == result["refreshed_row_count"] == 240
@@ -3097,7 +3175,7 @@ def test_metadata_migration_uses_exact_atomic_partition_budget(tmp_path, monkeyp
     assert {(r.instrument_id, r.timeframe, r.ts): r.values for r in before} == {
         (r.instrument_id, r.timeframe, r.ts): r.values for r in after
     }
-    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+    assert materialize_indicator_frames(operation="rebuild", **l1)["refreshed_partition_count"] == 0
     # An ordinary computed tail does not inherit the metadata-only allowance.
     DeltaTable(str(l1["volume_profile_raw_1m_table_path"])).update(
         updates={"high": "90.0"}, predicate="instrument_id='BR' AND ts_open='2026-03-02T06:01:00Z'"
@@ -3121,7 +3199,7 @@ def test_metadata_migration_uses_exact_atomic_partition_budget(tmp_path, monkeyp
         return scoped_writer(**kwargs)
 
     monkeypatch.setattr(batch_writer, "write_indicator_frame_scoped_batches", ordinary_suffixes)
-    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 2
+    assert materialize_indicator_frames(operation="rebuild", **l1)["refreshed_partition_count"] == 2
     assert len(suffixes) == 4
     assert all(count == 1 for partition, count in suffixes if partition.instrument_id == "SI")
 
@@ -3185,7 +3263,7 @@ def test_changed_pre223_partition_uses_native_full_writer_without_suffix_allowan
     monkeypatch.setattr(owner, "write_indicator_frame_partition_batches", small_budget)
     monkeypatch.setattr(owner, "_build_partition_rows", native_full)
     with bridge._verified_migration_scope(bridge.NATIVE_LEGACY_SOURCE):
-        result = materialize_indicator_frames(**l1)
+        result = materialize_indicator_frames(operation="rebuild", **l1)
     assert result["migration_full_partition_count"] == 2
     assert result["migration_full_row_count"] == 120
     assert result["refreshed_partition_count"] == 2
@@ -3235,7 +3313,7 @@ def test_changed_pre223_partition_uses_native_full_writer_without_suffix_allowan
     monkeypatch.setattr(
         owner, "_build_partition_rows", lambda **_: pytest.fail("repeat rebuilt partition")
     )
-    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+    assert materialize_indicator_frames(operation="rebuild", **l1)["refreshed_partition_count"] == 0
 
 
 def test_post223_migration_retains_verified_prefix_and_small_vp_tail(tmp_path, monkeypatch):
@@ -3285,12 +3363,12 @@ def test_post223_migration_retains_verified_prefix_and_small_vp_tail(tmp_path, m
     monkeypatch.setattr(owner, "_compute_volume_profile_columns", check_vp)
     monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
     with bridge._verified_migration_scope(bridge.NATIVE_LEGACY_SOURCE):
-        result = materialize_indicator_frames(**l1)
+        result = materialize_indicator_frames(operation="rebuild", **l1)
     assert result["migration_full_partition_count"] == result["migration_full_row_count"] == 0
     assert result["refreshed_partition_count"] == 2
     assert result["hash_migrated_partition_count"] == 2
     assert sorted(written) == ["15m", "1h"] and volumes == [1, 1]
-    assert materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+    assert materialize_indicator_frames(operation="rebuild", **l1)["refreshed_partition_count"] == 0
 
 
 @pytest.mark.parametrize("legacy_index", [0, 1])
@@ -3436,8 +3514,8 @@ def test_legacy_l2_append_preserves_unrelated_proof_migration(
         derived_materialize_module, "_build_prepared_partition_rows", only_changed_l2
     )
     with bridge._verified_migration_scope(source):
-        materialize_indicator_frames(**l1)
-        result = materialize_derived_indicator_frames(**l2)
+        materialize_indicator_frames(operation="rebuild", **l1)
+        result = materialize_derived_indicator_frames(operation="rebuild", **l2)
     refreshed = (
         0
         if change == "append_outside_scope"
@@ -3466,7 +3544,12 @@ def test_legacy_l2_append_preserves_unrelated_proof_migration(
             (r.instrument_id, r.timeframe, r.ts): r.values for r in before
         }
         l2 = {**l2, "timeframes": ()}
-        assert materialize_derived_indicator_frames(**l2)["refreshed_partition_count"] == 1
+        assert (
+            materialize_derived_indicator_frames(operation="rebuild", **l2)[
+                "refreshed_partition_count"
+            ]
+            == 1
+        )
         after = _vp_derived_rows(l2["derived_indicator_output_dir"])
 
     def unrelated(rows):
@@ -3485,10 +3568,13 @@ def test_legacy_l2_append_preserves_unrelated_proof_migration(
         assert {
             r.ts: r.values for r in before if r.instrument_id == "BR" and r.timeframe == "15m"
         } == {r.ts: r.values for r in after if r.instrument_id == "BR" and r.timeframe == "15m"}
-    assert materialize_derived_indicator_frames(**l2)["refreshed_partition_count"] == 0
+    assert (
+        materialize_derived_indicator_frames(operation="rebuild", **l2)["refreshed_partition_count"]
+        == 0
+    )
     monkeypatch.setattr(derived_materialize_module, "_build_prepared_partition_rows", l2_builder)
     reference = {**l2, "timeframes": ()}
-    materialize_derived_indicator_frames(**reference, force_recompute=True)
+    materialize_derived_indicator_frames(operation="rebuild", **reference, force_recompute=True)
     full = _vp_derived_rows(l2["derived_indicator_output_dir"])
 
     def values(rows):

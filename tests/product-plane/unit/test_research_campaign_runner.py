@@ -728,6 +728,7 @@ def test_campaign_run_config_forwards_volume_profile_config_to_data_prep(
     payload["execution"] = execution
 
     run_config = research_assets.build_research_campaign_run_config(
+        operation="rebuild",
         campaign_config=payload,
         repo_root=ROOT,
         dagster_job_name=research_assets.RESEARCH_DATA_PREP_JOB_NAME,
@@ -808,6 +809,7 @@ def test_campaign_run_config_does_not_write_artifacts_before_dagster_run(
 ) -> None:
     payload = _campaign_payload(tmp_path, target_stage="data_prep")
     run_config = research_assets.build_research_campaign_run_config(
+        operation="rebuild",
         campaign_config=payload,
         repo_root=ROOT,
         dagster_job_name=research_assets.RESEARCH_DATA_PREP_JOB_NAME,
@@ -1123,6 +1125,7 @@ def test_continuous_front_sidecar_failure_marks_campaign_status_failed(
     dataset["series_mode"] = "continuous_front"
     payload["dataset"] = dataset
     run_config = research_assets.build_research_campaign_run_config(
+        operation="rebuild",
         campaign_config=payload,
         repo_root=ROOT,
         dagster_job_name=research_assets.RESEARCH_DATA_PREP_JOB_NAME,

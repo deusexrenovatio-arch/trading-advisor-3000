@@ -64,6 +64,7 @@ def test_source_frame_job_rejects_missing_required_indicator_columns_before_spar
 
     with pytest.raises(ValueError, match="requires source indicator columns: rsi_14"):
         run_research_derived_source_frames_spark_job(
+            operation="rebuild",
             bar_views_path=bar_path,
             indicator_frames_path=indicator_path,
             output_dir=tmp_path,
@@ -90,6 +91,7 @@ def test_source_frame_job_fails_closed_when_spark_runtime_is_unavailable(
 
     with pytest.raises(RuntimeError, match="spark unavailable"):
         run_research_derived_source_frames_spark_job(
+            operation="rebuild",
             bar_views_path=bar_path,
             indicator_frames_path=indicator_path,
             output_dir=tmp_path,
@@ -111,6 +113,7 @@ def test_windowed_source_frame_refresh_requires_existing_output_before_spark(
 
     with pytest.raises(RuntimeError, match="windowed derived source-frame refresh requires"):
         run_research_derived_source_frames_spark_job(
+            operation="rebuild",
             bar_views_path=bar_path,
             indicator_frames_path=indicator_path,
             output_dir=tmp_path / "derived",

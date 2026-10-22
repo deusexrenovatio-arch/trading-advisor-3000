@@ -728,7 +728,7 @@ def test_materialization_process_mapping_preserves_pins_and_checks_digest(source
         snapshots.load_process_snapshot(path, mapping_path)
 
 
-def test_materialization_research_direct_context_keeps_legacy_contract(tmp_path):
+def test_materialization_research_direct_context_rejects_legacy_compute(tmp_path):
     from trading_advisor_3000.product_plane.research.data_snapshots import snapshot_materialization
 
     context = SimpleNamespace(run_id="legacy", op_config={"materialized_output_dir": str(tmp_path)})
@@ -738,7 +738,8 @@ def test_materialization_research_direct_context_keeps_legacy_contract(tmp_path)
         assert actual is context
         return {"success": True, "legacy": 7}
 
-    assert existing_owner(context) == {"success": True, "legacy": 7}
+    with pytest.raises(ValueError, match="refresh admission required"):
+        existing_owner(context)
 
 
 def test_materialization_research_explicit_parent_requires_current_admission(source, tmp_path):
@@ -807,5 +808,5 @@ def test_materialization_failed_status_never_captures_or_stamps_old_outputs(
         return {"success": True, "status": "FAIL"}
 
     with pytest.raises(ValueError, match="failed QC"):
-        failed_stage(context)
+        failed_stage.__wrapped__(context)
     assert pending["quality_checks"] == {}

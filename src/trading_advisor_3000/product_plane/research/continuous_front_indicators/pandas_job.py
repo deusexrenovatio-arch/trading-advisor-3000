@@ -19,6 +19,11 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     write_delta_table_row_batches,
     write_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.research.admission import (
+    active_admission,
+    admitted_compute,
+    admitted_pairs,
+)
 from trading_advisor_3000.product_plane.research.derived_indicators.registry import (
     current_derived_indicator_profile,
 )
@@ -2160,6 +2165,22 @@ def _verify_lineage_delta(
     )
 
 
+@admitted_compute(
+    output="output_dir",
+    sources=(),
+    input_roots=(
+        (
+            "materialized_output_dir",
+            (
+                "research_datasets",
+                "research_bar_views",
+                "research_indicator_frames",
+                "continuous_front_adjustment_ladder",
+            ),
+        ),
+    ),
+    windows=None,
+)
 def run_continuous_front_base_indicator_sidecar_job(
     *,
     materialized_output_dir: Path,
@@ -2508,6 +2529,23 @@ def run_continuous_front_base_indicator_sidecar_job(
     }
 
 
+@admitted_compute(
+    output="output_dir",
+    sources=(),
+    input_roots=(
+        (
+            "materialized_output_dir",
+            (
+                "research_datasets",
+                "research_bar_views",
+                "research_indicator_frames",
+                "research_derived_indicator_frames",
+                "continuous_front_adjustment_ladder",
+            ),
+        ),
+    ),
+    windows=None,
+)
 def run_continuous_front_indicator_pandas_job(
     *,
     materialized_output_dir: Path,
@@ -2876,6 +2914,12 @@ def run_continuous_front_indicator_pandas_job(
             "container_image_digest": None,
             "created_by_pipeline": "spark_delta_governed",
             "calculation_engines_json": {
+                "refresh_admission_id": (active_admission() or {}).get("admission_id"),
+                "touched_pairs": sorted(admitted_pairs()) if admitted_pairs() is not None else None,
+                "previous_research_parent": (active_admission() or {}).get("research_parent"),
+                "lineage_mode": "composite_retained_pairs"
+                if admitted_pairs() is not None
+                else "explicit_rebuild",
                 "storage": "delta",
                 "orchestration": "dagster_asset_job",
                 "adapter_orchestrator": "spark_delta_governed",

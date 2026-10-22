@@ -9,11 +9,8 @@ from pathlib import Path
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_rows,
-    write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.research.datasets import ResearchBarView
-
-from .contracts import continuous_front_indicator_store_contract
 
 
 def _utc_now_iso() -> str:
@@ -236,26 +233,7 @@ def materialize_cf_indicator_input_frame(
     adjustment_policy_version: str = "",
     contour_id: str = "pit_active_front",
 ) -> dict[str, object]:
-    rows = build_cf_indicator_input_rows(
-        bar_views=load_research_bar_views(
-            dataset_output_dir=dataset_output_dir,
-            dataset_version=dataset_version,
-            contour_id=contour_id,
-        ),
-        adjustment_ladder_rows=load_adjustment_ladder_rows(
-            dataset_output_dir=dataset_output_dir,
-            dataset_version=dataset_version,
-        ),
-        dataset_version=dataset_version,
-        source_canonical_version=source_canonical_version,
-        roll_policy_version=roll_policy_version,
-        adjustment_policy_version=adjustment_policy_version,
+    raise ValueError(
+        "legacy input-frame writer retired; use the native continuous-front sidecar job "
+        "through daily admission or an explicitly selected rebuild"
     )
-    contract = continuous_front_indicator_store_contract()["cf_indicator_input_frame"]
-    table_path = output_dir / "cf_indicator_input_frame.delta"
-    write_delta_table_rows(table_path=table_path, rows=rows, columns=dict(contract["columns"]))
-    return {
-        "dataset_version": dataset_version,
-        "row_count": len(rows),
-        "output_path": table_path.as_posix(),
-    }

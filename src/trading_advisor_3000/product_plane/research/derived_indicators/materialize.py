@@ -19,6 +19,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_arrow,
     read_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.research.admission import admitted_compute
 from trading_advisor_3000.product_plane.research.bar_usage_policy import (
     EVENT_UPDATE_ZERO,
     INDICATOR_USAGE_POLICY_ID,
@@ -2375,6 +2376,18 @@ def _derived_metadata_fast_reuse(
     }
 
 
+@admitted_compute(
+    output="derived_indicator_output_dir",
+    sources=(),
+    input_roots=(
+        (
+            "dataset_output_dir",
+            ("research_datasets", "research_bar_views", "continuous_front_adjustment_ladder"),
+        ),
+        ("indicator_output_dir", ("research_indicator_frames",)),
+    ),
+    windows="refresh_windows",
+)
 @native_compute_scope
 def materialize_derived_indicator_frames(
     *,
