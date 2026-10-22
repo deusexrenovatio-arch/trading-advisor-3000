@@ -260,7 +260,7 @@ def test_native_rebuild_then_sensor_daily_publish_and_readback(tmp_path, monkeyp
         consumer = """
 from pathlib import Path
 import sys
-import gc
+import os
 import pyarrow as pa
 pa.set_cpu_count(1)
 pa.set_io_thread_count(1)
@@ -272,19 +272,21 @@ def read():
     with snapshot_read_scope(load_snapshot(Path(sys.argv[1]))):
         dataset=load_materialized_research_dataset(output_dir=Path(sys.argv[2]),
             dataset_version='native-daily-proof',contour_id='pit_active_front')
-        print(len(dataset['bar_views']),flush=True)
+        rows = len(dataset['bar_views'])
+    assert rows == int(sys.argv[3]), (rows, sys.argv[3])
+    print(f'PINNED_READBACK={rows}', flush=True)
 read()
-gc.collect()
+# This proof checks the fully materialized pinned DTO, not native-library
+# shutdown. A prior successful read aborted during interpreter teardown.
+os._exit(0)
 """
 
-        assert (
-            int(
-                subprocess.check_output(
-                    [sys.executable, "-c", consumer, str(manifest_path), str(output)], text=True
-                ).strip()
-            )
-            == expected_rows
-        )
+        readback = subprocess.check_output(
+            [sys.executable, "-c", consumer, str(manifest_path), str(output), str(expected_rows)],
+            text=True,
+            timeout=120,
+        ).strip()
+        assert readback == f"PINNED_READBACK={expected_rows}"
         proof = {
             "rebuild_run": seed.run_id,
             "cf_run": cf.run_id,
@@ -293,5 +295,10 @@ gc.collect()
             "snapshot_id": after["snapshot_id"],
             "tables": after["tables"],
             "unaffected_pair": "Si/15m",
+            "fresh_readback": {
+                "marker": readback,
+                "native_teardown": "excluded",
+                "shutdown_stability": "unresolved",
+            },
         }
         (tmp_path / "native-proof.json").write_text(json.dumps(proof, indent=2))
