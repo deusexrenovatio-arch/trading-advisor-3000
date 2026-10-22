@@ -549,6 +549,13 @@ def test_spark_publish_mutates_delta_tables_and_refreshes_sidecars_with_overlap(
 
     assert report["status"] == "PASS", report
     assert report["runtime_owner"] == "spark_delta"
+    from deltalake import DeltaTable
+
+    for name, proof in report["publish_protocol"]["commit_owner_verified"].items():
+        native = DeltaTable(report["publish_protocol"]["target_paths"][name])
+        assert proof["verified"] is True, (name, proof)
+        assert proof["table_id"] == native.metadata().id
+        assert proof["delta_version"] == native.version()
     assert report["mutation_applied"] is True
     assert report["publish_protocol"]["scoped_replacement"]["stale_bar_rows"] == 2
     assert report["publish_protocol"]["scoped_replacement"]["stale_provenance_rows"] == 2

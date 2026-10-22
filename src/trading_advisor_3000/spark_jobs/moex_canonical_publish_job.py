@@ -1062,6 +1062,28 @@ def _sidecar_stale_keys(
     return scoped_target_keys_df.join(replacement_keys_df, list(key_columns), "left_anti")
 
 
+def _native_commit_owner_verified(table_path, before_version, token):
+    from deltalake import DeltaTable as NativeDeltaTable
+
+    table = NativeDeltaTable(str(table_path))
+    last = table.version()
+    first = before_version if before_version is not None else -1
+    count = last - first
+    commits = table.history(limit=count) if 0 < count <= 128 else []
+    verified = (
+        0 <= count <= 128
+        and len(commits) == count
+        and {item["version"] for item in commits} == set(range(first + 1, last + 1))
+        and all(item.get("userMetadata") == token for item in commits)
+    )
+    return {
+        "table_path": Path(table_path).resolve().as_posix(),
+        "table_id": table.metadata().id,
+        "delta_version": last,
+        "verified": verified,
+    }
+
+
 def run_moex_canonical_publish_spark_delta_job(
     *,
     staged_bars_path: Path,
@@ -1315,6 +1337,10 @@ def run_moex_canonical_publish_spark_delta_job(
             if affected_session_rows > 0
             else "",
         }
+        from uuid import uuid4
+
+        commit_token = f"canonical:{run_id}:{uuid4()}"
+        spark.conf.set("spark.databricks.delta.commitInfo.userMetadata", commit_token)
         _write_json(recovery_manifest_path, publish_protocol)
 
         publish_has_changes = (
@@ -1663,7 +1689,15 @@ def run_moex_canonical_publish_spark_delta_job(
             "stage_timings": stage_timings,
             "qc_report": qc_report,
             "contract_compatibility_report": contract_report,
-            "publish_protocol": publish_protocol,
+            "publish_protocol": {
+                **publish_protocol,
+                "commit_owner_verified": {
+                    name: _native_commit_owner_verified(
+                        Path(path), publish_protocol["pre_publish_versions"].get(name), commit_token
+                    )
+                    for name, path in publish_protocol["target_paths"].items()
+                },
+            },
             "sidecar_refresh": {
                 "mode": refresh_mode,
                 "mutation_applied": sidecar_mutation,

@@ -139,3 +139,34 @@ Chosen path: metadata descriptions over the existing Delta owner and producer
 selector, preserving pinned versions and future ordinary scheduled processing.
 This closes the schema-description contract; it does not claim deployed code,
 a fresh production calculation, or a completed live trading journey.
+
+## Daily admission and producer retry
+
+Change surface: product-plane. Architectural impact: contract-change.
+
+Daily execution follows [daily admission](indicator-refresh.md#daily-admission-boundary).
+The publisher revalidates inputs, parents, exact config, successful native step
+owners and all QC before CAS. Repeating the same accepted attempt returns its
+same snapshot only after checkpoint/config/table/QC comparison; it cannot bless
+another attempt or changed output. Failed or partial attempts retain the prior
+accepted Research snapshot. Retry transfers only verified successful steps.
+
+Daily OI writes save old/new contract/date/instrument keys in the existing
+pending-changed-windows payload before committing Delta. Baseline merges them
+into canonical dirty windows before its no-op decision, preserving them until
+accepted Data publication. Coverage requires the complete native reference chain
+from the previous accepted Data pin to the producer output. Economics-only scope
+resolves instrument identity from pinned canonical columns; ambiguous aliases block.
+
+An unreported RAW/canonical commit detected before a later baseline cannot be
+certified by that later run's narrower windows. Its accepted Data manifest keeps
+unbounded ancestry, so Research blocks and retains backlog. Only an exact existing
+OI write-ahead chain can explain the corresponding support drift. This does not
+schedule a rebuild; recovery needs the separately selected native rebuild route.
+
+Producer scope v2 supersedes legacy v1 transitions after the accepted Research
+anchor. RAW binds actual pre/post native versions and permits only its one data
+commit plus native compaction. Canonical binds its native pre-publish versions,
+target paths and commit ownership through Delta userMetadata; unexpected commits
+break coverage. Legacy evidence and missing producer-chain proof block daily
+scope instead of being promoted by a later narrow update.

@@ -11,6 +11,7 @@ from trading_advisor_3000.product_plane.common.data_snapshots import (
     capture_table,
     create_snapshot,
     current_snapshot,
+    load_snapshot,
     publish_snapshot,
     runtime_provenance,
     save_snapshot,
@@ -43,8 +44,20 @@ def data_input_snapshot(*, tables: Mapping, run_id: str) -> dict[str, Any]:
     )
 
 
-def _downstream_scope(*, report: Mapping, tables: Mapping) -> dict:
+def _downstream_scope(
+    *, report: Mapping, tables: Mapping, previous_tables: Mapping | None = None
+) -> dict:
     """Bind each producer's dirty range only to its exact published outputs."""
+    if report.get("unproven_starting_references"):
+        return {
+            "version": 2,
+            "full_refresh": True,
+            "covered_tables": {},
+            "windows": [],
+            "effective_intervals": [],
+            "reason": "unproven_starting_references",
+            "unproven_tables": list(report["unproven_starting_references"]),
+        }
     cf = report.get("cf_catch_up") or {}
     windows = [dict(window) for window in cf.get("windows", [])]
     covered = {}
@@ -101,8 +114,71 @@ def _downstream_scope(*, report: Mapping, tables: Mapping) -> dict:
                 reference[key] == actual[key] for key in ("table_id", "delta_version")
             ):
                 covered[name] = {key: actual[key] for key in ("table_id", "delta_version")}
+    raw_scope = report.get("raw_ingest_scope") or {}
+    raw_name = "raw_moex_history"
+    before, actual = (previous_tables or {}).get(raw_name), tables.get(raw_name)
+    if before and actual and before != actual:
+        original, final = raw_scope.get("input_reference"), raw_scope.get("output_reference")
+        if not (
+            type(raw_scope.get("version")) is int
+            and raw_scope.get("version") == 1
+            and raw_scope.get("proven") is True
+            and original == before
+            and final == actual
+        ):
+            covered.pop(raw_name, None)
+    protocol = report.get("canonical_report", {}).get("publish_protocol") or {}
+    pre_versions, target_paths = (
+        protocol.get("pre_publish_versions", {}),
+        protocol.get("target_paths", {}),
+    )
+    for name in (
+        "canonical_bars",
+        "canonical_bar_provenance",
+        "canonical_session_calendar",
+        "canonical_roll_map",
+    ):
+        before, actual = (previous_tables or {}).get(name), tables.get(name)
+        if before and actual and before != actual:
+            proof = protocol.get("commit_owner_verified", {}).get(name) or {}
+            if (
+                not isinstance(proof, Mapping)
+                or proof.get("verified") is not True
+                or any(
+                    proof.get(key) != actual.get(key)
+                    for key in ("table_path", "table_id", "delta_version")
+                )
+                or pre_versions.get(name) != before["delta_version"]
+                or Path(str(target_paths.get(name) or "")).resolve()
+                != Path(before["table_path"]).resolve()
+                or actual["table_id"] != before["table_id"]
+            ):
+                covered.pop(name, None)
+    oi = report.get("oi_support_scope") or {}
+    reference = oi.get("output_reference") or {}
+    name = Path(str(reference.get("table_path") or "")).stem
+    actual = tables.get(name)
+    before = (previous_tables or {}).get(name)
+    original = oi.get("input_reference") or {}
+    prior_bound = before and all(
+        before.get(key) == original.get(key) for key in ("table_path", "table_id", "delta_version")
+    )
+    if (
+        type(oi.get("version")) is int
+        and oi.get("version") == 1
+        and oi.get("scope_proven") is True
+        and prior_bound
+        and oi.get("changed_keys")
+        and oi.get("windows")
+        and actual
+        and all(
+            reference.get(key) == actual.get(key)
+            for key in ("table_path", "table_id", "delta_version")
+        )
+    ):
+        covered[name] = {key: actual[key] for key in ("table_id", "delta_version")}
     return {
-        "version": 1,
+        "version": 2,
         "full_refresh": False,
         "covered_tables": covered,
         "windows": windows,
@@ -140,6 +216,12 @@ def publish_data_snapshot(
         "canonical": report["canonical_report"]["status"],
         "economics": report["economics_refresh"]["status"],
     }
+    root = canonical_paths[0].parent / ".data_snapshots"
+    previous_tables = (
+        load_snapshot(root / "manifests" / f"{expected_current_id}.json")["tables"]
+        if expected_current_id
+        else {}
+    )
     manifest = create_snapshot(
         tables=tables,
         required_tables=required,
@@ -152,7 +234,9 @@ def publish_data_snapshot(
             "runtime_provenance": dict(provenance),
             "refresh_window_days": report["refresh_window_days"],
             "changed_windows": report["cf_catch_up"]["source_changed_windows"],
-            "downstream_scope": _downstream_scope(report=report, tables=tables),
+            "downstream_scope": _downstream_scope(
+                report=report, tables=tables, previous_tables=previous_tables
+            ),
             "economics_mode": report["economics_mode"],
             "economics_stage_inputs": dict(
                 report["economics_refresh"].get("snapshot_inputs") or {}
