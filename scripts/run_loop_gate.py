@@ -15,6 +15,7 @@ from gate_marker_contract import (
     resolve_gate_markers,
 )
 from gate_reuse import run_loop_commands
+from validate_architecture_review import check_architecture_review
 
 REMEDIATION_DOC = "docs/runbooks/governance-remediation.md"
 POLICY_CRITICAL_LOOP_VALIDATION_SCRIPTS = (
@@ -37,16 +38,21 @@ def main() -> int:
     parser.add_argument("--enforce-explicit-markers", action="store_true")
     parser.add_argument("--summary-file", default=None)
     parser.add_argument("--no-reuse", action="store_true", help="Force fresh local fast checks.")
+    parser.add_argument("--architecture-review-source", default=None)
     args = parser.parse_args()
 
-    changed_files = collect_changed_files(
-        base_ref=args.base_ref,
-        head_ref=args.head_ref,
-        git_ref=args.git_ref,
-        from_git=args.from_git,
-        changed_files=list(args.changed_files),
-        from_stdin=args.stdin,
-    )
+    try:
+        changed_files = collect_changed_files(
+            base_ref=args.base_ref,
+            head_ref=args.head_ref,
+            git_ref=args.git_ref,
+            from_git=args.from_git,
+            changed_files=list(args.changed_files),
+            from_stdin=args.stdin,
+        )
+    except ValueError as exc:
+        print(f"loop gate: FAILED ({exc})")
+        return 2
     surface = compute_surface(changed_files, mapping_path=Path(args.mapping))
     loop_commands = list(surface["commands"]["loop"])
     policy_critical = includes_policy_critical_command(
@@ -75,6 +81,18 @@ def main() -> int:
     profile = markers.profile
     for message in markers.deprecation_messages:
         print(message)
+
+    review_code = check_architecture_review(
+        changed_files,
+        phase="design",
+        source=args.architecture_review_source,
+        base_ref=args.base_ref,
+        head_ref=args.head_ref,
+        git_ref=args.git_ref,
+        diagnostic=True,
+    )
+    if review_code:
+        return review_code
 
     commands = [
         scope_validate_command(

@@ -86,6 +86,8 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - Successful local fast checks may be reused only through the source/environment-bound
   gate mechanism. CI, PR-only checks, native proofs and live validators remain fresh.
 
+- Classify architectural impact using `docs/agent/architecture-review.md`. For triggered decisions, delegate design and implementation review to an independent reviewer or subagent; preserve the ordinary short route for accepted implementation.
+
 ## Agent support
 ### Issue tracker
 GitHub Issues are the issue tracker for this repo; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.

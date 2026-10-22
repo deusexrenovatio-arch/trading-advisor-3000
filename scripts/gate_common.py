@@ -27,39 +27,51 @@ def collect_changed_files(
     files = list(changed_files)
     if base_ref and head_ref:
         diff = subprocess.run(
-            ["git", "diff", "--name-only", f"{base_ref}..{head_ref}"],
+            ["git", "diff", "--name-only", "-z", f"{base_ref}..{head_ref}"],
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
         )
+        if diff.returncode != 0:
+            raise ValueError("Git diff collection failed; verify base/head refs")
         if diff.returncode == 0:
-            files.extend(line.strip() for line in diff.stdout.splitlines() if line.strip())
+            files.extend(path for path in diff.stdout.split("\0") if path)
     elif from_git:
         ref = git_ref or "HEAD"
         diff = subprocess.run(
-            ["git", "diff", "--name-only", ref],
+            ["git", "diff", "--name-only", "-z", ref],
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
         )
+        if diff.returncode != 0:
+            raise ValueError("Git diff collection failed; verify git-ref")
         if diff.returncode == 0:
-            files.extend(line.strip() for line in diff.stdout.splitlines() if line.strip())
+            files.extend(path for path in diff.stdout.split("\0") if path)
         untracked = subprocess.run(
-            ["git", "ls-files", "--others", "--exclude-standard"],
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
         )
+        if untracked.returncode != 0:
+            raise ValueError("Git untracked-file collection failed")
         if untracked.returncode == 0:
-            files.extend(line.strip() for line in untracked.stdout.splitlines() if line.strip())
+            files.extend(path for path in untracked.stdout.split("\0") if path)
     if from_stdin:
-        files.extend(line.strip() for line in sys.stdin.read().splitlines() if line.strip())
+        files.extend(line for line in sys.stdin.read().splitlines() if line)
 
     normalized: list[str] = []
     seen: set[str] = set()
     for item in files:
-        candidate = item.replace("\\", "/").strip()
-        marker = candidate.lower()
+        candidate = item.replace("\\", "/")
+        marker = candidate
         if not marker or marker in seen:
             continue
         seen.add(marker)

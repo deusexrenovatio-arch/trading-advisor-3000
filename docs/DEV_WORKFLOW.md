@@ -14,6 +14,15 @@ Provide a predictable and enforceable workflow for governance-first delivery in 
 
 For product-plane tasks, read `docs/architecture/product-plane/STATUS.md` before treating older phase-closure language as current truth.
 
+Classify architectural impact before implementation using
+[Architecture Review](docs/agent/architecture-review.md). Ordinary accepted
+implementation uses the short `none` declaration. New architectural choices
+require independent design and implementation review; changing an accepted
+boundary also updates its owning decision. Keep evidence in the existing
+task/PR body. Loop diagnostics do not imply design admission; PR gate enforces
+fresh review evidence for the selected scope. Hosted post-merge nightly reuses
+checks as hygiene, not a second architecture admission.
+
 ## Worktree setup
 New worktrees run `scripts/serena_worktree_bootstrap.py` from the tracked `post-checkout` hook when the target commit contains the hook. If a worktree was created from an older commit or the hook was skipped, run:
 

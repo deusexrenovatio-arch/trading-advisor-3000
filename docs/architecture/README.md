@@ -24,6 +24,9 @@ need a coherent whole-system view before reading the more specific documents.
 - `docs/architecture/dual-surface-safe-rename-migration-technical-specification.md`
 
 ## Product Plane architecture index
+- `docs/architecture/product-plane/architecture-standard.md`
+  - substantive review baseline consolidated from current accepted owners;
+    exact schemas/APIs and implementation status remain with their owners
 - `docs/architecture/product-plane/README.md`
 - `docs/architecture/product-plane/STATUS.md`
 - `docs/architecture/product-plane/CONTRACT_SURFACES.md`

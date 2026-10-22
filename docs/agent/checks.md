@@ -12,6 +12,7 @@
 | Truth recomposition validator | `python scripts/truth_recomposition.py validate --report <path>` | fail closed when stacked follow-up recomposition still carries temporary downgrade surfaces or out-of-contract deltas |
 | PR surface matrix plan | `python scripts/run_surface_pr_matrix.py --plan-only --from-git --git-ref HEAD --output-json artifacts/ci/pr-surface-plan.json --summary-file artifacts/ci/pr-surface-plan.md` | resolve contour-aware profile/check plan and emit CI-visible evidence |
 | PR size gate | `python scripts/validate_pr_size.py --from-git --git-ref HEAD` | fail closed when reviewable PR size exceeds 100 files or 3000 line changes; delete-only cold/generated/lifecycle state is excluded |
+| Architecture admission | `python scripts/validate_architecture_review.py --from-git --git-ref HEAD --architecture-review-source <body-export>` | validate classification, independent verdicts, decision and selected-file freshness; existing PR gate enforces it |
 | Skills catalog drift | `python scripts/sync_skills_catalog.py --check` | ensure generated catalog matches runtime skills |
 | CODEOWNERS coverage | `python scripts/validate_codeowners.py` | ensure ownership routing remains complete |
 | Docs links | `python scripts/validate_docs_links.py --roots AGENTS.md docs` | prevent broken markdown references |
@@ -53,6 +54,7 @@ Hosted CI note:
 - `python scripts/sync_skills_catalog.py --check`
 
 ## QA matrix core
+- `python -m pytest tests/process/test_architecture_review.py -q`
 - `python -m pytest tests/process/test_compute_change_surface.py -q`
 - `python -m pytest tests/process/test_context_router.py -q`
 - `python -m pytest tests/process/test_gate_scope_routing.py -q`
