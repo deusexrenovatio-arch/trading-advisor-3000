@@ -455,6 +455,24 @@ def _native_domain_checks(function, options, value, *, sources, input_roots):
                 expected = str(Path(domain["materialized_output_dir"]) / Path(path).name)
         else:
             expected = None
+        if key in {"volume_profile_raw_1m_table_path", "canonical_contract_economics_path"}:
+            pinned = expected and any(
+                Path(ref["table_path"]).resolve() == Path(expected).resolve()
+                for ref in value["inputs"].values()
+            )
+            exists = expected and (Path(expected) / "_delta_log").is_dir()
+            if exists and not pinned:
+                raise ValueError(f"refresh admission native input appeared after admission: {key}")
+            # The existing rebuild adapter omits its unavailable optional VP
+            # default. Never omit a pinned input or grant this daily exception.
+            if (
+                key == "volume_profile_raw_1m_table_path"
+                and path is None
+                and value["operation"] == "rebuild"
+                and not pinned
+                and not exists
+            ):
+                expected = None
         if (Path(path).resolve().as_posix() if path is not None else None) != (
             Path(expected).resolve().as_posix() if expected else None
         ):

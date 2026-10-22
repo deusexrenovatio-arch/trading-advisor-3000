@@ -260,3 +260,31 @@ def test_nested_explicit_rebuild_sources_bind_declared_native_roots(tmp_path):
         operation="rebuild",
     )
     assert calls == [path]
+
+
+def test_rebuild_optional_volume_source_omission_preserves_native_binding(admitted_chain):
+    config, _, _ = admitted_chain
+    path = Path(config["materialized_output_dir"]).parent / "optional" / "vp.delta"
+    config = {**config, "operation": "rebuild", "volume_profile_raw_1m_table_path": path.as_posix()}
+    value = owner.issue_admission(config, operation="rebuild")
+    calls = []
+
+    @owner.admitted_compute(output="output_dir", sources=("volume_profile_raw_1m_table_path",))
+    def native(*, output_dir, dataset_version, volume_profile_raw_1m_table_path=None):
+        calls.append(volume_profile_raw_1m_table_path)
+
+    options = dict(output_dir=Path(config["materialized_output_dir"]), dataset_version="test")
+    with owner._owner_scope(value):
+        native(**options)
+    assert calls == [None]
+    write_deltalake(str(path), pa.table({"id": [1]}))
+    with owner._owner_scope(value):
+        for actual in (None, path):
+            with pytest.raises(ValueError, match="input appeared"):
+                native(**options, volume_profile_raw_1m_table_path=actual)
+    value = owner.issue_admission(config, operation="rebuild")
+    with owner._owner_scope(value):
+        native(**options, volume_profile_raw_1m_table_path=path)
+        with pytest.raises(ValueError, match="input path changed"):
+            native(**options)
+    assert calls == [None, path]
