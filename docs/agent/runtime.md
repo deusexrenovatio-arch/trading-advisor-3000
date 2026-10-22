@@ -38,6 +38,15 @@ Allowed engines are the native Delta/Arrow/Spark read paths used by the Product 
   enables only; they are not ordinary-chat defaults.
 
 ## Loop/PR Metadata
+- Architecture review input is the existing task/PR body: explicit
+  `--architecture-review-source <temporary-body-export>`, inherited
+  `AI_SHELL_ARCHITECTURE_REVIEW_SOURCE`, or hosted `GITHUB_EVENT_PATH`.
+- Loop checks supplied design evidence; absent input means diagnostics only.
+  PR gate requires a current classification for nonempty scopes and independent
+  review for triggered decisions. See
+  [Architecture Review](docs/agent/architecture-review.md).
+- Hosted clean post-merge nightly on `main` reuses checks as hygiene without
+  claiming a new architecture admission; local dirty scopes retain admission.
 - `run_loop_gate.py` and `run_pr_gate.py` emit explicit `snapshot_mode` and `profile` markers in gate output.
 - On policy-critical validation paths, missing markers now fail closed.
 - Canonical explicit invocation:

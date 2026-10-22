@@ -18,6 +18,7 @@ from gate_common import (
     write_summary,
 )
 from gate_marker_contract import GateMarkerError, resolve_gate_markers
+from validate_architecture_review import check_architecture_review
 
 REMEDIATION_DOC = "docs/runbooks/governance-remediation.md"
 
@@ -39,6 +40,7 @@ def _build_loop_gate_command(
     snapshot_mode: str,
     profile: str,
     no_reuse: bool = False,
+    architecture_review_source: str | None = None,
 ) -> str | CommandSpec:
     parts = [
         sys.executable,
@@ -53,17 +55,18 @@ def _build_loop_gate_command(
     ]
     if no_reuse:
         parts.append("--no-reuse")
+    if architecture_review_source:
+        parts.extend(["--architecture-review-source", architecture_review_source])
+    parts.extend(["--git-ref", git_ref or "HEAD"])
+    if base_ref and head_ref:
+        parts.extend(["--base-ref", base_ref, "--head-ref", head_ref])
     if explicit_changed_files is not None:
         parts.append("--stdin")
         stdin_text = "\n".join(explicit_changed_files)
         if stdin_text:
             stdin_text += "\n"
         return CommandSpec(command=_join_command(parts), stdin_text=stdin_text)
-    if base_ref and head_ref:
-        parts.extend(["--base-ref", base_ref, "--head-ref", head_ref])
-    elif from_git:
-        parts.extend(["--from-git", "--git-ref", git_ref or "HEAD"])
-    else:
+    if not (base_ref and head_ref):
         parts.append("--from-git")
     return _join_command(parts)
 
@@ -82,16 +85,22 @@ def main() -> int:
     parser.add_argument("--enforce-explicit-markers", action="store_true")
     parser.add_argument("--summary-file", default=None)
     parser.add_argument("--no-reuse", action="store_true", help="Force fresh local fast checks.")
+    parser.add_argument("--architecture-review-source", default=None)
     args = parser.parse_args()
 
-    changed_files = collect_changed_files(
-        base_ref=args.base_ref,
-        head_ref=args.head_ref,
-        git_ref=args.git_ref,
-        from_git=args.from_git,
-        changed_files=list(args.changed_files),
-        from_stdin=args.stdin,
-    )
+    try:
+        changed_files = collect_changed_files(
+            base_ref=args.base_ref,
+            head_ref=args.head_ref,
+            git_ref=args.git_ref,
+            from_git=args.from_git
+            or not (args.base_ref or args.head_ref or args.stdin or args.changed_files),
+            changed_files=list(args.changed_files),
+            from_stdin=args.stdin,
+        )
+    except ValueError as exc:
+        print(f"pr gate: FAILED ({exc})")
+        return 2
     surface = compute_surface(changed_files, mapping_path=Path(args.mapping))
     policy_critical = is_non_trivial_diff(changed_files) and not bool(surface.get("docs_only"))
     try:
@@ -118,6 +127,29 @@ def main() -> int:
     for message in markers.deprecation_messages:
         print(message)
 
+    review_code = check_architecture_review(
+        changed_files,
+        phase="implementation",
+        source=args.architecture_review_source,
+        base_ref=args.base_ref,
+        head_ref=args.head_ref,
+        git_ref=args.git_ref,
+    )
+    if review_code:
+        return review_code
+    return _run_pr_checks(args, surface, changed_files, snapshot_mode, profile)
+
+
+def _run_pr_checks(
+    args: argparse.Namespace,
+    surface: dict,
+    changed_files: list[str],
+    snapshot_mode: str,
+    profile: str,
+) -> int:
+    """Shared checks; public PR entrypoint always performs admission first."""
+    policy_critical = is_non_trivial_diff(changed_files) and not bool(surface.get("docs_only"))
+
     loop_command = _build_loop_gate_command(
         mapping=args.mapping,
         from_git=args.from_git,
@@ -127,7 +159,8 @@ def main() -> int:
         explicit_changed_files=list(changed_files) if (args.stdin or args.changed_files) else None,
         snapshot_mode=snapshot_mode,
         profile=profile,
-        no_reuse=args.no_reuse,
+        no_reuse=getattr(args, "no_reuse", False),
+        architecture_review_source=args.architecture_review_source,
     )
     loop_code = run_command(loop_command)
     if loop_code != 0:

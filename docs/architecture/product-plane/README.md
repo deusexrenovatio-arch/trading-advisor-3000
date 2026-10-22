@@ -3,6 +3,7 @@
 This directory is the product-plane architecture index inside the dual-surface repository.
 
 Read these first:
+- [architecture-standard.md](docs/architecture/product-plane/architecture-standard.md) - accepted architectural principles, module boundaries, constraints and substantive review criteria; preserves target/current distinctions.
 - [trading-advisor-3000.md](docs/architecture/trading-advisor-3000.md) - canonical whole-repository orientation map.
 - [STATUS.md](docs/architecture/product-plane/STATUS.md) - current implemented reality and no-go zones.
 - [CONTRACT_SURFACES.md](docs/architecture/product-plane/CONTRACT_SURFACES.md) - current versioned boundary inventory.
