@@ -23,6 +23,8 @@ services:
     environment:
       TA3000_RESEARCH_WORKER_OWNER: dagster-webserver
       DAGSTER_HOME: /opt/dagster/dagster_home
+      # Native snapshot admission can exceed Dagster's default 60-second RPC budget.
+      DAGSTER_SENSOR_GRPC_TIMEOUT_SECONDS: "${DAGSTER_SENSOR_GRPC_TIMEOUT_SECONDS:-600}"
       PYTHONPATH: /workspace/src
       TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/staging/product/moex-historical
@@ -81,6 +83,8 @@ services:
     environment:
       TA3000_RESEARCH_WORKER_OWNER: dagster-daemon
       DAGSTER_HOME: /opt/dagster/dagster_home
+      # Native snapshot admission can exceed Dagster's default 60-second RPC budget.
+      DAGSTER_SENSOR_GRPC_TIMEOUT_SECONDS: "${DAGSTER_SENSOR_GRPC_TIMEOUT_SECONDS:-600}"
       PYTHONPATH: /workspace/src
       TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/staging/product/moex-historical
