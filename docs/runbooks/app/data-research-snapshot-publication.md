@@ -162,7 +162,8 @@ An unreported RAW/canonical commit detected before a later baseline cannot be
 certified by that later run's narrower windows. Its accepted Data manifest keeps
 unbounded ancestry, so Research blocks and retains backlog. Only an exact existing
 OI write-ahead chain can explain the corresponding support drift. This does not
-schedule a rebuild; recovery needs the separately selected native rebuild route.
+schedule a rebuild. The explicit native scope recovery below can prove the complete
+unknown segment without numerical materialization; otherwise Research stays blocked.
 
 Producer scope v2 supersedes legacy v1 transitions after the accepted Research
 anchor. RAW binds actual pre/post native versions and permits only its one data
@@ -170,3 +171,68 @@ commit plus native compaction. Canonical binds its native pre-publish versions,
 target paths and commit ownership through Delta userMetadata; unexpected commits
 break coverage. Legacy evidence and missing producer-chain proof block daily
 scope instead of being promoted by a later narrow update.
+
+
+## Explicit scope recovery
+
+Change surface: product-plane. Architectural impact: contract-change.
+
+A new successful baseline can replace `legacy_bound_data_scope` with a different
+valid blocker: its v2 scope retains an unproven native transition from a failed
+prior run. A later narrow child cannot conceal that immutable transition.
+
+The existing Data owner offers `recover-scope`: native audit by default, optional
+metadata-only publication with `--publish`. It compares the exact accepted
+Research Data parent with exact accepted current Data. Spark reads both pinned
+Delta versions, compares complete changed physical partitions with symmetric
+`EXCEPT ALL`, and verifies reader row counts against native AddFile statistics.
+Unpartitioned tables are compared in full. Old/new semantic effect starts include
+deletions, old aliases and changed interval ends. Unknown features, identities,
+schemas, temporal scope or null timestamps reject; ingestion time is not effect time.
+The union of old/new canonical pairs defines the conservative dirty domain.
+
+`data_scope_recovery.v1` is the single report contract, embedded in the existing
+Data manifest's downstream scope. No new registry or table writer is introduced.
+Its source/target/Research IDs, manifest digests, native reference hashes, counts,
+full changed range, checked operator lower bound and retained historical prefix
+bind one complete ancestry segment. The publishing owner runs the native audit;
+an externally supplied report cannot authorize publication. The lower bound
+rejects earlier changes instead of truncating them. Historical all-domain
+recovery without a retained prefix is blocked; it cannot silently select rebuild.
+
+A published bridge has exactly the prior current Data tables and that Data
+snapshot as parent. Old manifests remain unchanged. The resolver may discharge
+only the proved segment to the exact accepted Research anchor. New ordinary v2
+children continue through their normal producer scopes. Retry uses exact expected
+parent IDs and cannot publish the same stale attempt again.
+
+Apply while existing controls are paused and native runs drained, preserving
+cursors. Publication uses one Data CAS. Research identity is checked before/after
+CAS and at admission; this is not an atomic two-registry transaction. A concurrent
+Research change leaves any published bridge unusable until recovery is repeated
+against the new accepted state. Native Data drift or changed Research outputs
+reject before publication. Restore the prior controls after verification.
+
+The operator entrypoint is
+`python -m trading_advisor_3000.product_plane.data_plane.data_snapshots recover-scope`.
+Required arguments: `--canonical-root`, `--research-root`, `--not-before`,
+`--expected-data-id`, `--expected-research-id`; optional `--report-path` and
+`--publish`. Publication alone does not trigger a baseline-success sensor.
+Activate through the next ordinary scheduled baseline or an existing Dagster
+daily job with a validated SCOPED admission and `force_full_refresh=false`.
+No fake baseline success, cursor rewind, or full refresh is permitted.
+
+The composed compatibility receipt v4 admits only the audited fingerprint-engine
+contextvars allowance and complete pair restriction in the sidecar, plus existing
+native source-schema correction. Every other kernel, quality/proof codec,
+profile and numerical dependency stays equal. Bootstrap constants stay frozen.
+`operation` and `refresh_admission` are execution metadata under the existing
+scope-parameter owner; changing roots, periods, selectors or numerical policies
+still blocks. An unsupported compute contract produces observable BLOCKED.
+
+The audited contextvars-only engine transition also retains the old L1/L2
+numerical hash identity through `numerical_identity()`. Only the exact reviewed
+engine is aliased; live kernels and dependencies still invalidate carriers.
+Raw semantic contracts and native operation entry/exit drift checks retain the
+real engine. This prevents an operational compatibility allowance from widening
+a changed suffix into an otherwise unnecessary complete-series replacement.
