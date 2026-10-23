@@ -152,7 +152,12 @@ python -m trading_advisor_3000.product_plane.research.derived_indicators.adapt_n
 Use `--instruments` / `--timeframes` for an explicitly selected adoption scope.
 Verify an unchanged pair through ordinary `snapshot_materialization` with hard
 failures on formula entrypoints. Changed native inputs must miss both reuse
-paths and retain their requested TF. The current CF calculation owner computes
-the full selected series before reducing writes to a changed suffix; suffix
-writes alone do not prove incremental formula continuation. Do not invoke that
-calculation when full selected-series recomputation is prohibited.
+paths and retain their requested TF. CF and L2 formula continuation now follows
+the checkpoint/input-prefix contract in
+[indicator-refresh.md](docs/runbooks/app/indicator-refresh.md). Optional L1
+`compute_state_json` and L2 `input_row_hash` remain under the existing row/schema
+and Delta writer owners. The numerical kernel pins the native state adapters;
+public indicator/derived formulas, bar eligibility and CF price-space rules
+retain their accepted meaning. Suffix writes alone never prove bounded compute.
+Missing/incompatible state still requires full validation on the allowed route;
+do not invoke that fallback when full selected-series recomputation is prohibited.

@@ -1,0 +1,144 @@
+"""Bounded real-input producer/consumer proof. All writes stay under .tmp."""
+import hashlib
+import json
+import sys
+import time
+import tempfile
+import shutil
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+from deltalake import DeltaTable
+
+ROOT=Path(__file__).resolve().parents[1]
+CODE=Path(tempfile.mkdtemp(prefix='tail-proof-code-',dir=ROOT/'.tmp'))/'src'
+shutil.copytree(ROOT/'src',CODE,ignore=shutil.ignore_patterns('__pycache__'))
+sys.path.insert(0,str(CODE))
+pa.set_timezone_db_path(str(ROOT/'.tmp/tzdata'))
+from trading_advisor_3000.product_plane.research.indicators import materialize as l1
+from trading_advisor_3000.product_plane.research.indicators.registry import default_indicator_profile
+from trading_advisor_3000.product_plane.research.indicators.store import write_indicator_frame_partition_batches,load_indicator_partition_rows
+from trading_advisor_3000.product_plane.research.indicators.batch_writer import write_indicator_frame_scoped_batches
+from trading_advisor_3000.product_plane.research.derived_indicators import materialize as l2
+from trading_advisor_3000.product_plane.research.derived_indicators.registry import current_derived_indicator_profile
+from trading_advisor_3000.product_plane.research.derived_indicators.store import DerivedIndicatorPartitionUpdate,write_derived_indicator_partition_updates
+
+INPUT=Path('D:/trading advisor 3000/artifacts/l2-tail-ab-20261018/inputs')
+OUTPUT=Path(tempfile.mkdtemp(prefix='real-tail-proof-',dir=ROOT/'.tmp'))
+source=INPUT/'day16/research_derived_source_frames.delta'
+ladder_table=INPUT/'dataset/continuous_front_adjustment_ladder.delta'
+protected=[source,ladder_table]
+def receipt():
+    return {str(p):dict(version=DeltaTable(str(p)).version(),logs={f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in (p/'_delta_log').glob('*') if f.is_file()}) for p in protected}
+before=receipt()
+profiles=(default_indicator_profile(),current_derived_indicator_profile())
+lp,dp=profiles
+reports=[]
+
+def compare(actual,expected,columns):
+    assert len(actual)==len(expected)
+    worst={}
+    for c in columns:
+        a=pd.to_numeric(actual[c],errors='coerce').to_numpy(dtype=float)
+        b=pd.to_numeric(expected[c],errors='coerce').to_numpy(dtype=float)
+        np.testing.assert_array_equal(np.isnan(a),np.isnan(b),err_msg=c)
+        if c.endswith(('_code','_flag')) or c.startswith('supertrend_direction'):
+            np.testing.assert_array_equal(a,b,err_msg=c)
+        else:
+            np.testing.assert_allclose(a,b,rtol=1e-8,atol=1e-8,equal_nan=True,err_msg=c)
+        valid=np.isfinite(a)&np.isfinite(b)
+        worst[c]=float(np.max(np.abs(a[valid]-b[valid]))) if valid.any() else 0
+    return sorted(worst.items(),key=lambda kv:kv[1],reverse=True)[:5]
+
+for instrument,timeframe in [('FUT_BR','15m'),('FUT_BR','1h'),('FUT_GOLD','4h'),('FUT_BR','1d')]:
+    print('START',instrument,timeframe,flush=True)
+    table=DeltaTable(str(source)).to_pyarrow_table(filters=[('instrument_id','=',instrument),('timeframe','=',timeframe)])
+    if len(table)<700:
+        print('SKIP insufficient warm history',len(table),flush=True)
+        continue
+    table=table.sort_by([('ts','ascending')])
+    # Retired source snapshots contain a late legacy epoch=0 segment after
+    # historical epochs. Tail admission rejects such nonmonotonic inputs.
+    epochs=np.asarray(table['roll_epoch'].to_pylist(),dtype=int)
+    drops=np.flatnonzero(np.diff(epochs)<0)+1
+    edges=[0,*drops.tolist(),len(table)]
+    left,right=max(zip(edges[:-1],edges[1:]),key=lambda pair:pair[1]-pair[0])
+    excluded_nonmonotonic=len(table)-(right-left)
+    table=table.slice(left,right-left)
+    n=min(2100,len(table))
+    table=table.slice(len(table)-n,n)
+    bars,_,_=l2._source_frame_arrow_to_inputs(table=table,source_indicator_columns=l2._source_indicator_columns_for_profile(dp))
+    bars=list(bars[:])
+    # Pick an append within the final epoch; rolls themselves are tested fallback.
+    epoch=bars[-1].roll_epoch
+    appended=min(20,sum(b.roll_epoch==epoch for b in bars)-1)
+    if appended<1:continue
+    seed_count=len(bars)-appended
+    ladder=l1._load_adjustment_ladder_rows(dataset_output_dir=INPUT/'dataset',dataset_version=bars[0].dataset_version)
+    options=dict(dataset_version=bars[0].dataset_version,indicator_set_version='tail-proof',
+                 profile=lp,series_mode='continuous_front',adjustment_ladder_rows=ladder)
+    case=OUTPUT/(instrument+'-'+timeframe)
+    case.mkdir(exist_ok=False)
+    seed=l1._build_partition_rows(series=bars[:seed_count],**options)
+    key=seed[0].partition_key(series_mode='continuous_front')
+    write_indicator_frame_partition_batches(output_dir=case,partition_row_batches=[(key,seed)],profile=lp)
+    reloaded=load_indicator_partition_rows(output_dir=case,partition=key,value_columns=lp.expected_output_columns())
+    diagnostics={}
+    start=time.perf_counter()
+    tail=l1._build_partition_rows(series=bars,existing_rows=reloaded,compute_diagnostics=diagnostics,**options)
+    tail_seconds=time.perf_counter()-start
+    # Independent full formula path: no checkpoint runner, no copied-function adapters.
+    start=time.perf_counter()
+    full_frame=l1._compute_profile_frame_for_series(pd.DataFrame([b.to_dict() for b in bars]),lp,series_mode='continuous_front',adjustment_ladder_rows=ladder)
+    full_seconds=time.perf_counter()-start
+    full_frame=l1._apply_volume_profile_columns(series=bars,computed=full_frame,
+             frame=pd.DataFrame([b.to_dict() for b in bars]),prefix_length=0,
+             volume_profile_refresh_ts=None,resolved_volume_profile_source_rows=None,
+             volume_profile_tick_size_by_instrument=None)
+    actual=pd.DataFrame([r.values for r in tail])
+    max_l1=compare(actual,full_frame,lp.expected_output_columns())
+    assert diagnostics.get('cf_tail_partition_count')==1,diagnostics
+    assert all(v['formula_rows']<=532 for v in diagnostics['cf_formula_work'].values()),diagnostics
+    write_indicator_frame_scoped_batches(output_dir=case,partition_row_batches=[(key,tail[seed_count-1:])],partition_start_ts={key:bars[seed_count-1].ts},profile=lp)
+    stored=load_indicator_partition_rows(output_dir=case,partition=key,value_columns=lp.expected_output_columns())
+    assert len(stored)==len(bars)
+    assert sum(bool(r.compute_state_json) for r in stored)==1
+    assert len({(r.ts,r.contract_id) for r in stored})==len(bars)
+    compare(pd.DataFrame([r.values for r in stored]),actual,lp.expected_output_columns())
+    d_options=dict(dataset_version=bars[0].dataset_version,indicator_set_version='tail-proof',derived_indicator_set_version='tail-proof',series_mode='continuous_front',profile=dp,adjustment_ladder_rows=ladder,compute_contract_hash=l2._derived_compute_contract_hash(ladder))
+    seed_frame=l2._prepare_base_frame(bars=bars[:seed_count],indicators=seed,adjustment_ladder_rows=ladder)
+    d_seed=l2._build_prepared_partition_rows(local_series=bars[:seed_count],local_indicator_rows=seed,base_frame=seed_frame,**d_options)
+    dk=d_seed[0].partition_key(series_mode='continuous_front')
+    write_derived_indicator_partition_updates(output_dir=case,updates=[DerivedIndicatorPartitionUpdate(dk,'replace',d_seed)],expected_partitions=(dk,),profile=dp)
+    d_frame=l2._prepare_base_frame(bars=bars,indicators=stored,adjustment_ladder_rows=ladder)
+    d_diag={}
+    start=time.perf_counter()
+    d_tail=l2._build_prepared_partition_rows(local_series=bars,local_indicator_rows=stored,base_frame=d_frame,tail_output_dir=case,tail_compatible=True,compute_diagnostics=d_diag,**d_options)
+    d_tail_seconds=time.perf_counter()-start
+    start=time.perf_counter()
+    d_full=l2._build_prepared_partition_rows(local_series=bars,local_indicator_rows=stored,base_frame=d_frame,**d_options)
+    d_full_seconds=time.perf_counter()-start
+    write_derived_indicator_partition_updates(output_dir=case,updates=[DerivedIndicatorPartitionUpdate(dk,'replace',d_tail,d_tail[0].ts)],expected_partitions=(dk,),profile=dp)
+    result=DeltaTable(str(case/'research_derived_indicator_frames.delta')).to_pyarrow_table().sort_by([('ts','ascending')]).to_pandas()
+    reference=pd.DataFrame([r.to_dict() for r in d_full])
+    assert list(result.ts.astype(str))==list(pd.to_datetime(reference.ts,utc=True).astype(str))
+    assert len(result)==len(bars)
+    max_l2=compare(result,reference,dp.output_columns)
+    report=dict(instrument=instrument,timeframe=timeframe,input_rows=n,appended=appended,
+                l1_tail_seconds=tail_seconds,l1_full_formula_seconds=full_seconds,
+                l1_max_formula_rows=max(w['formula_rows'] for w in diagnostics['cf_formula_work'].values()),
+                l1_full_partition_operations=sum(w['full_history_rows']>=n for w in diagnostics['cf_formula_work'].values()),
+                l1_complete_group_bootstrap_rows=sum(w.get('complete_group_bootstrap_rows',0) for w in diagnostics['cf_formula_work'].values()),
+                excluded_nonmonotonic_rows=excluded_nonmonotonic,window_start=bars[0].ts,window_end=bars[-1].ts,
+                l1_checkpoint_bytes=len(stored[-1].compute_state_json.encode()),l1_max_errors=max_l1,
+                l2_tail_seconds=d_tail_seconds,l2_full_seconds=d_full_seconds,l2_work=d_diag,l2_written=len(d_tail),l2_max_errors=max_l2,
+                l1_delta_version=DeltaTable(str(case/'research_indicator_frames.delta')).version(),l2_delta_version=DeltaTable(str(case/'research_derived_indicator_frames.delta')).version())
+    reports.append(report)
+    print(json.dumps(report,default=str),flush=True)
+after=receipt()
+assert before==after,'isolated source changed'
+report=dict(status='PASS',boundary='bounded real snapshots -> full core L1 checkpoint -> Delta restart -> L2 tail -> Delta consumer; no production mounts or jobs',code_root=str(CODE),code_files={str(p.relative_to(CODE)):hashlib.sha256(p.read_bytes()).hexdigest() for p in CODE.rglob('*.py')},source_before=before,source_after=after,cases=reports,tolerance={'numeric_rtol':1e-8,'numeric_atol':1e-8,'null_key_code':'exact'})
+(OUTPUT/'report.json').write_text(json.dumps(report,indent=2,default=str),encoding='utf-8')
+print('PASS',OUTPUT/'report.json',flush=True)
