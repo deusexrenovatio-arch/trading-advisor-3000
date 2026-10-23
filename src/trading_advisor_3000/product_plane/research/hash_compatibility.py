@@ -37,6 +37,8 @@ SCOPE_PARAMETER_KEYS = frozenset(
         "force_full_refresh",
         "data_snapshot_manifest_path",
         "hash_compatibility",
+        "operation",
+        "refresh_admission",
     }
 )
 REQUIRED_QUALITY = frozenset(
@@ -103,6 +105,48 @@ def compatible_provenance(
     )
 
 
+# Exact operational admission transition. These are component identities,
+# not application release hashes; unrelated numerical/quality changes still fail.
+ADMISSION_ENGINE = "d09d6d157a69a5531969c234605362f8a21aebe0fff2f7adddffa92462e9adc9"
+ADMISSION_SIDECAR = "60ec8b956d15210eba7af47747333d3f7dbab3b0db8dc8988335ce568834b022"
+
+
+def numerical_engine_identity(engine: str) -> str:
+    """Audited contextvars-only engine change; raw drift checks stay exact."""
+    return BOOTSTRAP_ENGINE if engine == ADMISSION_ENGINE else engine
+
+
+def admission_contract_transition(old: dict, current: dict) -> tuple[dict, dict]:
+    """Compose only the audited contextvars/pair-restriction transition."""
+    import copy
+
+    from .compute_contract import legacy_source_schema_contract, validate_contract
+    from .semantic_fingerprint import ContractError, digest
+
+    validate_contract(old)
+    validate_contract(current)
+    if (old["engine"], current["engine"]) != (BOOTSTRAP_ENGINE, ADMISSION_ENGINE) or (
+        old["kernels"]["sidecar"],
+        current["kernels"]["sidecar"],
+    ) != (BOOTSTRAP_KERNELS["sidecar"], ADMISSION_SIDECAR):
+        raise ContractError("unsupported admission compute transition")
+    mapped = copy.deepcopy(old)
+    mapped["engine"] = current["engine"]
+    mapped["kernels"]["sidecar"] = current["kernels"]["sidecar"]
+    mapped["digest"] = digest({key: value for key, value in mapped.items() if key != "digest"})
+    if mapped not in (current, legacy_source_schema_contract(current)):
+        raise ContractError("admission transition changed another compute component")
+    return mapped, {
+        "version": 1,
+        "old_compute_digest": old["digest"],
+        "compute_digest": current["digest"],
+        "old_engine": old["engine"],
+        "engine": current["engine"],
+        "old_sidecar": old["kernels"]["sidecar"],
+        "sidecar": current["kernels"]["sidecar"],
+    }
+
+
 def compatibility_receipt(accepted: dict, current: dict, contract: dict) -> dict | None:
     parameters = accepted["parameters"]
     from .compute_contract import (
@@ -117,6 +161,21 @@ def compatibility_receipt(accepted: dict, current: dict, contract: dict) -> dict
     if old is not None:
         validate_contract(old)
         validate_contract(contract)
+    if old is not None and old["engine"] != contract["engine"]:
+        mapped, transition = admission_contract_transition(old, contract)
+        schema_proof = (
+            prove_source_schema_adaptation(accepted, contract, mapped)
+            if mapped["schemas"] != contract["schemas"]
+            else None
+        )
+        return {
+            "version": 4,
+            **base,
+            "old_compute_digest": old["digest"],
+            "compute_digest": contract["digest"],
+            "operational_adaptation": transition,
+            "schema_adaptation": schema_proof,
+        }
     if old is not None and old.get("schemas") != contract.get("schemas"):
         proof = prove_source_schema_adaptation(accepted, contract, old)
         return {

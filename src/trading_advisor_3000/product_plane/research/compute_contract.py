@@ -446,9 +446,11 @@ def _current_numeric_identity() -> dict:
 
 
 def numerical_identity() -> dict:
+    from .hash_compatibility import numerical_engine_identity
+
     identity = _active_numeric_identity.get() or _current_numeric_identity()
     return {
-        "engine": identity["engine"],
+        "engine": numerical_engine_identity(identity["engine"]),
         "kernels": dict(identity["kernels"]),
         "dependencies": dict(identity["dependencies"]),
     }

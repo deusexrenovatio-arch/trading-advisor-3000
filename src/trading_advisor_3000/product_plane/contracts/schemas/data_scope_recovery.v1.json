@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Data scope recovery report v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "source",
+    "target",
+    "research",
+    "not_before",
+    "timeframes",
+    "tables",
+    "windows",
+    "preserved_prefix_rows",
+    "spark_version",
+    "runtime_provenance",
+    "report_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "snapshot_id",
+        "manifest_sha256"
+      ],
+      "properties": {
+        "snapshot_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "snapshot_id",
+        "manifest_sha256"
+      ],
+      "properties": {
+        "snapshot_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "research": {
+      "type": "object",
+      "required": [
+        "snapshot_id",
+        "manifest_sha256"
+      ],
+      "properties": {
+        "snapshot_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "not_before": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timeframes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tables": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "source_ref_sha256",
+          "target_ref_sha256",
+          "mode",
+          "read_rows_before",
+          "read_rows_after",
+          "changed_rows",
+          "start_ts",
+          "end_ts"
+        ],
+        "properties": {
+          "source_ref_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "target_ref_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "identity",
+              "native_diff"
+            ]
+          },
+          "read_rows_before": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "read_rows_after": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "changed_rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "start_ts": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "end_ts": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "windows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "instrument_id",
+          "timeframe",
+          "start_ts",
+          "end_ts"
+        ],
+        "properties": {
+          "instrument_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "timeframe": {
+            "type": "string",
+            "minLength": 1
+          },
+          "start_ts": {
+            "type": "string",
+            "minLength": 1
+          },
+          "end_ts": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "preserved_prefix_rows": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "spark_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runtime_provenance": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "report_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false
+}

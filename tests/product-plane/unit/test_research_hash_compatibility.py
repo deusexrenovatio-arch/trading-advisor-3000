@@ -11,8 +11,11 @@ def test_reviewed_current_package_keeps_frozen_numerics_and_environment_guard():
     from trading_advisor_3000.product_plane.research import compute_contract as c
 
     contract = c.semantic_compute_contract()
-    assert contract["engine"] == owner.BOOTSTRAP_ENGINE
-    assert c.kernel_contract() == owner.BOOTSTRAP_KERNELS
+    assert contract["engine"] == owner.ADMISSION_ENGINE
+    assert c.kernel_contract() == {**owner.BOOTSTRAP_KERNELS, "sidecar": owner.ADMISSION_SIDECAR}
+    assert (
+        owner.BOOTSTRAP_ENGINE == "c00f66d72676fc94012c3f063a56b14a5fe875d7d6ecdc4331d5aa01ccfb9be2"
+    )
     # Runtime package versions can differ from the frozen production baseline.
     assert owner.reviewed_current_source() == (
         c.legacy_source_schema_contract(contract)["digest"] == owner.BOOTSTRAP_CONTRACT_DIGEST

@@ -257,3 +257,279 @@ def publish_data_snapshot(
 def accepted_data_snapshot_id(canonical_root: Path) -> str | None:
     current = current_snapshot(canonical_root / ".data_snapshots")
     return current["snapshot_id"] if current else None
+
+
+def _recovery_digest(value):
+    import hashlib
+    import json
+
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _recovery_identity(manifest):
+    return {key: manifest[key] for key in ("snapshot_id", "manifest_sha256")}
+
+
+def _recovery_scope(report, tables):
+    return {
+        "version": 2,
+        "full_refresh": False,
+        "covered_tables": {
+            name: {key: ref[key] for key in ("table_id", "delta_version")}
+            for name, ref in tables.items()
+        },
+        "windows": report["windows"],
+        "effective_intervals": [],
+        "recovery": report,
+    }
+
+
+def validate_recovery_bridge(manifest, *, root, research):
+    """Validate one complete immutable segment; never clear an unknown child."""
+    from datetime import timedelta
+
+    from trading_advisor_3000.product_plane.common.data_snapshots import open_pinned_table
+    from trading_advisor_3000.product_plane.contracts.schema_validation import (
+        load_schema,
+        validate_schema,
+    )
+    from trading_advisor_3000.spark_jobs.snapshot_diff_job import iso, stamp
+
+    scope = manifest["parameters"]["downstream_scope"]
+    report = scope["recovery"]
+    schema = Path(__file__).parents[1] / "contracts/schemas/data_scope_recovery.v1.json"
+    validate_schema(load_schema(schema), report)
+    if report["report_sha256"] != _recovery_digest(
+        {k: v for k, v in report.items() if k != "report_sha256"}
+    ):
+        raise ValueError("recovery report digest changed")
+    if _recovery_identity(research) != report["research"] or research["parents"] != [
+        report["source"]["snapshot_id"]
+    ]:
+        raise ValueError("recovery Research anchor changed")
+    if set(report["timeframes"]) != set(research["parameters"].get("timeframes", ())):
+        raise ValueError("recovery Research periods changed")
+    source = load_snapshot(root / "manifests" / f"{report['source']['snapshot_id']}.json")
+    target = load_snapshot(root / "manifests" / f"{report['target']['snapshot_id']}.json")
+    if (
+        _recovery_identity(source) != report["source"]
+        or _recovery_identity(target) != report["target"]
+    ):
+        raise ValueError("recovery segment identity changed")
+    if manifest["parents"] != [target["snapshot_id"]] or manifest["tables"] != target["tables"]:
+        raise ValueError("recovery publication changed target tables or parent")
+    if (
+        scope != _recovery_scope(report, target["tables"])
+        or manifest["quality_checks"].get("scope_recovery") != "PASS"
+    ):
+        raise ValueError("recovery publication scope changed")
+    cursor, seen = target, set()
+    while cursor["snapshot_id"] != source["snapshot_id"]:
+        if cursor["snapshot_id"] in seen or len(cursor["parents"]) != 1:
+            raise ValueError("recovery requires complete single-parent ancestry")
+        seen.add(cursor["snapshot_id"])
+        cursor = load_snapshot(root / "manifests" / f"{cursor['parents'][0]}.json")
+    if set(source["tables"]) != set(target["tables"]) or set(report["tables"]) != set(
+        target["tables"]
+    ):
+        raise ValueError("recovery table coverage changed")
+    starts, ends = [], []
+    for name, record in report["tables"].items():
+        old, new = source["tables"][name], target["tables"][name]
+        if record["source_ref_sha256"] != _recovery_digest(old) or record[
+            "target_ref_sha256"
+        ] != _recovery_digest(new):
+            raise ValueError("recovery native binding changed")
+        if any(
+            old.get(key) != new.get(key)
+            for key in (
+                "table_path",
+                "table_id",
+                "schema_hash",
+                "layout_version",
+                "partition_columns",
+            )
+        ):
+            raise ValueError("recovery native contract changed")
+        open_pinned_table(old)
+        open_pinned_table(new)
+        if record["changed_rows"]:
+            if (
+                record["mode"] != "native_diff"
+                or record["start_ts"] is None
+                or record["end_ts"] is None
+                or not record["read_rows_before"] + record["read_rows_after"]
+            ):
+                raise ValueError("recovery lacks native difference evidence")
+            start, end = stamp(record["start_ts"]), stamp(record["end_ts"])
+            if start < stamp(report["not_before"]) or end < start:
+                raise ValueError("recovery range precedes bound or is inverted")
+            starts.append(start)
+            ends.append(end)
+        elif record["start_ts"] is not None or record["end_ts"] is not None:
+            raise ValueError("recovery zero difference has a temporal range")
+    windows = report["windows"]
+    if bool(starts) != bool(windows) or report["preserved_prefix_rows"] <= 0:
+        raise ValueError("recovery cannot prove a bounded change and retained prefix")
+    pairs = []
+    for window in windows:
+        if (
+            window["timeframe"] not in report["timeframes"]
+            or not window["instrument_id"]
+            or window["start_ts"] != iso(min(starts))
+            or window["end_ts"] != iso(max(ends) + timedelta(days=1))
+        ):
+            raise ValueError("recovery window no longer covers the full difference")
+        pairs.append((window["instrument_id"], window["timeframe"]))
+    if len(pairs) != len(set(pairs)):
+        raise ValueError("duplicate recovery domain")
+    return source
+
+
+def recover_data_scope(
+    *,
+    canonical_root,
+    research_root,
+    not_before,
+    expected_data_id,
+    expected_research_id,
+    publish=False,
+    spark_session_factory=None,
+):
+    """Explicit audit; optional metadata-only publication by the existing owner.
+
+    Does not accept a caller-supplied report. Publication always runs the native
+    producer itself. Data CAS is single-registry; a changed Research binding
+    leaves any already published bridge unusable, never a different permission.
+    """
+    from uuid import uuid4
+
+    from trading_advisor_3000.spark_jobs.snapshot_diff_job import compare_snapshot_tables, iso
+
+    root = Path(canonical_root) / ".data_snapshots"
+    data, research = current_snapshot(root), current_snapshot(Path(research_root))
+    if (
+        not data
+        or not research
+        or data["snapshot_id"] != expected_data_id
+        or research["snapshot_id"] != expected_research_id
+        or len(research["parents"]) != 1
+    ):
+        raise ValueError("recovery accepted parents changed")
+    if any(value not in {"PASS", "PASS-NOOP"} for value in data["quality_checks"].values()) or any(
+        value != "PASS" for value in research["quality_checks"].values()
+    ):
+        raise ValueError("recovery requires accepted QC")
+    source = load_snapshot(root / "manifests" / f"{research['parents'][0]}.json")
+    if any(research["tables"].get(name) != ref for name, ref in source["tables"].items()):
+        raise ValueError("recovery Research inputs differ from its exact Data anchor")
+    outputs = {
+        name: ref for name, ref in research["tables"].items() if name not in source["tables"]
+    }
+    assert_tables_unchanged(data["tables"])
+    assert_tables_unchanged(outputs)
+    provenance = runtime_provenance()
+    native = compare_snapshot_tables(
+        source_tables=source["tables"],
+        target_tables=data["tables"],
+        timeframes=research["parameters"]["timeframes"],
+        not_before=not_before,
+        spark_session_factory=spark_session_factory,
+    )
+    report = {
+        "schema_version": 1,
+        "source": _recovery_identity(source),
+        "target": _recovery_identity(data),
+        "research": _recovery_identity(research),
+        "not_before": iso(not_before),
+        "timeframes": list(research["parameters"]["timeframes"]),
+        **native,
+        "runtime_provenance": provenance,
+    }
+    report["report_sha256"] = _recovery_digest(report)
+    manifest = create_snapshot(
+        tables=data["tables"],
+        required_tables=data["required_tables"],
+        dataset_version=data["dataset_version"],
+        run_id="scope-recovery-" + uuid4().hex,
+        code_version="metadata-only-scope-recovery.v1",
+        quality_checks={**data["quality_checks"], "scope_recovery": "PASS"},
+        parents=[data["snapshot_id"]],
+        parameters={
+            **data["parameters"],
+            "downstream_scope": _recovery_scope(report, data["tables"]),
+        },
+        window=data["window"],
+    )
+    validate_recovery_bridge(manifest, root=root, research=research)
+    assert_tables_unchanged(data["tables"])
+    assert_tables_unchanged(outputs)
+    if (
+        runtime_provenance() != provenance
+        or _recovery_identity(current_snapshot(root)) != _recovery_identity(data)
+        or _recovery_identity(current_snapshot(Path(research_root))) != _recovery_identity(research)
+    ):
+        raise ValueError("recovery source or accepted parents changed during audit")
+    if publish:
+        path = save_snapshot(root, manifest)
+        publish_snapshot(root, path, expected_current_id=data["snapshot_id"])
+        if _recovery_identity(current_snapshot(Path(research_root))) != _recovery_identity(
+            research
+        ):
+            raise ValueError("Research changed after Data CAS; recovery bridge is unusable")
+    return {"published": publish, "report": report, "manifest": manifest}
+
+
+def main():
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="Data snapshot owner operations")
+    commands = parser.add_subparsers(dest="operation", required=True)
+    recover = commands.add_parser(
+        "recover-scope", help="explicit native audit; no numerical materialization"
+    )
+    recover.add_argument("--canonical-root", type=Path, required=True)
+    recover.add_argument("--research-root", type=Path, required=True)
+    recover.add_argument("--not-before", required=True)
+    recover.add_argument("--expected-data-id", required=True)
+    recover.add_argument("--expected-research-id", required=True)
+    recover.add_argument(
+        "--publish",
+        action="store_true",
+        help="publish a metadata-only Data bridge after the native audit",
+    )
+    recover.add_argument("--report-path", type=Path)
+    args = parser.parse_args()
+    result = recover_data_scope(
+        canonical_root=args.canonical_root,
+        research_root=args.research_root,
+        not_before=args.not_before,
+        expected_data_id=args.expected_data_id,
+        expected_research_id=args.expected_research_id,
+        publish=args.publish,
+    )
+    if args.report_path:
+        from trading_advisor_3000.product_plane.common.data_snapshots import atomic_json
+
+        atomic_json(args.report_path, result)
+    report = result["report"]
+    print(
+        json.dumps(
+            {
+                "published": result["published"],
+                "snapshot_id": result["manifest"]["snapshot_id"],
+                "report_sha256": report["report_sha256"],
+                "windows": len(report["windows"]),
+                "preserved_prefix_rows": report["preserved_prefix_rows"],
+                "start_ts": min((window["start_ts"] for window in report["windows"]), default=None),
+            },
+            sort_keys=True,
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

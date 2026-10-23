@@ -93,15 +93,9 @@ def resolve_refresh_scope(
         return {**blocked, "reason": "missing_or_legacy_research_scope"}
     compatibility = {}
     if configuration is not None:
-        ignored = {
-            "changed_windows",
-            "refresh_scope_version",
-            "force_full_refresh",
-            "data_snapshot_manifest_path",
-            "hash_compatibility",
-            "refresh_admission",
-            "operation",
-        }
+        from .hash_compatibility import SCOPE_PARAMETER_KEYS
+
+        ignored = SCOPE_PARAMETER_KEYS
         if any(
             research["parameters"].get(key) != value
             for key, value in _parameters(configuration).items()
@@ -122,9 +116,14 @@ def resolve_refresh_scope(
                 parent = load_snapshot(root / "manifests" / f"{research['parents'][0]}.json")
             except (FileNotFoundError, SnapshotUnavailableError):
                 return {**blocked, "reason": "data_ancestry_unavailable"}
-            receipt = compatibility_receipt(
-                research, runtime_provenance(), semantic_compute_contract(configuration)
-            )
+            from .semantic_fingerprint import ContractError
+
+            try:
+                receipt = compatibility_receipt(
+                    research, runtime_provenance(), semantic_compute_contract(configuration)
+                )
+            except ContractError as error:
+                return {**blocked, "reason": f"research_contract_incompatible:{error}"}
             if (
                 receipt is None
                 or not REQUIRED_QUALITY.issubset(research["quality_checks"])
@@ -188,7 +187,17 @@ def resolve_refresh_scope(
                 return {**blocked, "reason": "unbounded_data_scope"}
             if len(cursor["parents"]) != 1:
                 return {**blocked, "reason": "missing_data_ancestry"}
-            parent = load_snapshot(root / "manifests" / f"{cursor['parents'][0]}.json")
+            if "recovery" in scope:
+                from trading_advisor_3000.product_plane.data_plane.data_snapshots import (
+                    validate_recovery_bridge,
+                )
+
+                try:
+                    parent = validate_recovery_bridge(cursor, root=root, research=research)
+                except (ValueError, OSError, SnapshotUnavailableError) as error:
+                    return {**blocked, "reason": f"invalid_scope_recovery:{error}"}
+            else:
+                parent = load_snapshot(root / "manifests" / f"{cursor['parents'][0]}.json")
             if compatibility:
                 if set(cursor["tables"]) != set(parent["tables"]):
                     return {**blocked, "reason": "data_table_set_changed"}
