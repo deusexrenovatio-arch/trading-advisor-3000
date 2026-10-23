@@ -449,6 +449,7 @@ def test_real_proof_codec_mutation_requires_adaptation_not_recompute(package):
 
 def test_native_scope_reuses_identity_per_operation_and_rejects_drift(monkeypatch):
     identities = [c._current_numeric_identity()]
+    expected = c.numerical_identity()
     calls = []
 
     def inspect():
@@ -460,7 +461,7 @@ def test_native_scope_reuses_identity_per_operation_and_rejects_drift(monkeypatc
     @c.native_compute_scope
     def operation(change=False):
         for _ in range(100):
-            assert c.numerical_identity() == identities[0]
+            assert c.numerical_identity() == expected
         if change:
             identities.append({**identities[0], "engine": "changed"})
 
