@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
-from trading_advisor_3000.product_plane.common.data_snapshots import open_pinned_table
+from trading_advisor_3000.product_plane.common.data_snapshots import (
+    open_pinned_table,
+)
+from trading_advisor_3000.product_plane.common.data_snapshots import (
+    recovery_iso as iso,
+)
+from trading_advisor_3000.product_plane.common.data_snapshots import (
+    recovery_stamp as stamp,
+)
 
 from .canonical_bars_job import _create_spark_session
 
@@ -29,15 +37,6 @@ EFFECT_COLUMNS = {
     "raw_moex_rms_limits": "trade_date",
     "raw_moex_rms_staticparams": "trade_date",
 }
-
-
-def stamp(value):
-    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
-
-
-def iso(value):
-    return stamp(value).isoformat().replace("+00:00", "Z")
 
 
 def _hash(value):

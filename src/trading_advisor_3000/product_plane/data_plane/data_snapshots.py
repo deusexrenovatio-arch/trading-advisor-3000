@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from trading_advisor_3000.product_plane.common.data_snapshots import (
+    _recovery_digest,
+    _recovery_identity,
+    _recovery_scope,
     assert_tables_unchanged,
     capture_table,
     create_snapshot,
@@ -15,6 +18,7 @@ from trading_advisor_3000.product_plane.common.data_snapshots import (
     publish_snapshot,
     runtime_provenance,
     save_snapshot,
+    validate_recovery_bridge,
 )
 
 
@@ -257,135 +261,6 @@ def publish_data_snapshot(
 def accepted_data_snapshot_id(canonical_root: Path) -> str | None:
     current = current_snapshot(canonical_root / ".data_snapshots")
     return current["snapshot_id"] if current else None
-
-
-def _recovery_digest(value):
-    import hashlib
-    import json
-
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-
-
-def _recovery_identity(manifest):
-    return {key: manifest[key] for key in ("snapshot_id", "manifest_sha256")}
-
-
-def _recovery_scope(report, tables):
-    return {
-        "version": 2,
-        "full_refresh": False,
-        "covered_tables": {
-            name: {key: ref[key] for key in ("table_id", "delta_version")}
-            for name, ref in tables.items()
-        },
-        "windows": report["windows"],
-        "effective_intervals": [],
-        "recovery": report,
-    }
-
-
-def validate_recovery_bridge(manifest, *, root, research):
-    """Validate one complete immutable segment; never clear an unknown child."""
-    from datetime import timedelta
-
-    from trading_advisor_3000.product_plane.common.data_snapshots import open_pinned_table
-    from trading_advisor_3000.product_plane.contracts.schema_validation import (
-        load_schema,
-        validate_schema,
-    )
-    from trading_advisor_3000.spark_jobs.snapshot_diff_job import iso, stamp
-
-    scope = manifest["parameters"]["downstream_scope"]
-    report = scope["recovery"]
-    schema = Path(__file__).parents[1] / "contracts/schemas/data_scope_recovery.v1.json"
-    validate_schema(load_schema(schema), report)
-    if report["report_sha256"] != _recovery_digest(
-        {k: v for k, v in report.items() if k != "report_sha256"}
-    ):
-        raise ValueError("recovery report digest changed")
-    if _recovery_identity(research) != report["research"] or research["parents"] != [
-        report["source"]["snapshot_id"]
-    ]:
-        raise ValueError("recovery Research anchor changed")
-    if set(report["timeframes"]) != set(research["parameters"].get("timeframes", ())):
-        raise ValueError("recovery Research periods changed")
-    source = load_snapshot(root / "manifests" / f"{report['source']['snapshot_id']}.json")
-    target = load_snapshot(root / "manifests" / f"{report['target']['snapshot_id']}.json")
-    if (
-        _recovery_identity(source) != report["source"]
-        or _recovery_identity(target) != report["target"]
-    ):
-        raise ValueError("recovery segment identity changed")
-    if manifest["parents"] != [target["snapshot_id"]] or manifest["tables"] != target["tables"]:
-        raise ValueError("recovery publication changed target tables or parent")
-    if (
-        scope != _recovery_scope(report, target["tables"])
-        or manifest["quality_checks"].get("scope_recovery") != "PASS"
-    ):
-        raise ValueError("recovery publication scope changed")
-    cursor, seen = target, set()
-    while cursor["snapshot_id"] != source["snapshot_id"]:
-        if cursor["snapshot_id"] in seen or len(cursor["parents"]) != 1:
-            raise ValueError("recovery requires complete single-parent ancestry")
-        seen.add(cursor["snapshot_id"])
-        cursor = load_snapshot(root / "manifests" / f"{cursor['parents'][0]}.json")
-    if set(source["tables"]) != set(target["tables"]) or set(report["tables"]) != set(
-        target["tables"]
-    ):
-        raise ValueError("recovery table coverage changed")
-    starts, ends = [], []
-    for name, record in report["tables"].items():
-        old, new = source["tables"][name], target["tables"][name]
-        if record["source_ref_sha256"] != _recovery_digest(old) or record[
-            "target_ref_sha256"
-        ] != _recovery_digest(new):
-            raise ValueError("recovery native binding changed")
-        if any(
-            old.get(key) != new.get(key)
-            for key in (
-                "table_path",
-                "table_id",
-                "schema_hash",
-                "layout_version",
-                "partition_columns",
-            )
-        ):
-            raise ValueError("recovery native contract changed")
-        open_pinned_table(old)
-        open_pinned_table(new)
-        if record["changed_rows"]:
-            if (
-                record["mode"] != "native_diff"
-                or record["start_ts"] is None
-                or record["end_ts"] is None
-                or not record["read_rows_before"] + record["read_rows_after"]
-            ):
-                raise ValueError("recovery lacks native difference evidence")
-            start, end = stamp(record["start_ts"]), stamp(record["end_ts"])
-            if start < stamp(report["not_before"]) or end < start:
-                raise ValueError("recovery range precedes bound or is inverted")
-            starts.append(start)
-            ends.append(end)
-        elif record["start_ts"] is not None or record["end_ts"] is not None:
-            raise ValueError("recovery zero difference has a temporal range")
-    windows = report["windows"]
-    if bool(starts) != bool(windows) or report["preserved_prefix_rows"] <= 0:
-        raise ValueError("recovery cannot prove a bounded change and retained prefix")
-    pairs = []
-    for window in windows:
-        if (
-            window["timeframe"] not in report["timeframes"]
-            or not window["instrument_id"]
-            or window["start_ts"] != iso(min(starts))
-            or window["end_ts"] != iso(max(ends) + timedelta(days=1))
-        ):
-            raise ValueError("recovery window no longer covers the full difference")
-        pairs.append((window["instrument_id"], window["timeframe"]))
-    if len(pairs) != len(set(pairs)):
-        raise ValueError("duplicate recovery domain")
-    return source
 
 
 def recover_data_scope(

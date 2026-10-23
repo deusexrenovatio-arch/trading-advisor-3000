@@ -155,7 +155,7 @@ def test_native_diff_bridge_retains_immutable_history_and_admits_scoped_daily(ch
         if mutate == "references":
             damaged["tables"]["canonical_bars"]["delta_version"] += 1
         with pytest.raises(ValueError):
-            owner.validate_recovery_bridge(damaged, root=root, research=research)
+            storage.validate_recovery_bridge(damaged, root=root, research=research)
     with pytest.raises(ValueError, match="parents changed"):
         owner.recover_data_scope(**options, publish=True)
 

@@ -188,7 +188,7 @@ def resolve_refresh_scope(
             if len(cursor["parents"]) != 1:
                 return {**blocked, "reason": "missing_data_ancestry"}
             if "recovery" in scope:
-                from trading_advisor_3000.product_plane.data_plane.data_snapshots import (
+                from trading_advisor_3000.product_plane.common.data_snapshots import (
                     validate_recovery_bridge,
                 )
 
