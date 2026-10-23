@@ -39,7 +39,7 @@ def _digest(value):
     return hashlib.sha256(_json(value).encode()).hexdigest()
 
 
-def _domain(config):
+def _domain(config, *, inputs=None):
     from .data_snapshots import _parameters
 
     result = {
@@ -50,7 +50,10 @@ def _domain(config):
     if not result.get("data_snapshot_raw_output_dir"):
         result.pop("data_snapshot_raw_output_dir", None)
     if not result.get("canonical_contract_economics_path"):
-        result["canonical_contract_economics_path"] = (
+        # The existing adapter may resolve the shared canonical economics root.
+        # Bind that exact admitted input instead of inventing a baseline-local path.
+        pinned = (inputs or {}).get("canonical_contract_economics", {})
+        result["canonical_contract_economics_path"] = pinned.get("table_path") or (
             (Path(config["canonical_output_dir"]) / "canonical_contract_economics.delta")
             .resolve()
             .as_posix()
@@ -122,7 +125,7 @@ def issue_admission(config, *, operation, completed_outputs=()):
             "data_parent": _parent(data_root, data),
             "research_parent": _parent(research_root, research),
             "inputs": inputs,
-            "domain": _domain(config),
+            "domain": _domain(config, inputs=inputs),
             "original_windows": result.get("original_windows", original),
             "effective_windows": list(result["windows"]),
             "reason": result.get("reason", ""),
@@ -191,7 +194,7 @@ def validate_admission(
             raise ValueError("refresh admission parent changed")
     assert_tables_unchanged(value["inputs"])
     if config is not None:
-        if _domain(config) != value["domain"]:
+        if _domain(config, inputs=value["inputs"]) != value["domain"]:
             raise ValueError("refresh admission configuration changed")
         if config.get("operation") != value["operation"]:
             raise ValueError("refresh admission operation changed")
