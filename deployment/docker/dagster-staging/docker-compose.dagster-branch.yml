@@ -1,0 +1,17 @@
+name: ta3000-branch-${TA3000_STAGING_TASK_SLUG:?set a task slug}
+
+services:
+  webserver:
+    extends:
+      file: docker-compose.dagster-staging-common.yml
+      service: webserver
+    ports:
+      - 127.0.0.1:${TA3000_STAGING_PORT:-3011}:3000
+    volumes:
+      - ./dagster-branch-instance.yaml:/opt/dagster/dagster_home/dagster.yaml:ro
+
+volumes:
+  staging-home:
+networks:
+  staging:
+    driver: bridge

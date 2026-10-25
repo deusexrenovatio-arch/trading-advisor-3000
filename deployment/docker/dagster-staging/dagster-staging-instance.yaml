@@ -1,0 +1,13 @@
+run_launcher:
+  module: trading_advisor_3000.product_plane.common.staging_execution
+  class: StagingRunLauncher
+  config: {}
+run_coordinator:
+  module: trading_advisor_3000.product_plane.common.staging_execution
+  class: StagingRunCoordinator
+  config:
+    max_concurrent_runs: 1
+    max_user_code_failure_retries: 0
+run_monitoring:
+  enabled: true
+  max_runtime_seconds: 3600
