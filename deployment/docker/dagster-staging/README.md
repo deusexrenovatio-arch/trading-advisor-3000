@@ -2,6 +2,11 @@
 
 This profile runs the MOEX baseline updater in Dagster.
 
+For isolated branch/acceptance/reference profiles use the
+[guarded staging runbook](../../../docs/runbooks/app/guarded-staging.md).
+Start them through the protected host supervisor so preflight and execution
+permits apply before native work.
+
 Active schedule:
 - `moex_baseline_daily_update_schedule`
 
