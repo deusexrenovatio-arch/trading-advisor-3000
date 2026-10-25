@@ -1108,6 +1108,40 @@ def run_moex_canonical_publish_spark_delta_job(
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
+    from trading_advisor_3000.product_plane.common.staging_execution import (
+        assert_staging_publication,
+        require_staging_compute,
+    )
+
+    require_staging_compute(
+        stage="run_moex_canonical_publish_spark_delta_job",
+        output_path=output_dir,
+    )
+    for output_path in (
+        target_bars_path,
+        target_provenance_path,
+        session_calendar_path,
+        roll_map_path,
+    ):
+        assert_staging_publication(output_path)
+    from trading_advisor_3000.product_plane.common.staging_source_scope import (
+        require_staging_source_bytes,
+    )
+
+    require_staging_source_bytes(
+        output_path=output_dir,
+        input_paths=[
+            staged_bars_path,
+            staged_provenance_path,
+            target_bars_path,
+            target_provenance_path,
+            session_calendar_path,
+            session_intervals_path,
+            roll_map_path,
+            publish_scope_path,
+            closed_session_dates_path,
+        ],
+    )
     _ensure_spark_delta_runtime_available()
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest = historical_data_delta_schema_manifest()

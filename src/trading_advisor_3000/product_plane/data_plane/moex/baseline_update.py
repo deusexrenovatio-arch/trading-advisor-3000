@@ -1258,6 +1258,41 @@ def run_moex_baseline_update(
     canonical_closed_session_dates_path: Path | None = None,
     economics_history_refresh: bool = False,
 ) -> dict[str, object]:
+    staging_parameters = locals().copy()
+    staging_parameters.pop("run_id")
+    staging_parameters.pop("ingest_till_utc")
+    staging_parameters["timeframes"] = _baseline_update_timeframes(timeframes)
+    from trading_advisor_3000.product_plane.common.staging_execution import require_staging_compute
+    from trading_advisor_3000.product_plane.common.staging_source_scope import (
+        require_staging_parameters,
+        require_staging_source_bytes,
+    )
+
+    require_staging_compute(stage="run_moex_baseline_update", output_path=raw_table_path)
+    require_staging_parameters(
+        stage="run_moex_baseline_update",
+        output_path=raw_table_path,
+        parameters=staging_parameters,
+        input_until_utc=ingest_till_utc,
+    )
+    require_staging_source_bytes(
+        output_path=raw_table_path,
+        input_paths=[
+            raw_table_path,
+            canonical_bars_path,
+            canonical_provenance_path,
+            canonical_session_intervals_path
+            or (canonical_bars_path.parent / CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME),
+            canonical_session_calendar_path
+            or (canonical_bars_path.parent / "canonical_session_calendar.delta"),
+            canonical_roll_map_path or (canonical_bars_path.parent / "canonical_roll_map.delta"),
+            (daily_open_interest_path, daily_open_interest_version)
+            if daily_open_interest_path is not None
+            else None,
+            canonical_closed_session_dates_path,
+            *(economics_source_paths or {}).values(),
+        ],
+    )
     if type(economics_history_refresh) is not bool:
         raise TypeError("economics_history_refresh must be bool")
     _validate_economics_options(dict(economics_calculation_options or {}))
