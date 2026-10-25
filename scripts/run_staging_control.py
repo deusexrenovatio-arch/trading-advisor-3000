@@ -222,6 +222,266 @@ def check_native_failures(prepared, url):
                 raise ValueError("New native schedule tick failed before admission: " + tick["id"])
 
 
+def _production_identity(container):
+    homes = [
+        item
+        for item in container.get("Mounts", [])
+        if item["Destination"] == "/opt/dagster/dagster_home"
+    ]
+    if len(homes) != 1 or homes[0].get("Type") != "volume" or not homes[0].get("Name"):
+        return None
+    return {
+        "id": container["Id"],
+        "image": container["Image"],
+        "home": homes[0],
+        "labels": container["Config"].get("Labels") or {},
+        "mounts_sha256": digest(sorted(container["Mounts"], key=lambda item: item["Destination"])),
+    }
+
+
+def observe_production_noop(prepared, production, root, tick):
+    """Run only the protected native metadata reader; production HOME stays RO."""
+    from observe_production_noop import CORE
+
+    name = prepared["project"] + "-prod-noop-" + uuid4().hex[:12]
+    inventory = (
+        "import json,sys; from pathlib import Path; p=Path('/production-home'); "
+        "core=json.loads(sys.argv[1]); "
+        "files=core+[name+'-wal' for name in core if (p/(name+'-wal')).exists()]; "
+        "assert all((p/name).is_file() and not (p/name).is_symlink() for name in files); "
+        "assert sum((p/name).stat().st_size for name in files)<=402653184; print(json.dumps(files))"
+    )
+    image = prepared["plan"]["candidate"]["image_digest"]
+    inventory_name = name + "-inventory"
+    try:
+        found = run(
+            "docker",
+            "run",
+            "--rm",
+            "--name",
+            inventory_name,
+            "--label",
+            f"com.docker.compose.project={prepared['project']}",
+            "--label",
+            "com.docker.compose.service=collector",
+            "--label",
+            "ta3000.staging.owner=protected-observer",
+            "--network",
+            "none",
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--memory",
+            "64m",
+            "--cpus",
+            "1",
+            "--mount",
+            f"type=volume,source={production['home']['Name']},target=/production-home,readonly",
+            image,
+            "python",
+            "-I",
+            "-c",
+            inventory,
+            json.dumps(CORE),
+            timeout=10,
+        )
+    finally:
+        leftover = run("docker", "inspect", inventory_name)
+        if leftover.returncode == 0:
+            stop_owned(prepared["project"], json.loads(leftover.stdout))
+    if found.returncode:
+        return {"status": "BLOCKED", "reason": "Bounded production metadata inventory failed"}
+    files = json.loads(found.stdout)
+    allowed = {path + suffix for path in CORE for suffix in ("", "-wal")}
+    if (
+        not isinstance(files, list)
+        or not set(files).issubset(allowed)
+        or len(files) != len(set(files))
+    ):
+        raise ValueError("Unexpected production metadata inventory")
+    command = [
+        "docker",
+        "run",
+        "--rm",
+        "--pull",
+        "never",
+        "--name",
+        name,
+        "--read-only",
+        "--network",
+        "none",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--memory",
+        str(2 * 1024**3),
+        "--cpus",
+        "1",
+        "--tmpfs",
+        "/tmp:size=268435456,mode=1777",
+        "--label",
+        f"com.docker.compose.project={prepared['project']}",
+        "--label",
+        "com.docker.compose.service=collector",
+        "--label",
+        "ta3000.staging.owner=protected-observer",
+        "--env",
+        "PYTHONDONTWRITEBYTECODE=1",
+        "--env",
+        "NUMBA_CACHE_DIR=/tmp/numba",
+        "--mount",
+        f"type=bind,source={prepared['paths']['VERIFIER_WORKTREE']},target=/staging-verifier,readonly",
+        "--mount",
+        f"type=volume,source={production['home']['Name']},target=/production-home,readonly",
+    ]
+    for relative in files:
+        command += [
+            "--mount",
+            f"type=bind,source={production['home']['Source']}/{relative},target=/tmp/production-noop-home/{relative},readonly",
+        ]
+    command += [
+        image,
+        "python",
+        "-I",
+        "/staging-verifier/scripts/observe_production_noop.py",
+        "--source-files",
+        json.dumps(files),
+        "--root-run-id",
+        root["runId"],
+        "--scheduled-timestamp",
+        str(tick["timestamp"]),
+        "--cron",
+        prepared["plan"]["source"]["native_schedule"]["cron"],
+    ]
+    try:
+        result = run(*command, timeout=30)
+        payload = json.loads(result.stdout) if result.stdout.strip() else {"status": "BLOCKED"}
+        if result.returncode:
+            payload.update(status="BLOCKED", observer_exit_code=result.returncode)
+        return payload
+    finally:
+        leftover = run("docker", "inspect", name)
+        if leftover.returncode == 0:
+            stop_owned(prepared["project"], json.loads(leftover.stdout))
+
+
+def _public_noop_prefilter(prepared, root):
+    location = "trading_advisor_3000.dagster_defs:product_plane_definitions"
+    value = graphql_read(
+        prepared["production_url"],
+        """query Noop($selector:SensorSelector!){
+      sensorOrError(sensorSelector:$selector){__typename ... on Sensor{name sensorState{status
+      ticks(limit:100){status timestamp runIds skipReason}}}}}""",
+        {
+            "selector": {
+                "repositoryName": "__repository__",
+                "repositoryLocationName": location,
+                "sensorName": "moex_cf_catch_up_after_moex_baseline_sensor",
+            }
+        },
+    )["sensorOrError"]
+    state = value.get("sensorState", {})
+    return (
+        value.get("__typename") == "Sensor"
+        and state.get("status") == "RUNNING"
+        and any(
+            item["status"] == "SKIPPED"
+            and not item["runIds"]
+            and item["timestamp"] >= (root.get("endTime") or float("inf"))
+            and re.fullmatch(r"NOOP: .+; admission=[0-9a-f]{64}", item.get("skipReason") or "")
+            for item in state.get("ticks", [])
+        )
+    )
+
+
+def production_noop_witness(prepared, root, tick):
+    expected = prepared.get("production_runtime_identity")
+    if not expected:
+        return False
+    cache = prepared.setdefault("production_noop_cache", {})
+    previous = cache.get(root["runId"], {})
+    now = time.monotonic()
+    binding = digest({"root": root, "tick": tick, "production": expected})
+    before = inspect_container(expected["id"])
+    if _production_identity(before) != expected or not before["State"]["Running"]:
+        raise ValueError("Actual production container/HOME identity changed")
+    url = prepared["production_url"]
+    if previous.get("proof") and previous.get("binding") == binding:
+        fresh = [
+            item
+            for item in graphql_runs(url, job_name=root["pipelineName"])
+            if item["runId"] == root["runId"]
+        ]
+        return (
+            fresh == [root]
+            and _root_tick(graphql_schedule(prepared, url), root["runId"]) == tick
+            and not graphql_runs(url)
+            and not any(
+                item["pipelineName"] == "moex_cf_catch_up_job"
+                for item in graphql_runs(url, tags={"ta3000/upstream_run_id": root["runId"]})
+            )
+        )
+    if now < previous.get("next_attempt", 0):
+        return False
+    if previous.get("failures", 0) >= 3:
+        raise ValueError("Production NOOP metadata witness failed three times; diagnosis required")
+    if not _public_noop_prefilter(prepared, root):
+        return False
+    cache[root["runId"]] = {
+        "next_attempt": now + 30,
+        "binding": binding,
+        "proof": None,
+        "failures": previous.get("failures", 0) + 1,
+    }
+    if graphql_runs(url):
+        return False
+    try:
+        proof = observe_production_noop(prepared, expected, root, tick)
+    except (ValueError, OSError, subprocess.TimeoutExpired):
+        return False
+    cache[root["runId"]]["observation"] = proof
+    after = inspect_container(expected["id"])
+    current_tick = _root_tick(graphql_schedule(prepared, url), root["runId"])
+    current = [
+        item
+        for item in graphql_runs(url, job_name=root["pipelineName"])
+        if item["runId"] == root["runId"]
+    ]
+    if (
+        _production_identity(after) != expected
+        or not after["State"]["Running"]
+        or graphql_runs(url)
+        or current != [root]
+        or current_tick != tick
+    ):
+        return False
+    if any(
+        item["pipelineName"] == "moex_cf_catch_up_job"
+        for item in graphql_runs(url, tags={"ta3000/upstream_run_id": root["runId"]})
+    ):
+        return False
+    if (
+        not proof
+        or proof.get("status") != "PASS-NOOP"
+        or proof.get("root_run_id") != root["runId"]
+        or proof.get("schedule", {}).get("id") != tick["id"]
+        or proof.get("compute_attempts") != 0
+        or proof.get("sensor", {}).get("upstream_run_id") != root["runId"]
+        or proof.get("sensor", {}).get("status") != "SKIPPED"
+        or not proof.get("sensor", {}).get("cursor")
+        or not re.fullmatch(
+            r"NOOP: .+; admission=[0-9a-f]{64}", proof.get("sensor", {}).get("skip_reason", "")
+        )
+        or proof.get("metadata_observation", {}).get("observation_complete") is not True
+    ):
+        return False
+    cache[root["runId"]]["proof"] = proof
+    return True
+
+
 def production_barrier(prepared, root, now):
     prepared["permit_window_end"] = None
     if graphql_runs(prepared["production_url"]):
@@ -255,7 +515,10 @@ def production_barrier(prepared, root, now):
         for item in graphql_runs(prepared["production_url"], job_name=JOBS[0])
         if item["runId"] == ticks[0]["runIds"][0]
     ]
+    production_root = matches[0] if len(matches) == 1 else None
     for index, job in enumerate(JOBS):
+        if index == 1 and not matches and production_root is not None:
+            return production_noop_witness(prepared, production_root, ticks[0])
         candidates = [item for item in matches if item["pipelineName"] == job]
         if len(candidates) != 1 or candidates[0]["status"] != "SUCCESS":
             return False
@@ -406,6 +669,38 @@ def renew_permit(prepared, lease, now=None):
             "deadline_utc": deadline.isoformat(),
         },
     )
+
+
+def renew_candidate_permit(prepared, lease, root):
+    plan = prepared["plan"]
+    if (
+        plan["stage"] == "acceptance"
+        and plan.get("mode", "candidate") == "candidate"
+        and root is not None
+        and root["status"] == "QUEUED"
+    ):
+        checked_roots = prepared.setdefault("fresh_main_roots", set())
+        if root["runId"] not in checked_roots:
+            remote = checked(
+                "git",
+                "-C",
+                str(prepared["paths"]["CANDIDATE_WORKTREE"]),
+                "ls-remote",
+                "origin",
+                "refs/heads/main",
+                timeout=30,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "Never"},
+            ).split()
+            if (
+                len(remote) != 2
+                or remote[1] != "refs/heads/main"
+                or remote[0] != plan["candidate"]["base_sha"]
+            ):
+                raise ValueError(
+                    "Remote main is stale or unknown; recompose candidate before compute"
+                )
+            checked_roots.add(root["runId"])
+    renew_permit(prepared, lease)
 
 
 def revoke_permit(prepared, lease):
@@ -870,6 +1165,7 @@ def prepare(args, *, historical_observation=False):
         host_identity_checked=True,
         production_busy=production_busy,
         production_container_id=production.get("Id"),
+        production_runtime_identity=_production_identity(production),
         reference=reference,
         upstream=upstream,
         source_document=source_document,
@@ -1484,7 +1780,7 @@ def supervise(args, prepared):
                     except FileExistsError:
                         pass
                 if lease is not None:
-                    renew_permit(prepared, lease)
+                    renew_candidate_permit(prepared, lease, root)
             elif lease is not None and not actual:
                 release_heavy(prepared, lease)
                 lease = None

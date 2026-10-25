@@ -1,7 +1,27 @@
 # Staging acceptance before main
 
 Change surface: mixed. Architectural impact: contract-change.
-Status: implementation decision; runtime acceptance requires the evidence below.
+Decision: accepted. Implementation: staged; activation requires separate route acceptance.
+Runtime/deployment: not established by this decision; require pinned live readback.
+
+## Decision context and alternatives
+
+Repeated materialization makes development costly; green tests do not establish
+the deployed producer-to-consumer route. This decision fixes cost and proof order.
+Tests-only or main-first proof was rejected: both permit unverified integration.
+Per-SHA retry/rebuild budgets were rejected: they erase spend history and grow cost.
+A new compute/quota service or separate reference environment was rejected: reuse
+native Dagster/Delta ownership, existing Postgres and the acceptance environment.
+
+Build/review inert foundations in branches; complete the whole native pilot before
+any foundation merge. Then adopt protected authority and activate the gate. Rollback
+disables activation and restores accepted code/image/checkpoint together; preserve
+quota history and receipts. No automatic rebuild, quota reset or acceptance-data copy.
+Sources: [native owners](native-runtime-ownership.md),
+[schema](../../../src/trading_advisor_3000/product_plane/contracts/schemas/staging_acceptance.v1.json),
+[admission](../../../scripts/validate_staging_acceptance.py). Scoped PR receipts and
+runtime readback own implementation/deployment evidence. Revisit on native runtime,
+storage/ownership or recurring-cost changes; reuse this record rather than add a registry.
 
 ## Delivery contract
 
@@ -191,6 +211,28 @@ only for the existing canonical controller, checks actual rules and revokes it
 afterward. Registration, installation, policy readback and measured refusal are
 operational acceptance requirements; a proposed ruleset is not enforcement proof.
 The repository owner can still change policy settings.
+
+## Production NOOP admission
+
+The normal coexistence proof is a matching production tick and successful native
+three-job chain. A successful baseline without a child is not sufficient. A NOOP
+exception requires an explicit native NOOP sensor tick whose cursor resolves to
+that exact root's RUN_SUCCESS record, zero children and no active production work.
+
+Public GraphQL cannot resolve that global cursor alone. A separate protected
+metadata reader uses native Dagster APIs on read-only main/WAL file aliases with
+private derived WAL/SHM in bounded tmpfs. Original family sets, identities and
+hashes must stay unchanged throughout observation; new/mutated WAL blocks it.
+Root/tick/event and runtime identity are rechecked before/after. No production
+pause, original write, `immutable=1`, data mount or private key is permitted.
+
+This reader bounds metadata source size to 384 MiB, RAM to 2 GiB, CPU to one,
+scratch to 256 MiB and elapsed work to 30 seconds. It does not copy the complete
+303 MiB schedules database into scratch. Three failed observations require
+diagnosis. A successful immutable witness is reused for the same runtime/tick/root
+with fresh status/zero-child/zero-active checks. Generic empty skips are not NOOP.
+Native fixtures prove the positive branch; actual production readback may honestly
+return NOT_NOOP. Neither establishes full market-route acceptance by itself.
 
 ## Promotion and rollout
 
