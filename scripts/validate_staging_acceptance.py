@@ -44,6 +44,8 @@ def requires_acceptance(paths: list[str]) -> bool:
                 "launch_moex",
                 "staging_",
                 "seed_staging",
+                "prepare_staging",
+                "initialize_staging",
                 "authorize_staging",
                 "extend_staging",
                 "reattest_staging",

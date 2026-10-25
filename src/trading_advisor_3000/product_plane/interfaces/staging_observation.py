@@ -49,19 +49,18 @@ def _states(instance, kind, name, run):
     return states[0]
 
 
-def _schedule(instance, root):
+def _schedule(plan, instance, root):
+    from ..common.staging_execution import _reference_tick
+
     name = "moex_baseline_daily_update_schedule"
-    state = _states(instance, InstigatorType.SCHEDULE, name, root)
-    for tick in instance.get_ticks(state.instigator_origin_id, state.selector_id, limit=100):
-        if root.run_id in tick.run_ids and tick.status.value == "SUCCESS":
-            return {
-                "name": name,
-                "tick_id": str(tick.tick_id),
-                "status": "SUCCESS",
-                "timestamp": tick.timestamp,
-                "run_id": root.run_id,
-            }
-    raise _Pending("awaiting the root's actual successful schedule tick")
+    tick = _reference_tick(plan, instance, root)
+    return dict(
+        name=name,
+        tick_id=str(tick.tick_id),
+        status="SUCCESS",
+        timestamp=tick.timestamp,
+        run_id=root.run_id,
+    )
 
 
 def _tick_matches(instance, tick, upstream, child):
@@ -286,7 +285,7 @@ def observe_reference_cycle(plan, root_run_id, instance, data_root):
             if run is root:
                 if "moex_baseline_update" not in stages:
                     raise ValueError("reference root did not execute its baseline producer")
-                result["schedule"] = _schedule(instance, root)
+                result["schedule"] = _schedule(plan, instance, root)
             upstream = run
         else:
             if not set(STAGES).issubset(stages):

@@ -633,9 +633,26 @@ def halt_reference_graph(plan_path, *, reason, root_run_id="", quota_home=None):
         )
 
 
+def _scheduled_time(plan, run):
+    from dagster._core.storage.tags import SCHEDULE_NAME_TAG, SCHEDULED_EXECUTION_TIME_TAG
+
+    if run.tags.get(SCHEDULE_NAME_TAG) != "moex_baseline_daily_update_schedule" or not run.tags.get(
+        SCHEDULED_EXECUTION_TIME_TAG
+    ):
+        raise StagingExecutionError("acceptance requires the scheduled root route")
+    scheduled = _stamp(run.tags[SCHEDULED_EXECUTION_TIME_TAG])
+    if scheduled > time.time():
+        raise StagingExecutionError("future schedule tags cannot authorize execution")
+    expected = plan.get("source", {}).get("native_schedule", {}).get("logical_scheduled_at_utc")
+    if expected and not _reference_mode(plan) and scheduled != _stamp(expected):
+        raise StagingExecutionError("run belongs to another protected schedule instant")
+    return scheduled
+
+
 def _reference_tick(plan, instance, run):
     from dagster._core.scheduler.instigation import InstigatorType
 
+    scheduled = _scheduled_time(plan, run)
     origin = run.remote_job_origin
     for state in instance.all_instigator_state(instigator_type=InstigatorType.SCHEDULE):
         if (
@@ -645,9 +662,13 @@ def _reference_tick(plan, instance, run):
         ):
             continue
         for tick in instance.get_ticks(state.instigator_origin_id, state.selector_id, limit=20):
-            if run.run_id in tick.run_ids and tick.status.value == "SUCCESS":
+            if (
+                run.run_id in tick.run_ids
+                and tick.status.value == "SUCCESS"
+                and tick.timestamp == scheduled
+            ):
                 return tick
-    raise StagingExecutionError("reference root lacks an actual successful persisted schedule tick")
+    raise StagingExecutionError("root lacks an actual successful persisted schedule tick")
 
 
 def _reference_root(plan, instance, run, *, reserve):
@@ -735,6 +756,31 @@ def _root_reservation(plan, run, instance):
         return record
 
 
+def _validate_root_recipe(plan, run_config):
+    native = plan.get("source", {}).get("native_schedule", {})
+    if _reference_mode(plan) or "run_config" not in native:
+        return
+
+    def normalized(value):
+        try:
+            value = json.loads(json.dumps(value, allow_nan=False))
+        except (TypeError, ValueError) as exc:
+            raise StagingExecutionError("protected root recipe requires opaque JSON") from exc
+        if not isinstance(value, dict):
+            raise StagingExecutionError("protected root recipe requires a JSON object")
+        ops = value.get("ops")
+        if isinstance(ops, dict):
+            for op in ops.values():
+                if isinstance(op, dict) and isinstance(op.get("config"), dict):
+                    op["config"].pop("run_id", None)
+        return value
+
+    if digest(normalized(run_config)) != digest(normalized(native["run_config"])):
+        raise StagingExecutionError(
+            "actual root RunConfig differs from its protected native recipe"
+        )
+
+
 def _bind_run(plan, instance, run, seen=None, *, reserve=True):
     if not instance.is_persistent or run is None:
         raise StagingExecutionError("staging requires an actual persistent Dagster run")
@@ -753,11 +799,13 @@ def _bind_run(plan, instance, run, seen=None, *, reserve=True):
     if run.job_name == plan["root_job"]:
         if upstream or spec["upstream_job"] is not None:
             raise StagingExecutionError("root job cannot borrow upstream admission")
-        if plan["require_scheduled"] and not (
-            run.tags.get("dagster/schedule_name")
-            and run.tags.get("dagster/scheduled_execution_time")
-        ):
-            raise StagingExecutionError("acceptance requires the scheduled root route")
+        _validate_root_recipe(plan, run.run_config)
+        if plan["require_scheduled"]:
+            # Native submit happens before the scheduler commits its SUCCESS tick.
+            # Submission is free; dequeue/launch require the completed native link.
+            _scheduled_time(plan, run)
+            if reserve:
+                _reference_tick(plan, instance, run)
         reservation = (
             _reference_root(plan, instance, run, reserve=reserve)
             if _reference_mode(plan)
@@ -1211,7 +1259,7 @@ def __getattr__(name):
             try:
                 plan = _plan()
                 allowed = plan is not None and execution_permitted(plan)
-                if allowed and _reference_mode(plan):
+                if allowed and plan["require_scheduled"]:
                     from dagster import RunsFilter
                     from dagster._core.storage.dagster_run import DagsterRunStatus
 

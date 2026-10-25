@@ -272,6 +272,8 @@ def test_deployment_dependencies_and_launchers_cannot_take_docs_shortcut():
         "scripts/staging_admission.py",
         "scripts/run_staging_control.py",
         "scripts/seed_staging_snapshot.py",
+        "scripts/prepare_staging_plan.py",
+        "scripts/initialize_staging_schedule.py",
         "scripts/authorize_staging_budget.py",
         "scripts/extend_staging_budget.py",
         "scripts/reattest_staging_acceptance.py",

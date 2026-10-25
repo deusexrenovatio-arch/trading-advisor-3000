@@ -157,6 +157,10 @@ signing. Original HOME writes and immutable SQLite mode remain forbidden.
 Native scheduler catch-up may exercise a declared preceding real cron instant;
 the daemon creates its tick/run/configuration itself. Evidence labels catch-up
 separately from a later wall-clock scheduled observation.
+Protected metadata may propose the next native cron before it occurs; the proposal
+is not an observed tick. Admission reads Dagster's canonical hidden scheduled-time
+tag. Native dequeue and launch require the matching persisted successful tick and
+run link before spending quota; future, unreachable or forged links cannot compute.
 
 Candidate self-reported JSON, tag counts, kind=real and raw-table inspection alone
 cannot establish acceptance. The collector runs outside candidate containers and
@@ -177,6 +181,16 @@ merge controller additionally checks the exact protected workflow/event/run,
 successful steps, admission artifact and current base/head before SHA-bound merge.
 Until remote rules bind that authority, other UI/admin merge routes remain an
 explicit adoption limitation; this controller does not prove all-path enforcement.
+
+For a personal GitHub repository, close that limitation with a separate active
+`main` update-restriction ruleset. Its only bypass is a private controller App,
+limited to pull requests. Keep the existing strict `pr-lane`/PR ruleset without
+bypass. The App receives Contents write and Actions read for this repository only;
+its key remains on the protected host. The host wrapper obtains a temporary token
+only for the existing canonical controller, checks actual rules and revokes it
+afterward. Registration, installation, policy readback and measured refusal are
+operational acceptance requirements; a proposed ruleset is not enforcement proof.
+The repository owner can still change policy settings.
 
 ## Promotion and rollout
 

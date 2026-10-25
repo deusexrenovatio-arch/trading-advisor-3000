@@ -28,6 +28,7 @@ from dagster._core.scheduler.instigation import (
 )
 from dagster._core.storage.dagster_run import DagsterRun
 from dagster._core.storage.event_log.base import RunStatusChangeRecordsFilter
+from dagster._core.storage.tags import SCHEDULED_EXECUTION_TIME_TAG
 from dagster_shared.record import copy as copy_record
 
 from trading_advisor_3000.product_plane.common.staging_contracts import digest
@@ -67,6 +68,7 @@ def recorded_cycle(tmp_path, monkeypatch):
     }
     monkeypatch.setattr(owner, "_snapshots", lambda *args: (inputs, outputs))
     repo = RemoteRepositoryOrigin(RegisteredCodeLocationOrigin("staging"), "repo")
+    schedule_timestamp = float(int(time.time()) - 1)  # Native cron timestamps have whole seconds.
     with DagsterInstance.local_temp(str(home)) as instance:
 
         def record(job, run_id, *, upstream=None, steps=(), failure=False):
@@ -83,6 +85,9 @@ def recorded_cycle(tmp_path, monkeypatch):
                 )
             else:
                 tags["dagster/schedule_name"] = SCHEDULE
+                tags[SCHEDULED_EXECUTION_TIME_TAG] = datetime.fromtimestamp(
+                    schedule_timestamp, UTC
+                ).isoformat()
             instance.add_run(
                 DagsterRun(
                     job_name=job,
@@ -143,7 +148,7 @@ def recorded_cycle(tmp_path, monkeypatch):
                 SCHEDULE,
                 InstigatorType.SCHEDULE,
                 TickStatus.SUCCESS,
-                time.time() - 1,
+                schedule_timestamp,
                 run_ids=["root"],
                 selector_id=state.selector_id,
             )

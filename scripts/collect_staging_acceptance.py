@@ -396,13 +396,13 @@ def observe_reattest(
 
 def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> dict:
     from dagster import DagsterEventType, DagsterInstance, RunsFilter
-    from dagster._core.scheduler.instigation import InstigatorType
 
     from trading_advisor_3000.product_plane.common.data_snapshots import (
         current_snapshot,
         load_snapshot,
         open_pinned_table,
     )
+    from trading_advisor_3000.product_plane.common.staging_execution import _reference_tick
     from trading_advisor_3000.product_plane.common.staging_observation import readonly_home_snapshot
     from trading_advisor_3000.product_plane.research.data_snapshots import snapshot_registry
 
@@ -511,21 +511,14 @@ def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> d
             upstream = run
         if research["run_id"] != upstream.run_id:
             raise ValueError("Published Research was not produced by the recorded candidate chain")
-        tick_proof = None
-        for state in instance.all_instigator_state(instigator_type=InstigatorType.SCHEDULE):
-            if state.name != "moex_baseline_daily_update_schedule":
-                continue
-            for tick in instance.get_ticks(state.instigator_origin_id, state.selector_id, limit=20):
-                if root.run_id in tick.run_ids and tick.status.value == "SUCCESS":
-                    tick_proof = {
-                        "name": state.name,
-                        "status": "SUCCESS",
-                        "run_id": root.run_id,
-                        "tick_id": str(tick.tick_id),
-                        "timestamp": tick.timestamp,
-                    }
-        if tick_proof is None:
-            raise ValueError("Root run is not linked to an actual successful schedule tick")
+        tick = _reference_tick(plan, instance, root)
+        tick_proof = dict(
+            name="moex_baseline_daily_update_schedule",
+            status="SUCCESS",
+            run_id=root.run_id,
+            tick_id=str(tick.tick_id),
+            timestamp=tick.timestamp,
+        )
     if changed < 1 or not set(STAGES).issubset(stages):
         raise ValueError("Nonempty execution of every required production stage is missing")
     path = registry / "manifests" / f"{research['snapshot_id']}.json"

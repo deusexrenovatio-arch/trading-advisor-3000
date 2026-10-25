@@ -21,6 +21,7 @@ from dagster._core.remote_origin import (
     RemoteRepositoryOrigin,
 )
 from dagster._core.storage.dagster_run import DagsterRun, DagsterRunStatus
+from dagster._core.storage.tags import SCHEDULED_EXECUTION_TIME_TAG
 
 from trading_advisor_3000.product_plane.common import staging_execution as guard
 
@@ -758,7 +759,8 @@ def reference_plan(staging, monkeypatch):
             run_id,
             tags={
                 "dagster/schedule_name": state.name,
-                # Caller tags never supply the quota clock.
+                SCHEDULED_EXECUTION_TIME_TAG: stamp,
+                # A visible caller tag is not Dagster's canonical hidden clock.
                 "dagster/scheduled_execution_time": "2099-01-01T00:00:00Z",
             },
             run_config=run_config,
