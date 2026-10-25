@@ -499,6 +499,22 @@ def run_moex_raw_ingest_spark_delta_job(
     spark_session_factory: Callable[[str, str], object] | None = None,
     emit_progress_event: bool = True,
 ) -> dict[str, Any]:
+    from trading_advisor_3000.product_plane.common.staging_execution import require_staging_compute
+
+    require_staging_compute(
+        stage="run_moex_raw_ingest_spark_delta_job",
+        output_path=table_path,
+        windows=window_scopes,
+    )
+    from trading_advisor_3000.product_plane.common.staging_source_scope import (
+        require_staging_source_bytes,
+    )
+
+    require_staging_source_bytes(
+        output_path=table_path,
+        input_paths=[table_path, source_rows_path],
+        input_values=[source_rows] if source_rows is not None else [],
+    )
     if refresh_overlap_minutes < 0:
         raise ValueError("refresh_overlap_minutes must be >= 0")
 
