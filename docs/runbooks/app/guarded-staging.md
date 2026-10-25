@@ -38,8 +38,10 @@ can freeze a checkpoint when production advances during preparation.
 Retain its candidate document and executable manifest. Run
 `scripts/prepare_staging_plan.py` against the actual candidate in the native Linux
 image with read-only data. It captures the real schedule RunConfig and producer
-defaults without invoking the producer. Select an elapsed genuine cron instant,
-accepted source, explicit nonempty consumer columns, input-byte cap, deadline and
+defaults without invoking the producer. Select an elapsed genuine cron instant
+or propose the next genuine future cron as metadata; admission still requires its
+actual persisted successful tick and run link. Select accepted source, explicit
+nonempty consumer columns, input-byte cap, deadline and
 execution window. No guessed parameters or Windows translation of Linux paths.
 
 Place `plan.json`, `execution-manifest.json`, `root-marker.json` and public

@@ -244,6 +244,42 @@ def test_guarded_branch_launch_sends_server_verifiable_plan_identity(guarded_lau
     assert plan == original and path.read_bytes() == saved
 
 
+@pytest.mark.parametrize(
+    "port,override,expected,error",
+    [
+        ("", "", "http://127.0.0.1:3011/graphql", None),
+        ("4311", "", "http://127.0.0.1:4311/graphql", None),
+        ("4311", "http://127.0.0.1:4312/graphql", None, "endpoint override"),
+        ("3000", "", None, "production endpoint"),
+    ],
+)
+def test_guarded_branch_port_binding_before_network(
+    guarded_launch, monkeypatch, port, override, expected, error
+):
+    module, _, instance, _, _ = guarded_launch
+    if port:
+        monkeypatch.setenv("TA3000_STAGING_PORT", port)
+    captured = []
+
+    def post(**kwargs):
+        assert error is None, "invalid endpoint must be refused before HTTP"
+        captured.append(kwargs["url"])
+        return {"data": {"launchRun": {"__typename": "LaunchRunSuccess"}}}
+
+    monkeypatch.setattr(module, "_post_graphql", post)
+    argv = ["launch", "--instance-id", instance.instance_id]
+    if override:
+        argv.extend(["--graphql-url", override])
+    monkeypatch.setattr(sys, "argv", argv)
+    if error:
+        with pytest.raises(ValueError, match=error):
+            module.main()
+        assert not captured
+    else:
+        module.main()
+        assert captured == [expected]
+
+
 def test_guarded_branch_cutoff_override_is_rejected_before_network(guarded_launch, monkeypatch):
     module, _, instance, _, _ = guarded_launch
     monkeypatch.setattr(module, "_post_graphql", lambda **kwargs: pytest.fail("must not launch"))

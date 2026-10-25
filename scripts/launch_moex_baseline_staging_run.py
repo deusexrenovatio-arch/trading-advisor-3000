@@ -171,7 +171,9 @@ def _guarded_launch_plan(registry, instance, *, graphql_url, bypass_flags=False)
         raise ValueError(
             "guarded staging requires the repository-owned registry and protected plan"
         )
-    expected = str(instance.dagster["graphql_url"])
+    expected = _resolve_graphql_url(
+        str(instance.dagster["graphql_url"]), dagster=instance.dagster, override=False
+    )
     if _endpoint_binding(graphql_url) != _endpoint_binding(expected):
         raise ValueError("guarded staging GraphQL endpoint override forbidden")
     product = registry.dagster_owner(registry.default_product_runtime())
