@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -80,6 +81,33 @@ def host_path(value):
 
 def overlaps(a, b):
     return a == b or a.is_relative_to(b) or b.is_relative_to(a)
+
+
+def data_root_file_bytes(root, *, max_entries=100000, max_seconds=10):
+    """Bound the isolated root's payload inventory; never read file contents or follow links."""
+    pending, total, entries = [Path(root)], 0, 1
+    deadline = time.monotonic() + max_seconds
+    while pending:
+        if time.monotonic() >= deadline:
+            raise ValueError("Staging data inventory time cap exceeded")
+        path = pending.pop()
+        metadata = path.stat(follow_symlinks=False)
+        if stat.S_ISLNK(metadata.st_mode) or getattr(metadata, "st_file_attributes", 0) & 0x400:
+            raise ValueError("Staging data inventory refuses symlinks/reparse points")
+        if stat.S_ISREG(metadata.st_mode):
+            total += metadata.st_size
+        elif stat.S_ISDIR(metadata.st_mode):
+            with os.scandir(path) as children:
+                for child in children:
+                    entries += 1
+                    if entries > max_entries or time.monotonic() >= deadline:
+                        raise ValueError("Staging data inventory count/time cap exceeded")
+                    pending.append(Path(child.path))
+        else:
+            raise ValueError("Staging data inventory refuses non-regular files")
+    if time.monotonic() >= deadline:
+        raise ValueError("Staging data inventory time cap exceeded")
+    return total
 
 
 def read_environment(path):
@@ -862,7 +890,7 @@ def prepare(args, *, historical_observation=False):
         config=config,
         values=values,
         deadline=deadline,
-        free=free,
+        data_bytes=data_root_file_bytes(paths["DATA_ROOT"]),
         production_url=production_url,
         production_mounts=[
             host_path(mount["Source"]) for mount in production["Mounts"] if mount["Type"] == "bind"
@@ -1167,10 +1195,12 @@ def watch_limits(prepared):
     if datetime.now(UTC) >= prepared["deadline"]:
         raise ValueError("Staging deadline/runtime cap exceeded")
     free = shutil.disk_usage(prepared["paths"]["DATA_ROOT"]).free
-    if free < int(prepared["values"][PREFIX + "MIN_FREE_BYTES"]) or prepared["free"] - free > int(
+    if free < int(prepared["values"][PREFIX + "MIN_FREE_BYTES"]):
+        raise ValueError("Host staging disk reserve cap exceeded")
+    if data_root_file_bytes(prepared["paths"]["DATA_ROOT"]) - prepared["data_bytes"] > int(
         prepared["values"][PREFIX + "MAX_GROWTH_BYTES"]
     ):
-        raise ValueError("Host staging disk reserve/growth cap exceeded")
+        raise ValueError("Own staging data file growth cap exceeded")
 
 
 def observed_result(prepared, web, mode, root_run_id=None):
