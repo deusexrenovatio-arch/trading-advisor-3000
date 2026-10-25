@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -97,3 +97,49 @@ def test_next_native_cron_is_only_a_future_metadata_proposal():
     assert preparation.scheduled_instant(assets, future.isoformat()) == future
     proposal = preparation.native_schedule_metadata(assets, future, {})
     assert proposal["preparation"] == "metadata-only; not execution or acceptance"
+
+
+def test_branch_plan_uses_registered_small_recipe_and_native_clock_only():
+    from trading_advisor_3000.product_plane.data_plane.moex.runtime_instances import (
+        build_moex_baseline_run_config_for_instance,
+        load_moex_runtime_instances_registry,
+    )
+
+    root = Path(__file__).resolve().parents[2]
+    instant = datetime(2026, 10, 24, 23, tzinfo=UTC)
+    daily = {
+        "ops": {
+            "moex_baseline_update": {
+                "config": {
+                    "run_id": "20261024T230000Z",
+                    "ingest_till_utc": "2026-10-24T21:00:00Z",
+                    "timeframes": "1m,5m,15m,1h,4h,1d,1w",
+                    "refresh_window_days": 7,
+                    "stability_lag_minutes": 0,
+                }
+            }
+        }
+    }
+    assets = SimpleNamespace(_build_baseline_daily_schedule_run_config=lambda context: daily)
+    captured = preparation.native_root_run_config(assets, instant, "branch", root)
+    config = captured["ops"]["moex_baseline_update"]["config"]
+    assert config["timeframes"] == "1d"
+    assert config["refresh_window_days"] == 1
+    assert config["max_changed_window_days"] == 2
+    assert config["expand_contract_chain"] is False
+    clock = daily["ops"]["moex_baseline_update"]["config"]
+    registered = load_moex_runtime_instances_registry(repo_root=root).instance(
+        "moex_branch_staging"
+    )
+    registered_config = build_moex_baseline_run_config_for_instance(
+        registered, run_id=clock["run_id"], ingest_till_utc=clock["ingest_till_utc"]
+    )
+    expected = registered_config["ops"]["moex_baseline_update"]["config"]
+    assert expected["stability_lag_minutes"] == 20  # Existing manual branch defaults stay intact.
+    expected["stability_lag_minutes"] = clock["stability_lag_minutes"]
+    assert captured == registered_config
+    closed_daily_candle = datetime.fromisoformat(clock["ingest_till_utc"].replace("Z", "+00:00"))
+    assert closed_daily_candle <= closed_daily_candle - timedelta(
+        minutes=config["stability_lag_minutes"]
+    )
+    assert preparation.native_root_run_config(assets, instant, "acceptance", root) is daily
