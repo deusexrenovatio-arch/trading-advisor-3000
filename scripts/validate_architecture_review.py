@@ -79,6 +79,57 @@ def _git(repo_root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def read_decision_record(
+    repo_root: Path, path: str, *, head_ref: str | None = None
+) -> dict[str, str]:
+    """Pin an owning architecture document from the worktree or exact PR head."""
+    root = repo_root.resolve()
+    normalized = path.replace("\\", "/")
+    parts = PurePosixPath(normalized)
+    if (
+        parts.is_absolute()
+        or PureWindowsPath(normalized).drive
+        or ":" in normalized
+        or ".." in parts.parts
+        or parts.parts[:2] != ("docs", "architecture")
+        or parts.suffix != ".md"
+    ):
+        raise ValueError("record must name repository-relative docs/architecture Markdown")
+    normalized = parts.as_posix()
+    if head_ref:
+        head = _git(root, "rev-parse", "--verify", f"{head_ref}^{{commit}}")
+        entry = _git(root, "ls-tree", head, "--", f":(literal){normalized}")
+        metadata = entry.split("\t", 1)[0].split()
+        if len(metadata) != 3 or metadata[0] not in {"100644", "100755"}:
+            raise ValueError("record must exist as a regular file in reviewed head")
+        result = subprocess.run(
+            ["git", "show", f"{head}:{normalized}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8-sig",
+            check=False,
+        )
+        if result.returncode:
+            raise ValueError("record is unavailable from reviewed head")
+        text = result.stdout
+    else:
+        target = root / normalized
+        for candidate in (target, *target.parents):
+            if candidate == root:
+                break
+            attributes = getattr(candidate.lstat(), "st_file_attributes", 0)
+            if candidate.is_symlink() or attributes & 0x400:  # Windows reparse points
+                raise ValueError("record and its ancestors must not be symlinks/reparse points")
+        if not target.resolve().is_relative_to(root) or not target.is_file():
+            raise ValueError("record must be a regular file inside the repository")
+        text = target.read_text(encoding="utf-8-sig")
+    text = text.removeprefix("\ufeff").replace("\r\n", "\n")
+    if not text.strip():
+        raise ValueError("record must not be empty")
+    return {"path": normalized, "digest": hashlib.sha256(text.encode("utf-8")).hexdigest()}
+
+
 def scope_digest(
     repo_root: Path,
     changed_files: list[str],
@@ -255,6 +306,8 @@ def validate_review(
     phase: str,
     expected_scope: str | None,
     expected_standard: ArchitectureStandard | None = None,
+    repo_root: Path | None = None,
+    head_ref: str | None = None,
 ) -> list[str]:
     if phase not in {"design", "implementation"}:
         return ["unknown architecture review phase"]
@@ -273,14 +326,25 @@ def validate_review(
         errors.append("scope_digest is stale or missing; refresh independent implementation review")
     if impact == "none":
         return errors
+    root = repo_root if repo_root is not None else Path(__file__).resolve().parents[1]
     decision = value.get("decision")
+    record = decision.get("record") if isinstance(decision, dict) else None
+    if not isinstance(record, dict) or not _text(record.get("path")):
+        errors.append("decision.record requires an owning document path and digest")
+    else:
+        try:
+            current = read_decision_record(root, record["path"], head_ref=head_ref)
+            if record.get("digest") != current["digest"]:
+                errors.append("decision.record.digest is stale or missing; refresh review bindings")
+        except (OSError, ValueError) as exc:
+            errors.append(f"decision.record: {exc}")
     if not isinstance(decision, dict):
         return errors + ["decision object is required for triggered architecture review"]
     for field in DECISION_FIELDS:
         if not _text(decision.get(field)):
             errors.append(f"decision.{field} must name the reviewed design")
     try:
-        standard = expected_standard or read_standard(Path(__file__).resolve().parents[1])
+        standard = expected_standard or read_standard(root, head_ref=head_ref)
     except (OSError, ValueError) as exc:
         return errors + [f"architecture standard unavailable: {exc}"]
     pin = decision.get("standard")
@@ -346,7 +410,12 @@ def check_architecture_review(
         ):
             standard = read_standard(Path.cwd(), head_ref=head_ref)
         errors = validate_review(
-            body, phase=phase, expected_scope=binding, expected_standard=standard
+            body,
+            phase=phase,
+            expected_scope=binding,
+            expected_standard=standard,
+            repo_root=Path.cwd(),
+            head_ref=head_ref,
         )
     except (OSError, ValueError, TypeError) as exc:
         errors = [str(exc)]
@@ -371,6 +440,7 @@ def main() -> int:
     parser.add_argument("--architecture-review-source")
     parser.add_argument("--phase", choices=("design", "implementation"), default="implementation")
     parser.add_argument("--print-binding", action="store_true")
+    parser.add_argument("--record-path", help="Owning architecture Markdown for --print-binding")
     args = parser.parse_args()
     try:
         files = collect_changed_files(
@@ -394,10 +464,20 @@ def main() -> int:
             standard = read_standard(Path.cwd(), head_ref=args.head_ref)
             result["standard"] = {**standard.pin, "criteria": list(standard.criteria)}
             body = load_review_body(args.architecture_review_source)
+            record_path = args.record_path
             if body is not None:
                 decision = parse_review(body).get("decision")
                 if isinstance(decision, dict):
                     result["decision_digest"] = decision_digest(decision)
+                    record = decision.get("record")
+                    if record_path is None and isinstance(record, dict):
+                        record_path = record.get("path")
+            if record_path is not None:
+                if not _text(record_path):
+                    raise ValueError("decision.record.path must be nonempty text")
+                result["decision_record"] = read_decision_record(
+                    Path.cwd(), record_path, head_ref=args.head_ref
+                )
             print(json.dumps(result))
             return 0
         return check_architecture_review(

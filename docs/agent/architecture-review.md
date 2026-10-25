@@ -17,14 +17,24 @@ existing task/Issue/PR discussion:
 
 | Impact | Meaning | Required review |
 | --- | --- | --- |
-| `none` | Reuses a suitable accepted decision; no new ownership, boundary, state writer, runtime choice, or material cost tradeoff | Short reason and focused checks; no new specification or independent architecture review |
-| `within-contract` | Makes a new architectural choice inside accepted contracts | Independent design and implementation review |
+| `none` | Reuses a suitable accepted decision; no new ownership, boundary, state writer, runtime choice, or material cost tradeoff | Short reason and focused checks; no mandatory document, pin, new specification or independent architecture review |
+| `within-contract` | Makes a new architectural choice inside accepted contracts | Save the owning decision; independent design and implementation review |
 | `contract-change` | Changes an accepted boundary, contract, ownership, lifecycle, or consequential runtime decision | Update the owning decision/specification; reuse existing authorization; independent design and implementation review |
 
 Classify meaning, not diff size or directory. SQL, internal calls, schemas,
 shared state and material performance choices can trigger review without a docs
 change. Docs-only decisions can also trigger review. A bugfix reusing a suitable
 decision still needs its regression proof, but not a new architecture spec.
+
+A permanent record deserves a durable choice that constrains later work: who
+owns a source of truth or writer, which module/API boundary is allowed, how
+state/publication/recovery evolves, which runtime owns computation, or a
+material recurring cost/reversibility tradeoff. Record why alternatives were
+rejected and when to revisit the choice. A large diff alone is insufficient.
+Ordinary bugfixes, timeout/path settings, mechanical refactors, added tests and
+implementation details within an accepted choice stay in the PR, tests or
+runbook. A payload field merits a record only when its semantics change such a
+boundary. Reuse an owning document; do not create one ADR per PR.
 
 Inspect the affected baseline: actual producer, schema authority, writers,
 consumers, accepted explanation, reuse alternatives and ordinary operation cost.
@@ -38,7 +48,8 @@ presumption that duplicate ownership caused them.
 flowchart TD
     A["Context + surface/risk"] --> B{"Architecture impact"}
     B -->|none| C["Accepted implementation + focused checks"]
-    B -->|within-contract| D["Independent design review"]
+    B -->|within-contract| I["Save owning decision"]
+    I --> D["Independent design review"]
     B -->|contract-change| E["Update owning decision; reuse authorization"]
     E --> D
     D --> F["Real producer and dependent consumers"]
@@ -46,6 +57,33 @@ flowchart TD
     C --> H["Existing loop / PR gates"]
     G --> H
 ```
+
+## Durable decision record
+
+Follow [ADR 0003](docs/architecture/adr/0003-durable-decision-records.md).
+Before dependent implementation, persist each new architectural choice in an
+owning document under `docs/architecture/` or the existing ADR directory.
+Record context, alternatives and reasons, choice, consequences, migration and
+rollback, decision status, implementation status, and source/PR/proof links.
+An explicit scoped section in an existing owning document is sufficient.
+Keep acceptance, implementation and deployment statuses separate.
+
+Only `within-contract` and `contract-change` admissions require
+`decision.record: {"path": "docs/architecture/...md",
+"digest": "normalized UTF-8 SHA-256"}`. `none` keeps its short reason and checks
+without a mandatory document or pin. Triggered work pins its permanent choice;
+the pin participates in both independent reviews' decision digest.
+The gate rejects missing, empty, stale or unsafe records, including changes
+outside selected scope. Immutable PR checks read the reviewed head; local checks
+read the worktree. BOM and CRLF are normalized. Independent review checks the
+record's relevance and substance; a valid hash alone proves neither.
+
+Use `--print-binding --record-path <owning-document>` to obtain the pin, or
+omit `--record-path` when the exported body already supplies `decision.record`.
+The body stays review evidence; the repository document owns the explanation.
+Open triggered receipts need a pin and refreshed reviews. Closed PRs are
+historical evidence, not retroactively re-admitted work. Reconstructed decisions
+name original sources, reconstruction date, implementation evidence and unknowns.
 
 ## Sources and ownership
 
@@ -109,7 +147,7 @@ Ordinary implementation needs only:
 ```
 ````
 
-Triggered reviews additionally require a `decision` object with nonempty
+Triggered reviews add a `decision` object with its record pin and nonempty
 `owner`, `accepted_contract`, `change`, `reuse`, `cost`, `compatibility`, and
 `validation` strings. Include alternatives, migration/removal/rollback and
 affected state/consumers in those fields where relevant. The validator prints
@@ -155,7 +193,8 @@ Immutable checks read it from the reviewed PR head; local checks read working
 content. A missing/empty/ambiguous standard or changed pin blocks triggered
 reviews. Existing triggered receipts need refreshed standard assessments and
 decision bindings; this reuses existing authorization for the same scope.
-The ordinary `none` declaration needs no standard pin or criterion packet.
+The ordinary `none` declaration needs no decision-record pin, standard pin or
+criterion packet.
 
 ## Gate behavior
 

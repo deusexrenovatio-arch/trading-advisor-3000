@@ -56,14 +56,14 @@ stable architecture surface.
 ## Naming decision for this sweep
 1. Canonical docs root is now `docs/architecture/product-plane/`.
 2. Legacy app-path docs are archived under `docs/archive/legacy-app-docs/2026-05-06/`.
-3. Runtime and tests physical renames remain deferred to their dedicated phases.
+3. Runtime and tests physical renames are complete: implementation lives under `src/trading_advisor_3000/product_plane/`, with product tests under `tests/product-plane/`.
 
 Migration specification reference:
 - `docs/architecture/dual-surface-safe-rename-migration-technical-specification.md`
 
-## Phase 2 Compatibility Bridge Status
-- Runtime namespace bridge: `src/trading_advisor_3000/product_plane/__init__.py` proxies to the current legacy app package namespace.
-- Docs namespace pointer: `docs/architecture/product-plane/README.md` points contributors to the current canonical docs root during bridge mode.
+## Namespace cutover status
+- Runtime namespace cutover is complete. `src/trading_advisor_3000/product_plane/__init__.py` is the product package entrypoint, not a proxy to a legacy app package; implementations live in its product-plane modules.
+- Docs namespace pointer: `docs/architecture/product-plane/README.md` points contributors to the current canonical docs root.
 - Guardrail validator: `scripts/validate_legacy_namespace_growth.py` blocks new legacy namespace references in changed files outside explicit migration allowlist paths.
 
 ## Controlled rename candidates and status
@@ -71,7 +71,8 @@ Migration specification reference:
 - Completed in this phase: product tests namespace now runs from `tests/product-plane/`.
 - Completed in this phase: product runtime namespace now runs from `src/trading_advisor_3000/product_plane/`.
 
-Remaining migration work is deferred to governance selector finalization and legacy cleanup phases.
+The migration specification retains historical planning and provenance; it does
+not defer the completed runtime/test namespace cutover.
 
 ## Mixed change policy
 If a patch is `mixed`:

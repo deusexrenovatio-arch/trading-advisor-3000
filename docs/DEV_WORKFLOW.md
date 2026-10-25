@@ -18,7 +18,9 @@ Classify architectural impact before implementation using
 [Architecture Review](docs/agent/architecture-review.md). Ordinary accepted
 implementation uses the short `none` declaration. New architectural choices
 require independent design and implementation review; changing an accepted
-boundary also updates its owning decision. Keep evidence in the existing
+boundary also updates its owning decision. Triggered decisions persist and pin
+their owning architecture document; `none` needs no document or pin. Use the
+policy's semantic threshold rather than PR size. Keep review evidence in the existing
 task/PR body. Loop diagnostics do not imply design admission; PR gate enforces
 fresh review evidence for the selected scope. Hosted post-merge nightly reuses
 checks as hygiene, not a second architecture admission.

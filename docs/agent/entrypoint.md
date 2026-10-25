@@ -55,6 +55,9 @@ optional, not pipeline dependencies.
 Use the [TA3000 Architecture Standard](docs/architecture/product-plane/architecture-standard.md)
 as the substantive baseline. Triggered review decisions pin its revision and
 both checkpoints assess every criterion with evidence or scoped non-applicability.
+Persist and pin the owning explanation only for triggered choices; ordinary
+`none` implementation needs no architecture document or hash. The policy owns
+the significance threshold; a large diff alone does not qualify.
 
 ## Critical constraints
 - Mainline is PR-only by default.
