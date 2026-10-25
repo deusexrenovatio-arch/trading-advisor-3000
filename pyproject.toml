@@ -36,6 +36,12 @@ data-proof = [
 proof-docker = [
   "docker>=7,<8",
 ]
+staging-control = [
+  "cryptography>=43,<47",
+  "jsonschema>=4.23,<5",
+  "dagster>=1.8,<2",
+  "dagster-postgres>=0.24,<1",
+]
 dev-test = [
   "pytest>=9,<10",
   "httpx>=0.27,<1",
@@ -72,7 +78,10 @@ dev = [
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
-trading_advisor_3000 = ["product_plane/interfaces/static/*.html"]
+trading_advisor_3000 = [
+  "product_plane/interfaces/static/*.html",
+  "product_plane/contracts/schemas/staging_acceptance.v1.json",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

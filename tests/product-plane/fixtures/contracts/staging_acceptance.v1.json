@@ -1,0 +1,36 @@
+{
+  "schema_version": "staging_plan.v1",
+  "task_id": "contract-test:staging",
+  "stage": "acceptance",
+  "attempt_kind": "acceptance",
+  "candidate": {
+    "base_sha": "1111111111111111111111111111111111111111",
+    "head_sha": "2222222222222222222222222222222222222222",
+    "tree_sha": "3333333333333333333333333333333333333333",
+    "executable_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "config_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "image_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "branch_heads": {"test-only-branch": "2222222222222222222222222222222222222222"}
+  },
+  "data_root": "/ta3000-data/moex-historical",
+  "quota_home": "/staging-quota",
+  "deadline_utc": "2030-01-02T00:00:00Z",
+  "max_runtime_seconds": 600,
+  "limits": {"small": 2, "acceptance": 1, "rebuild": 0},
+  "root_job": "baseline_test_job",
+  "jobs": {
+    "baseline_test_job": {"upstream_job": null, "max_runs": 1},
+    "consumer_test_job": {"upstream_job": "baseline_test_job", "max_runs": 1}
+  },
+  "native_steps": {"test_native_entry": 1},
+  "scope": {
+    "instrument_ids": ["fixture-instrument"],
+    "timeframes": ["1d"],
+    "start_utc": "2030-01-01T00:00:00Z",
+    "end_utc": "2030-01-02T00:00:00Z",
+    "max_changed_window_days": 1
+  },
+  "require_scheduled": true,
+  "consumer": {"fixture_only": true},
+  "required_scenarios": ["append"]
+}
