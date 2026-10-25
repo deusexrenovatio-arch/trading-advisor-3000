@@ -60,6 +60,9 @@ scheduled route; no manual full run or pre-nightly production repin is required.
 
 ## Daily admission boundary
 
+Architecture and rationale: [Research refresh admission](docs/architecture/product-plane/research-refresh-admission.md).
+Explicit ancestry recovery: [Data scope recovery](docs/architecture/product-plane/data-scope-recovery.md).
+
 Daily Data → CF → L0 → L1 → L2 → sidecar/QC → publication carries one
 `research_refresh_admission.v1` receipt in existing Dagster config/checkpoints
 and Research manifest parameters. The authoritative schema is

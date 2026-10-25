@@ -11,6 +11,10 @@ Read these first:
 - [product-plane-module-charters.md](docs/architecture/product-plane/product-plane-module-charters.md) - target modular structure for Contracts, Market Data Foundation, Research Data Factory, Strategy Factory, Runtime Plane, and Execution Plane.
 - [product-plane-module-apis.md](docs/architecture/product-plane/product-plane-module-apis.md) - public communication contract between those deep modules and the enforcement path for removing tolerated storage bridges.
 - [research-plane-platform.md](docs/architecture/product-plane/research-plane-platform.md) - stable map of the current research-plane primary path.
+- [futures-backtest-money-authority.md](docs/architecture/product-plane/futures-backtest-money-authority.md) - simulation/ledger monetary ownership and metric-basis limits.
+- [semantic-compute-contract.md](docs/architecture/product-plane/semantic-compute-contract.md) - numerical identity, exact provenance and bounded adaptation.
+- [research-refresh-admission.md](docs/architecture/product-plane/research-refresh-admission.md) - daily NOOP/SCOPED/BLOCKED admission, ancestry and writer boundaries.
+- [data-scope-recovery.md](docs/architecture/product-plane/data-scope-recovery.md) - native audit and immutable metadata bridge for unknown ancestry.
 - [strategy-evaluation-layer-v1.md](docs/architecture/product-plane/strategy-evaluation-layer-v1.md) - post-backtest layer that records ranking, projection evidence, and readiness verdicts in one evaluation output.
 - [continuous-signal-layer-technical-specification.md](docs/architecture/product-plane/continuous-signal-layer-technical-specification.md) - implementation-ready target spec for continuous adjusted signal bars, raw active-contract execution alignment, indicator/derived retargeting, and vectorbt loader changes.
 - [contract-change-policy.md](docs/architecture/product-plane/contract-change-policy.md) - compatibility and versioning policy for release-blocking envelopes.
@@ -24,6 +28,10 @@ Repository naming note:
 - Canonical docs root is `docs/architecture/product-plane/`.
 - Retired legacy app-path docs are archived at
   `docs/archive/legacy-app-docs/2026-05-06/README.md`.
+
+For rationale, predecessors and retired choices across the project, use the
+[decision history and owners](docs/architecture/README.md#decision-history-and-owners).
+This index routes to existing owners; it does not imply implementation or deployment acceptance.
 
 Active naming rule:
 - Active file names, test suites, scripts, and selectors use capability names rather than phase labels.

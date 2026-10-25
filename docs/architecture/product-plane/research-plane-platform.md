@@ -37,12 +37,14 @@ What this means in practice:
 - backtest inputs are read from Delta through native Delta/Arrow predicates and strategy-column projection before Python/vectorbt sees them;
 - reused backtest runs enter through `research_backtest_job` and validate the existing gold layer through `research_campaign_context` and `research_backtest_batches` run config instead of rematerializing data-prep assets;
 - vectorbt receives family-level MTF-resolved matrix inputs, generates entry/exit indices through `SignalFactory.from_choice_func`, and executes through `Portfolio.from_signals`;
+- futures contract sizing and monetary aggregates follow the [futures backtest money authority](docs/architecture/product-plane/futures-backtest-money-authority.md): the ledger interprets vectorbt trade events using execution economics, while Sharpe/Sortino/Calmar remain vectorbt metrics;
 - primary result identity is `param_hash`, while compatibility tables may still expose downstream run/stat/trade rows for ranking and projection consumers;
-- adaptive optimizer state is Delta-first run provenance; Optuna proposes trial parameters, while `research_optimizer_studies`, `research_optimizer_trials`, and `research_optimizer_selections` explain selected `param_hash` rows and vectorbt result tables remain the execution truth;
+- adaptive optimizer state is Delta-first run provenance; Optuna proposes trial parameters, while `research_optimizer_studies`, `research_optimizer_trials`, and `research_optimizer_selections` explain selected `param_hash` rows. Persisted backtest results retain the distinct event-simulation and monetary-metric authorities above;
 - `nested_walk_forward_v1` separates optimizer-visible validation folds from blind confirmation folds; confirmation runs use the frozen selected `param_hash` and can only pass or fail the strategy evaluation verdict;
 - `policy_pass` is only research ranking success; `research_strategy_evaluation_profiles` records paper-signal, paper-trade, and live-candidate readiness with blocker reasons in the same post-backtest evaluation output;
 - Dagster handoff between research assets passes Delta manifests, paths, row counts, and run metadata; large row sets such as trades, stats, and ranking inputs are read from Delta inside the owning step instead of being pickled through the orchestrator;
 - repeated research runs reuse the materialized layer and in-process cache;
+- [semantic compute contracts](docs/architecture/product-plane/semantic-compute-contract.md) distinguish numerical compatibility from operational source releases, QC/proof changes and physical schema; raw operation/resume/publication provenance remains exact;
 - successful campaign runs publish global run-stat/ranking indices and strategy notes from the research registry root;
 - runtime consumes projected candidates instead of knowing research internals.
 

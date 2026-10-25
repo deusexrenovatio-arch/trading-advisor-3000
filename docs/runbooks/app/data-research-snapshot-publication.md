@@ -142,6 +142,8 @@ a fresh production calculation, or a completed live trading journey.
 
 ## Daily admission and producer retry
 
+Architecture and rationale: [Research refresh admission](docs/architecture/product-plane/research-refresh-admission.md).
+
 Change surface: product-plane. Architectural impact: contract-change.
 
 Daily execution follows [daily admission](indicator-refresh.md#daily-admission-boundary).
@@ -174,6 +176,8 @@ scope instead of being promoted by a later narrow update.
 
 
 ## Explicit scope recovery
+
+Architecture and authority boundary: [Data scope recovery](docs/architecture/product-plane/data-scope-recovery.md).
 
 Change surface: product-plane. Architectural impact: contract-change.
 

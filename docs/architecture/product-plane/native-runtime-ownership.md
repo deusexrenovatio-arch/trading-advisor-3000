@@ -31,7 +31,7 @@ repeatable orchestration.
 | Delta Lake | Authoritative durable tables, ACID table updates, schema enforcement/evolution, time travel, batch/stream unification, merge/update/delete/upsert, and reproducible storage proof. | Delta read/write/merge APIs through Spark or the approved Delta connector. Prove writes with `_delta_log`, schema, row counts, and target path. | Raw Parquet folder writes, manual directory mutation, one-off CSV/JSON snapshots, or bypassing Delta for research tables. |
 | Dagster | Asset graph ownership, jobs, schedules, sensors, run metadata, freshness, duplicate prevention, and repeatable operational launch. | Assets for materialized data products, jobs for executable selections, schedules/sensors for automation, run keys/cursors for event routes. | Manual chat/script-only continuation for recurring or governed data routes. |
 | pandas-ta-classic | Standard technical indicators: candles, momentum, overlap/trend, volatility, volume, returns, statistics, and named bundles of indicators. | `df.ta` methods, standard functions, category/custom `ta.Strategy`, catalog lookup, and `ta.tsignals(..., asbool=True)` as a bridge into vectorbt. | Reimplementing SMA/EMA/RSI/MACD/ATR/VWAP/candle patterns or indicator bundles in custom pandas when the catalog covers them. |
-| vectorbt | Signal/order/portfolio simulation, parameterized matrices, broadcasting, stops, long/short direction, grouped metrics, trades, drawdowns, and portfolio statistics. | `Portfolio.from_signals` when the strategy is entries/exits; `from_orders` for explicit order arrays; `from_order_func` only for stateful callbacks or multiple orders per symbol/bar; `SignalFactory` and broadcasting for signal surfaces. | Python trade-ledger loops, per-instrument simulation loops, or hand-built portfolio accounting when vectorbt can own the simulation. |
+| vectorbt | Signal/order/portfolio event simulation, parameterized matrices, broadcasting, stops, direction and portfolio statistics; Research futures monetary aggregates follow the scoped money authority below. | `Portfolio.from_signals` when the strategy is entries/exits; `from_orders` for explicit order arrays; `from_order_func` only for stateful callbacks or multiple orders per symbol/bar; `SignalFactory` and broadcasting for signal surfaces. | Replacing vectorbt event simulation with Python loops or adding competing accounting outside an explicit, reviewed contract adapter. |
 | Optuna | Adaptive parameter search, sampling, pruning, ask/tell trial orchestration, and optimizer provenance. | Studies, samplers, pruners, `trial.suggest_*`, `study.ask()`, `study.tell()`, and persisted trial/study outputs in the TA3000 research contract. | Custom random/adaptive search loops that do not preserve Optuna study/trial semantics. |
 | DuckDB | Local analytical SQL, focused profiling, query-plan inspection, and fast validation against local frames or files. | SQL over pandas/Arrow/Parquet, `EXPLAIN`, `EXPLAIN ANALYZE`, and profiling output for local evidence. | Treating DuckDB as the authoritative product-plane store when the contract requires Delta/Dagster materialization. |
 
@@ -41,9 +41,14 @@ repeatable orchestration.
 - Dataflow ownership belongs to Spark/Dagster when the work is durable, repeatable, scheduled, or broad enough to require the product data route.
 - Base technical indicators belong to pandas-ta-classic unless the indicator is unavailable or deliberately TA3000-specific.
 - Derived indicators belong to TA3000 code only when they represent causal relationships, session logic, multi-timeframe overlays, or strategy-facing relationships that the base indicator library does not own.
-- Strategy simulation belongs to vectorbt, with Python assembling aligned matrices and contracts.
+- Strategy event simulation belongs to vectorbt, with Python assembling aligned matrices and contracts. The existing [futures money authority](docs/architecture/product-plane/futures-backtest-money-authority.md) owns contract sizing and monetary ledger aggregates; retained vectorbt ratios have a separate metric basis.
 - Strategy-family search belongs to Optuna when the search is adaptive, with grid kept as the explicit deterministic fallback.
 - DuckDB is a validation and profiling helper, not a replacement for the durable route.
+
+Research reuse distinguishes [semantic compute identity](docs/architecture/product-plane/semantic-compute-contract.md)
+from raw runtime provenance, quality evidence and physical snapshot descriptors.
+An operational source edit does not itself change numerical meaning; matching
+numerical identity does not grant storage, QC or publication authority.
 
 ## Required Design Trace
 Every non-trivial product-plane runtime change must record:

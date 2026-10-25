@@ -18,3 +18,12 @@ Describe what changed and why.
 
 ## Notes For Reviewers
 List boundary-sensitive decisions, tradeoffs, and follow-ups.
+
+## Architecture Impact
+Classify `none`, `within-contract`, or `contract-change` using
+[Architecture Review](docs/agent/architecture-review.md), with its single
+`architecture-review` JSON block here. `none`: short reason and scope binding;
+no mandatory document/hash. New or revised durable architectural choices:
+save/update the owning explanation, pin `decision.record`, and include both
+independent reviews. PR size and routine implementation details do not qualify
+by themselves. Decision acceptance, implementation and deployment are separate.
