@@ -1,6 +1,6 @@
 # Guarded staging acceptance
 
-Change surface: mixed. Contract: [staging acceptance](../../architecture/product-plane/staging-acceptance.md).
+Change surface: mixed. Contract: [staging acceptance](docs/architecture/product-plane/staging-acceptance.md).
 
 ```mermaid
 flowchart LR

@@ -5,7 +5,7 @@ Process automation is driven by canonical Python entrypoints and documented hook
 Do not reintroduce shell-only wrapper flows as primary control paths.
 
 Development compute and pre-main native proof must follow
-[guarded staging](../runbooks/app/guarded-staging.md) and its stable task budget.
+[guarded staging](docs/runbooks/app/guarded-staging.md) and its stable task budget.
 Normal authorized production schedules retain their native owner.
 
 ## Product Plane Delta Input Rule

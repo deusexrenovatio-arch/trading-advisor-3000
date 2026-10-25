@@ -2,7 +2,7 @@
 
 Product runtime and operational runbooks live in this directory.
 
-- [Guarded staging](guarded-staging.md) - bounded branch/acceptance/reference route and pre-main admission.
+- [Guarded staging](docs/runbooks/app/guarded-staging.md) - bounded branch/acceptance/reference route and pre-main admission.
 
 - `docs/runbooks/app/bootstrap.md` - canonical local bootstrap and migration path.
 - `docs/runbooks/app/research-campaign-route.md` - supported Product Plane front door for research campaigns.

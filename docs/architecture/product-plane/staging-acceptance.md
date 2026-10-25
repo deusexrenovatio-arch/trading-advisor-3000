@@ -17,9 +17,9 @@ Build/review inert foundations in branches; complete the whole native pilot befo
 any foundation merge. Then adopt protected authority and activate the gate. Rollback
 disables activation and restores accepted code/image/checkpoint together; preserve
 quota history and receipts. No automatic rebuild, quota reset or acceptance-data copy.
-Sources: [native owners](native-runtime-ownership.md),
-[schema](../../../src/trading_advisor_3000/product_plane/contracts/schemas/staging_acceptance.v1.json),
-[admission](../../../scripts/validate_staging_acceptance.py). Scoped PR receipts and
+Sources: [native owners](docs/architecture/product-plane/native-runtime-ownership.md),
+[schema](src/trading_advisor_3000/product_plane/contracts/schemas/staging_acceptance.v1.json),
+[admission](scripts/validate_staging_acceptance.py). Scoped PR receipts and
 runtime readback own implementation/deployment evidence. Revisit on native runtime,
 storage/ownership or recurring-cost changes; reuse this record rather than add a registry.
 

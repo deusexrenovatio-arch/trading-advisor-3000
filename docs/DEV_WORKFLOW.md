@@ -68,7 +68,7 @@ Change surface: `shell` for these execution rules and gate/CI plumbing.
    then run promotion and its control cycle. New improvements are separate work;
    actual correctness blockers remain part of the current task.
 
-Development materialization, perf and acceptance use [guarded staging](runbooks/app/guarded-staging.md)
+Development materialization, perf and acceptance use [guarded staging](docs/runbooks/app/guarded-staging.md)
 under one stable task plan: two small attempts, one acceptance graph, zero rebuilds
 by default. Reuse applicable proof. SHA/branch/PR/HOME/output recreation and retry
 cannot reset spend. Ad hoc compute through alternate roots or unprotected CLI/UI
@@ -147,7 +147,7 @@ Runtime surfaces:
   bootstraps or refreshes this container runtime; it must not run the updater
   directly with host Python.
 - Guarded branch and acceptance staging are the default development verification,
-  perf and pre-main proof routes; see the [guarded staging runbook](runbooks/app/guarded-staging.md).
+  perf and pre-main proof routes; see the [guarded staging runbook](docs/runbooks/app/guarded-staging.md).
   `moex_test_staging_on_demand` remains compatibility-only and cannot satisfy
   protected task admission. Its legacy data root is
   `D:/TA3000-data/trading-advisor-3000-verification` and must not mutate the

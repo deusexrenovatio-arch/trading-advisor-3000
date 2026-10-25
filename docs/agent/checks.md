@@ -46,7 +46,7 @@ Hosted CI note:
 - The only required GitHub status is `pr-lane`; branch push feedback uses `branch-lane`.
 
 Fast/local/CI success does not replace applicable
-[guarded native product proof](../runbooks/app/guarded-staging.md) before main.
+[guarded native product proof](docs/runbooks/app/guarded-staging.md) before main.
 
 ## Durable-state checks
 - `python scripts/validate_plans.py`
