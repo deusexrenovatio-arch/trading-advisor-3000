@@ -212,6 +212,14 @@ The implementation behind that API may use Delta Lake and existing data-plane
 helpers, but Strategy Factory callers should not import `data_plane.delta_runtime`
 directly.
 
+## Engineering observation interface
+
+The staged `interfaces.staging_observation.observe_reference_cycle` is a read-only
+operator adapter over native Dagster records and the existing Research manifest
+read contracts: `snapshot_registry`, `current_snapshot`, `load_snapshot` and
+`open_pinned_table`. It returns a bounded observation; it owns no writer, compute
+or admission authority and does not authorize UI access to private storage.
+
 ## Enforcement Path
 
 1. Keep this document as the target API map.
