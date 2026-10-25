@@ -122,6 +122,32 @@ def native_schedule_metadata(assets, instant, run_config):
     )
 
 
+def native_root_run_config(assets, instant, stage, deployed_root):
+    daily = assets._build_baseline_daily_schedule_run_config(
+        SimpleNamespace(scheduled_execution_time=instant)
+    )
+    if stage != "branch":
+        return daily
+    from trading_advisor_3000.product_plane.data_plane.moex.runtime_instances import (
+        build_moex_baseline_run_config_for_instance,
+        load_moex_runtime_instances_registry,
+    )
+
+    instance = load_moex_runtime_instances_registry(repo_root=deployed_root).instance(
+        "moex_branch_staging"
+    )
+    clock = daily["ops"]["moex_baseline_update"]["config"]
+    branch = build_moex_baseline_run_config_for_instance(
+        instance, run_id=clock["run_id"], ingest_till_utc=clock["ingest_till_utc"]
+    )
+    # The native owner's closed-session cutoff and lag are one temporal contract.
+    # Applying the manual branch lag again would drop the just-closed daily candle.
+    branch["ops"]["moex_baseline_update"]["config"]["stability_lag_minutes"] = clock[
+        "stability_lag_minutes"
+    ]
+    return branch
+
+
 def prepare(args):
     sys.path.insert(0, str(args.deployed_root / "src"))
     from trading_advisor_3000.dagster_defs import moex_historical_assets as assets
@@ -141,9 +167,7 @@ def prepare(args):
     instant = scheduled_instant(assets, args.scheduled_at)
     if instant >= datetime.fromisoformat(args.deadline.replace("Z", "+00:00")):
         raise ValueError("Proposed schedule must occur before the protected deadline")
-    run_config = assets._build_baseline_daily_schedule_run_config(
-        SimpleNamespace(scheduled_execution_time=instant)
-    )
+    run_config = native_root_run_config(assets, instant, args.stage, args.deployed_root)
     config = run_config["ops"]["moex_baseline_update"]["config"]
     parameters, cutoff = capture_parameters(assets, config)
     source_path = args.research_manifest.resolve()
