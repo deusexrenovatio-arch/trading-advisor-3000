@@ -309,8 +309,19 @@ def gate_repository(repository):
         "run_pr_gate.py",
         "run_nightly_gate.py",
         "validate_architecture_review.py",
+        "validate_staging_acceptance.py",
+        "build_staging_candidate.py",
     ):
         shutil.copy2(ROOT / "scripts" / name, scripts / name)
+    for name in (
+        "__init__.py",
+        "app_metadata.py",
+        "product_plane/__init__.py",
+        "product_plane/common/staging_route_proof.py",
+    ):
+        target = repository / "src/trading_advisor_3000" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "src/trading_advisor_3000" / name, target)
     (repository / "configs").mkdir()
     (repository / "configs/change_surface_mapping.yaml").write_text(
         "surface_priority: [governance]\n"
