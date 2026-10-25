@@ -34,7 +34,7 @@ jobs:
       - name: Install Bootstrap Dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev-test]
+          python -m pip install -e '.[dev-test,staging-control]'
 
       - name: Resolve Diff Range
         id: diff-range
