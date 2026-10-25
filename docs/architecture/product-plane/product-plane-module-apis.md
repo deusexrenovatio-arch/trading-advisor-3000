@@ -103,12 +103,20 @@ versioned contract here.
 | Stable examples | Canonical table roots, session calendar outputs, roll map outputs, pinned baseline metadata, QC reports. |
 | Must hide | Provider quirks, source-specific normalization, Delta layout details, Spark job mechanics, raw ingest retry mechanics, `_delta_log` internals. |
 | Must not own | Indicator frames, derived technical relationships, strategy search, runtime signal lifecycle, broker execution. |
-| Allowed consumers | Research Data API; Strategy Factory API only through explicit read-only availability or lineage surfaces. |
+| Allowed consumers | Research Data API; Strategy Factory API only through explicit read-only availability or lineage surfaces; Product Utilities only through the exact staging input facts adapter below. |
 | Boundary proof | Delta log presence, row counts, QC report, pinned baseline, route report, idempotent rerun evidence. |
 
 Market Data API should answer: "which market data product is authoritative,
 fresh, and usable?" It should not expose how canonical data was physically
 assembled.
+
+Protected staging validation and seed preparation may use
+`data_plane.moex.staging_input_facts.registered_history_refresh_kwargs(root)`.
+This read-only adapter delegates accepted input identities, current versions and
+existing parameter evidence checks to the native Market Data owner. It starts no
+producer and owns no persistent writer. Product Utilities may import this exact
+module; `native_history_refresh` and similarly named or nested modules remain
+private and require boundary review.
 
 ## API: Research Data
 

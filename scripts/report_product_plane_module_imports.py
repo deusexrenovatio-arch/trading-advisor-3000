@@ -216,6 +216,12 @@ def classify_import(
         return PUBLIC_API, "shared product-plane boundary"
     if origin_module == INTERFACES:
         return PUBLIC_API, "interface layer may call public module APIs"
+    if (
+        origin_module == PRODUCT_UTILITIES
+        and target_module == MARKET_DATA_FOUNDATION
+        and imported_module == f"{PRODUCT_PLANE_IMPORT_PREFIX}.data_plane.moex.staging_input_facts"
+    ):
+        return PUBLIC_API, "staging validation consumes read-only accepted input facts"
 
     if origin_module == MARKET_DATA_FOUNDATION:
         return REVIEW_REQUIRED, "foundation should not depend on downstream modules"

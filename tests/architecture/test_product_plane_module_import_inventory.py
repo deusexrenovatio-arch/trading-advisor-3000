@@ -13,6 +13,7 @@ if str(SCRIPTS) not in sys.path:
 from report_product_plane_module_imports import (  # noqa: E402
     EXECUTION_PLANE,
     MARKET_DATA_FOUNDATION,
+    PRODUCT_UTILITIES,
     PUBLIC_API,
     RESEARCH_DATA_FACTORY,
     REVIEW_REQUIRED,
@@ -83,6 +84,26 @@ def test_inventory_classifies_research_data_to_stage_timings_as_public_api(
     assert record.origin_module == RESEARCH_DATA_FACTORY
     assert record.target_module == RUNTIME_PLANE
     assert record.classification == PUBLIC_API
+
+
+def test_product_utilities_allow_only_exact_public_staging_input_facts(tmp_path: Path) -> None:
+    prefix = "trading_advisor_3000.product_plane.data_plane.moex."
+    expected = {
+        prefix + "staging_input_facts": PUBLIC_API,
+        prefix + "native_history_refresh": REVIEW_REQUIRED,
+        prefix + "staging_input_facts_private": REVIEW_REQUIRED,
+        prefix + "staging_input_facts.internal": REVIEW_REQUIRED,
+    }
+    _write_product_file(
+        tmp_path,
+        "common/staging_check.py",
+        "\n".join(f"from {module} import facts" for module in expected),
+    )
+    records, parse_errors = collect_import_records(tmp_path)
+    assert not parse_errors
+    assert {record.imported_module: record.classification for record in records} == expected
+    assert all(record.origin_module == PRODUCT_UTILITIES for record in records)
+    assert all(record.target_module == MARKET_DATA_FOUNDATION for record in records)
 
 
 def test_product_plane_module_import_inventory_cli_json_runs() -> None:
