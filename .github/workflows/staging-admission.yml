@@ -1,0 +1,127 @@
+name: staging-admission
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# This protected workflow owns the staging-admission context. Candidate code and
+# scripts/run_pr_gate.py remain in the original ci.yml on pull_request.
+# No candidate import, signing key or writable token enters this job.
+jobs:
+  staging-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Require Available Checks
+        env:
+          HOSTED_CI_ENABLED: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI }}
+        run: |
+          if [[ "$HOSTED_CI_ENABLED" != "1" ]]; then
+            echo "BLOCKED: hosted checks unavailable; required admission cannot be skipped"
+            exit 1
+          fi
+      - name: Resolve Current PR
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const {data: pr} = await github.rest.pulls.get({
+              ...context.repo, pull_number: context.payload.pull_request.number});
+            if (pr.state !== 'open' || pr.base.ref !== 'main')
+              throw new Error('BLOCKED: only open integration PRs into main are admitted');
+            fs.writeFileSync(process.env.RUNNER_TEMP + '/staging-event.json',
+              JSON.stringify({...context.payload, pull_request: pr}));
+            core.setOutput('base', pr.base.sha);
+            core.setOutput('head', pr.head.sha);
+      - name: Checkout Protected Verifier
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.base }}
+          path: trusted
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require Protected Bootstrap
+        run: |
+          test -f trusted/scripts/validate_staging_acceptance.py || {
+            echo 'BLOCKED: protected verifier bootstrap is pending'; exit 1; }
+          test -f trusted/configs/staging-acceptance-keys.v1.json || {
+            echo 'BLOCKED: protected issuer-key bootstrap is pending'; exit 1; }
+      - name: Checkout Candidate Objects
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.head }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Protected Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Verifier Dependencies
+        run: python -m pip install 'cryptography>=44,<47' 'jsonschema>=4.23,<5'
+      - name: Verify Current Architecture Admission
+        working-directory: candidate
+        env:
+          GITHUB_EVENT_PATH: ${{ runner.temp }}/staging-event.json
+          BASE_SHA: ${{ steps.pr.outputs.base }}
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+        run: >-
+          python ../trusted/scripts/validate_architecture_review.py
+          --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA" --phase implementation
+      - name: Verify Signed Real-Route Receipt
+        env:
+          GITHUB_EVENT_PATH: ${{ runner.temp }}/staging-event.json
+          BASE_SHA: ${{ steps.pr.outputs.base }}
+          HEAD_SHA: ${{ steps.pr.outputs.head }}
+        run: >-
+          python trusted/scripts/validate_staging_acceptance.py --repo candidate
+          --trusted-root trusted --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA"
+          --attestation-output "${{ runner.temp }}/staging-admission.json"
+      - name: Require Successful Candidate Checks
+        uses: actions/github-script@v7
+        env:
+          EXPECTED_HEAD: ${{ steps.pr.outputs.head }}
+          EXPECTED_BASE: ${{ steps.pr.outputs.base }}
+        with:
+          script: |
+            // workflow_run is not an eligible required PR-check producer.
+            for (let attempt = 0; attempt < 120; attempt++) {
+              const {data: current} = await github.rest.pulls.get({
+                ...context.repo, pull_number: context.payload.pull_request.number});
+              if (current.head.sha !== process.env.EXPECTED_HEAD ||
+                  current.base.sha !== process.env.EXPECTED_BASE)
+                throw new Error('BLOCKED: PR/main changed during admission');
+              const {data} = await github.rest.actions.listWorkflowRuns({
+                ...context.repo, workflow_id: 'ci.yml',
+                head_sha: process.env.EXPECTED_HEAD, event: 'pull_request', per_page: 30});
+              const run = data.workflow_runs.find(r => r.head_sha === process.env.EXPECTED_HEAD &&
+                r.pull_requests.some(p => p.number === current.number));
+              if (run && run.status === 'completed') {
+                if (run.conclusion !== 'success') throw new Error('Candidate checks failed');
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
+                  {...context.repo, run_id: run.id, filter: 'latest', per_page: 100});
+                const job = jobs.find(j => j.name === 'pr-lane');
+                const gate = job?.steps?.find(s => s.name === 'PR Gate');
+                if (job?.conclusion !== 'success' || gate?.conclusion !== 'success')
+                  throw new Error('BLOCKED: required candidate checks were skipped');
+                return;
+              }
+              await new Promise(resolve => setTimeout(resolve, 15000));
+            }
+            throw new Error('BLOCKED: candidate checks exceeded admission window');
+      - name: Publish Protected Admission Context
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-admission-context
+          path: ${{ runner.temp }}/staging-admission.json
+          if-no-files-found: error

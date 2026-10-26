@@ -1874,6 +1874,32 @@ def run_moex_contract_economics_spark_job(
     previous_economics_reference: Mapping[str, object] | None = None,
     canonical_bars_path: Path | None = None,
 ) -> dict[str, object]:
+    from trading_advisor_3000.product_plane.common.staging_execution import require_staging_compute
+
+    require_staging_compute(stage="run_moex_contract_economics_spark_job", output_path=output_dir)
+    from trading_advisor_3000.product_plane.common.staging_source_scope import (
+        require_staging_source_bytes,
+    )
+
+    require_staging_source_bytes(
+        output_path=output_dir,
+        input_paths=[
+            raw_contract_specs_path,
+            raw_fx_rates_path,
+            raw_rms_limits_path,
+            raw_rms_staticparams_path,
+            raw_asset_risk_parameters_path,
+            canonical_session_calendar_path,
+            canonical_bars_path,
+            *(output_dir / f"{name}.delta" for name in moex_economics_store_contract()),
+            (
+                previous_economics_reference["table_path"],
+                previous_economics_reference["delta_version"],
+            )
+            if previous_economics_reference is not None
+            else None,
+        ],
+    )
     if type(allow_calibrated_latest_margin) is not bool:
         raise TypeError("allow_calibrated_latest_margin must be bool")
     if (

@@ -5,6 +5,7 @@ from pathlib import Path
 from dagster import Field as DagsterField
 from dagster import job, op
 
+from trading_advisor_3000.product_plane.common.staging_execution import staging_asset
 from trading_advisor_3000.spark_jobs.rebuild_storage_layout_job import (
     run_rebuild_storage_layout_spark_job,
 )
@@ -51,6 +52,7 @@ def build_rebuild_storage_layout_run_config(
     name=REBUILD_STORAGE_LAYOUT_OP_NAME,
     config_schema=REBUILD_STORAGE_LAYOUT_OP_CONFIG_SCHEMA,
 )
+@staging_asset(operation="rebuild")
 def rebuild_storage_layout(context) -> dict[str, object]:
     config = dict(context.op_config)
     report = run_rebuild_storage_layout_spark_job(
