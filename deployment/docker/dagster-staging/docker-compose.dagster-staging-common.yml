@@ -2,8 +2,8 @@ x-staging: &staging
   image: ${TA3000_STAGING_IMAGE:?set the image digest from the protected plan}
   working_dir: /workspace
   init: true
-  mem_limit: ${TA3000_STAGING_MEMORY_LIMIT:-6g}
-  memswap_limit: ${TA3000_STAGING_MEMORY_LIMIT:-6g}
+  mem_limit: ${TA3000_STAGING_MEMORY_LIMIT:-9g}
+  memswap_limit: ${TA3000_STAGING_MEMORY_LIMIT:-9g}
   cpus: ${TA3000_STAGING_CPUS:-2}
   tmpfs:
     - /tmp:size=${TA3000_STAGING_SCRATCH_BYTES:?set the scratch byte cap},mode=1777,exec,nosuid,nodev
