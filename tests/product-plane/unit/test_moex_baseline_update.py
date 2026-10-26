@@ -58,7 +58,12 @@ def _write_empty_baseline(tmp_path: Path) -> tuple[Path, Path, Path]:
     )
     # Existing mocked canonical jobs still need physical output references for CAS.
     manifest = historical_data_delta_schema_manifest()
-    for name in ("canonical_session_intervals", "canonical_session_calendar", "canonical_roll_map"):
+    for name in (
+        "canonical_session_intervals",
+        "canonical_closed_session_dates",
+        "canonical_session_calendar",
+        "canonical_roll_map",
+    ):
         write_delta_table_rows(
             table_path=canonical_bars_path.parent / f"{name}.delta",
             rows=[],
@@ -297,11 +302,26 @@ def test_baseline_raw_report_for_canonical_rehashes_merged_changed_windows() -> 
     )
 
 
+@pytest.mark.parametrize("explicit_closed", [False, True])
 def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
     tmp_path: Path,
+    explicit_closed: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
+    closed = (
+        tmp_path / "selected_closed.delta"
+        if explicit_closed
+        else canonical_bars_path.parent / "canonical_closed_session_dates.delta"
+    )
+    if explicit_closed:
+        write_delta_table_rows(
+            table_path=closed,
+            rows=[],
+            columns=historical_data_delta_schema_manifest()["canonical_closed_session_dates"][
+                "columns"
+            ],
+        )
     changed_windows = [
         {
             "internal_id": "FUT_BR",
@@ -356,6 +376,7 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
         raw_table_path=raw_table_path,
         canonical_bars_path=canonical_bars_path,
         canonical_provenance_path=canonical_provenance_path,
+        canonical_closed_session_dates_path=closed if explicit_closed else None,
         evidence_dir=tmp_path / "evidence",
         run_id="baseline-daily",
         timeframes={"5m", "15m"},
@@ -366,6 +387,10 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
     )
 
     assert report["status"] == "PASS"
+    assert captured["canonical_closed_session_dates_path"] == closed
+    assert captured["session_schedule"]["canonical_closed_session_dates_path"] == closed
+    assert report["canonical_closed_session_dates_path"] == closed.as_posix()
+    assert report["windowed_input_references"][closed.stem]["table_path"] == closed.as_posix()
     assert stage_order == ["session_schedule", "canonical"]
     assert captured["raw_table_path"] == raw_table_path
     assert captured["canonical_bars_path"] == canonical_bars_path
