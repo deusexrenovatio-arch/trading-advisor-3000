@@ -320,6 +320,9 @@ def test_research_branch_recipe_uses_native_builders_without_entering_producers(
 def research_plan_args(tmp_path, monkeypatch, research_recipe):
     from trading_advisor_3000.dagster_defs import moex_historical_assets
     from trading_advisor_3000.product_plane.common import staging_test_fixture
+    from trading_advisor_3000.product_plane.data_plane.moex import (
+        staging_test_fixture as fixture_builder,
+    )
 
     _, fixture, _, _ = research_recipe
     root = tmp_path / "output-data"
@@ -339,7 +342,7 @@ def research_plan_args(tmp_path, monkeypatch, research_recipe):
 
     monkeypatch.setattr(staging_test_fixture, "verify_fixture", verify)
     monkeypatch.setattr(
-        staging_test_fixture, "prepare_fixture", lambda *a: pytest.fail("fixture generation")
+        fixture_builder, "prepare_fixture", lambda *a: pytest.fail("fixture generation")
     )
     monkeypatch.setattr(
         preparation, "capture_parameters", lambda *a: pytest.fail("baseline capture")
