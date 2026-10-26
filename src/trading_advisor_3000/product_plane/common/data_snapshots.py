@@ -486,6 +486,9 @@ def current_snapshot(root: Path) -> dict[str, Any] | None:
 
 
 def publish_snapshot(root: Path, path: Path, *, expected_current_id: str | None) -> None:
+    from .staging_execution import assert_staging_publication
+
+    assert_staging_publication(root)
     manifest = load_snapshot(path)
     if path.resolve() != (root / "manifests" / f"{manifest['snapshot_id']}.json").resolve():
         raise ValueError("publication requires a manifest saved in the snapshot registry")

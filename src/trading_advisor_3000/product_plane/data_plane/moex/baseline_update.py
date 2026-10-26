@@ -1258,6 +1258,54 @@ def run_moex_baseline_update(
     canonical_closed_session_dates_path: Path | None = None,
     economics_history_refresh: bool = False,
 ) -> dict[str, object]:
+    staging_parameters = locals().copy()
+    staging_parameters.pop("run_id")
+    staging_parameters.pop("ingest_till_utc")
+    staging_parameters["timeframes"] = _baseline_update_timeframes(timeframes)
+    from trading_advisor_3000.product_plane.common.staging_execution import require_staging_compute
+    from trading_advisor_3000.product_plane.common.staging_source_scope import (
+        require_staging_parameters,
+        require_staging_source_bytes,
+    )
+
+    require_staging_compute(stage="run_moex_baseline_update", output_path=raw_table_path)
+    require_staging_parameters(
+        stage="run_moex_baseline_update",
+        output_path=raw_table_path,
+        parameters=staging_parameters,
+        input_until_utc=ingest_till_utc,
+    )
+    # Preserve the supplied recipe (including None) above. The effective native
+    # calendar input must still enter byte admission before any producer writes.
+    owned_closed_path = (
+        (
+            canonical_session_intervals_path
+            or (canonical_bars_path.parent / CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME)
+        ).parent
+        / "canonical_closed_session_dates.delta"
+    ).resolve()
+    canonical_closed_session_dates_path = (
+        canonical_closed_session_dates_path or owned_closed_path
+    ).resolve()
+    require_staging_source_bytes(
+        output_path=raw_table_path,
+        input_paths=[
+            raw_table_path,
+            canonical_bars_path,
+            canonical_provenance_path,
+            canonical_session_intervals_path
+            or (canonical_bars_path.parent / CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME),
+            canonical_session_calendar_path
+            or (canonical_bars_path.parent / "canonical_session_calendar.delta"),
+            canonical_roll_map_path or (canonical_bars_path.parent / "canonical_roll_map.delta"),
+            (daily_open_interest_path, daily_open_interest_version)
+            if daily_open_interest_path is not None
+            else None,
+            canonical_closed_session_dates_path,
+            owned_closed_path,
+            *(economics_source_paths or {}).values(),
+        ],
+    )
     if type(economics_history_refresh) is not bool:
         raise TypeError("economics_history_refresh must be bool")
     _validate_economics_options(dict(economics_calculation_options or {}))
@@ -1758,7 +1806,18 @@ def run_moex_baseline_update(
     for path in (daily_open_interest_path, canonical_closed_session_dates_path):
         if path is not None:
             version = daily_open_interest_version if path == daily_open_interest_path else None
-            snapshot_inputs[path.stem] = capture_table(path, version=version)
+            name = (
+                owned_closed_path.stem if path == canonical_closed_session_dates_path else path.stem
+            )
+            snapshot_inputs[name] = capture_table(path, version=version)
+    # An explicit read-only override may share the owned projection's basename.
+    # Keep the selected read pin in the input scope; the root publisher retains
+    # the owned table under its existing authority, without an extra table alias.
+    owned_closed_reference = (
+        snapshot_inputs[owned_closed_path.stem]
+        if canonical_closed_session_dates_path == owned_closed_path
+        else capture_table(owned_closed_path)
+    )
     canonical_input_snapshot = data_input_snapshot(tables=snapshot_inputs, run_id=run_id)
     canonical_refresh_report_path: Path | None = (
         run_dir / "canonical-refresh" / ("canonical-refresh-report.json")
@@ -1920,9 +1979,16 @@ def run_moex_baseline_update(
         "effective_changed_windows": len(merged_changed_windows),
         "cf_catch_up": cf_catch_up_report,
         "windowed_input_references": {
-            path.stem: snapshot_inputs[path.stem]
-            for path in (raw_table_path, canonical_session_intervals_path)
-            if path.stem in snapshot_inputs and merged_changed_windows
+            **{
+                path.stem: snapshot_inputs[path.stem]
+                for path in (raw_table_path, canonical_session_intervals_path)
+                if path.stem in snapshot_inputs and merged_changed_windows
+            },
+            **({owned_closed_path.stem: owned_closed_reference} if merged_changed_windows else {}),
+        },
+        "closed_session_dates": {
+            "input_reference": snapshot_inputs[owned_closed_path.stem],
+            "owned_projection_reference": owned_closed_reference,
         },
         "economics_refresh": economics_report,
         "canonical_report": {
