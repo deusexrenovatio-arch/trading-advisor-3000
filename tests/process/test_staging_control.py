@@ -270,7 +270,7 @@ def test_stopped_retained_runtime_is_readable_only_with_explicit_opt_in(monkeypa
         "HostConfig": {
             "Memory": 2,
             "NanoCpus": 1_000_000_000,
-            "Tmpfs": {"/tmp": "size=1,mode=1777"},
+            "Tmpfs": {"/tmp": "size=1,mode=1777,exec,nosuid,nodev"},
         },
     }
     prepared = {
@@ -282,7 +282,7 @@ def test_stopped_retained_runtime_is_readable_only_with_explicit_opt_in(monkeypa
                 "webserver": {
                     "mem_limit": 2,
                     "cpus": 1,
-                    "tmpfs": ["/tmp:size=1,mode=1777"],
+                    "tmpfs": ["/tmp:size=1,mode=1777,exec,nosuid,nodev"],
                     "volumes": [],
                 }
             },

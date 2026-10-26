@@ -6,7 +6,7 @@ x-staging: &staging
   memswap_limit: ${TA3000_STAGING_MEMORY_LIMIT:-6g}
   cpus: ${TA3000_STAGING_CPUS:-2}
   tmpfs:
-    - /tmp:size=${TA3000_STAGING_SCRATCH_BYTES:?set the scratch byte cap},mode=1777
+    - /tmp:size=${TA3000_STAGING_SCRATCH_BYTES:?set the scratch byte cap},mode=1777,exec,nosuid,nodev
   environment: &environment
     DAGSTER_HOME: /opt/dagster/dagster_home
     PYTHONPATH: /workspace/src
