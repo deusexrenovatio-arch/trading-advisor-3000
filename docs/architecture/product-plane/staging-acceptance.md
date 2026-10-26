@@ -75,6 +75,17 @@ The runner has no production writable mount, Docker socket or broker credentials
 The host control boundary is trusted; an administrator deleting quota storage or
 changing protected policy is an explicit operating change, not a supported bypass.
 
+Resource admission follows the native heavy owner: branch webserver, acceptance daemon.
+Defaults: branch webserver 9 GiB; acceptance webserver 3 GiB and daemon 9 GiB.
+Driver heap 3 GiB and scratch 2 GiB remain configured caps.
+Sum of service memory caps plus a 2 GiB host policy reserve must fit Docker memory.
+Heavy cap covers heap + scratch + 2 GiB; control cap covers scratch + 1 GiB.
+Actual MemorySwap equals its memory cap; extra swap is forbidden.
+Reserves are explicit policy floors, not measured peaks or a guaranteed OOM cure.
+Observed OOM and later JVM loss do not identify the killed PID, Xmx, RSS or tmpfs use.
+Failed attempts stay spent. Additional budget requires explicit user approval and
+an append-only signed task-limit extension; plan deadlines remain independently pinned.
+
 Acceptance uses the same logical container data path as production so that pinned
 absolute Delta paths and ancestry remain valid. Initial seeding copies an accepted
 manifest and its complete referenced Delta versions/files independently; no writable

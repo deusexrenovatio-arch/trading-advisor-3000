@@ -235,9 +235,14 @@ def test_reattest_keeps_original_plan_but_has_only_a_short_read_transport(tmp_pa
             "c" * 40
             if cmd[0] == "git"
             else json.dumps(
-                {"MemTotal": 10, "NCPU": 1}
+                {"MemTotal": 16 * GIB, "NCPU": 2}
                 if cmd[1] == "info"
-                else {"services": {"webserver": {"mem_limit": 2, "cpus": 1}}}
+                else {
+                    "services": {
+                        "webserver": resource_service(3),
+                        "daemon": resource_service(9),
+                    }
+                }
             )
         ),
     )
@@ -269,6 +274,7 @@ def test_stopped_retained_runtime_is_readable_only_with_explicit_opt_in(monkeypa
         ],
         "HostConfig": {
             "Memory": 2,
+            "MemorySwap": 2,
             "NanoCpus": 1_000_000_000,
             "Tmpfs": {"/tmp": "size=1,mode=1777,exec,nosuid,nodev"},
         },
@@ -281,6 +287,7 @@ def test_stopped_retained_runtime_is_readable_only_with_explicit_opt_in(monkeypa
             "services": {
                 "webserver": {
                     "mem_limit": 2,
+                    "memswap_limit": 2,
                     "cpus": 1,
                     "tmpfs": ["/tmp:size=1,mode=1777,exec,nosuid,nodev"],
                     "volumes": [],
@@ -292,6 +299,104 @@ def test_stopped_retained_runtime_is_readable_only_with_explicit_opt_in(monkeypa
     with pytest.raises(ValueError, match="no longer running"):
         control.verify_runtime(container, prepared)
     assert control.runtime_services(prepared, include_stopped=True)[0] is container
+    container["HostConfig"]["MemorySwap"] = 3
+    with pytest.raises(ValueError, match="resource/isolation"):
+        control.runtime_services(prepared, include_stopped=True)
+    container["HostConfig"]["MemorySwap"] = 2
     container["Image"] = "sha256:foreign"
     with pytest.raises(ValueError, match="image differs"):
         control.runtime_services(prepared, include_stopped=True)
+
+
+GIB = 1024**3
+
+
+def resource_service(memory_gib, *, scratch_gib=2, heap="3g"):
+    return {
+        "mem_limit": memory_gib * GIB,
+        "memswap_limit": memory_gib * GIB,
+        "cpus": 2,
+        "environment": {"TA3000_SPARK_DRIVER_MEMORY": heap},
+        "tmpfs": [f"/tmp:size={scratch_gib * GIB},mode=1777,exec,nosuid,nodev"],
+    }
+
+
+def test_prepare_refuses_undersized_spark_container(tmp_path, monkeypatch):
+    args, _, _ = prepared_inputs(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        control,
+        "inspect_container",
+        lambda _: {
+            "Mounts": [],
+            "NetworkSettings": {"Ports": {"3000/tcp": [{"HostPort": "3000"}]}},
+        },
+    )
+    monkeypatch.setattr(control, "graphql_runs", lambda *a, **k: [])
+    monkeypatch.setattr(control, "validate_config", lambda *a: None)
+    monkeypatch.setattr(
+        control,
+        "checked",
+        lambda *cmd, **kw: json.dumps(
+            {"MemTotal": 16 * GIB, "NCPU": 2}
+            if cmd[1] == "info"
+            else {"services": {"webserver": resource_service(6)}}
+        ),
+    )
+    with pytest.raises(ValueError, match="memory policy"):
+        control.prepare(args)
+
+
+def test_resources_refuse_total_overcommit_even_when_each_container_fits():
+    config = {"services": {name: resource_service(9) for name in ("webserver", "daemon")}}
+    with pytest.raises(ValueError, match="total.*hardware"):
+        control.validate_resources(config, {"MemTotal": 16 * GIB, "NCPU": 2}, "acceptance")
+
+
+def test_resources_reserve_heavy_heap_scratch_and_native_overhead():
+    with pytest.raises(ValueError, match="memory policy"):
+        control.validate_resources(
+            {"services": {"webserver": resource_service(6)}},
+            {"MemTotal": 16 * GIB, "NCPU": 2},
+            "branch",
+        )
+
+
+def test_resources_reserve_metadata_memory_outside_tmpfs():
+    config = {"services": {"webserver": resource_service(2), "daemon": resource_service(9)}}
+    with pytest.raises(ValueError, match="memory policy"):
+        control.validate_resources(config, {"MemTotal": 16 * GIB, "NCPU": 2}, "acceptance")
+
+
+@pytest.mark.parametrize("stage", ["branch", "acceptance"])
+@pytest.mark.parametrize("heap", ["3g", "3072m", "3145728k"])
+def test_resources_accept_bounded_local_profiles_without_summing_idle_cpus(stage, heap):
+    services = {"webserver": resource_service(9, heap=heap)}
+    if stage == "acceptance":
+        services = {
+            "webserver": resource_service(3, heap=heap),
+            "daemon": resource_service(9, heap=heap),
+        }
+    control.validate_resources(
+        {"services": services}, {"MemTotal": 1561 * GIB // 100, "NCPU": 2}, stage
+    )
+
+
+@pytest.mark.parametrize("heap", ["", "0g", "-1g", "3t", "3", "nan"])
+def test_resources_refuse_invalid_effective_driver_heap(heap):
+    with pytest.raises(ValueError, match="driver memory"):
+        control.validate_resources(
+            {"services": {"webserver": resource_service(9, heap=heap)}},
+            {"MemTotal": 16 * GIB, "NCPU": 2},
+            "branch",
+        )
+
+
+def test_resources_refuse_swap_outside_memory_cap():
+    service = resource_service(9)
+    service["memswap_limit"] = 10 * GIB
+    with pytest.raises(ValueError, match="swap"):
+        control.validate_resources(
+            {"services": {"webserver": service}},
+            {"MemTotal": 16 * GIB, "NCPU": 2},
+            "branch",
+        )
