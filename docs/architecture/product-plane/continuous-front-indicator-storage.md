@@ -184,3 +184,32 @@ widens its predicate together with preserved rows when necessary. This changes
 the private state lifecycle, not the public indicator schema or native owner.
 Missing/incompatible state still requires full validation on the allowed route;
 do not invoke that fallback when full selected-series recomputation is prohibited.
+
+## Sparse checkpoint integration decision (2026-10-26)
+
+Decision: accepted for staged Research code integration; deployment and corrected
+52-series acceptance remain pending. Reconstructs the existing PR232 tail path
+and its correction-replay/KST follow-up; no production adoption has occurred.
+The existing materializers, optional state field and atomic scoped Delta writer
+own the lifecycle. Native formulas remain the full-reference oracle.
+
+Retain stride-256 pre-window states over 4096 bars plus floor/final carriers
+(at most 18 per series). This replaces a final-only checkpoint, which cannot
+replay an older correction. Unlimited history was rejected for storage cost;
+full replay remains the fallback for an absent compatible pre-window state.
+Numerical input/context fingerprints exclude service metadata but include
+native/profile/rule identity; a policy mismatch forbids retaining old values.
+L2 validates changed numerical inputs before selecting its exact write suffix.
+
+The earlier uncorrected run measured about 1.045 GB raw state JSON and 4556 MiB
+L1 Python RSS. Bounded native calls do not bound whole-series read/hash/DTO work.
+Corrected KST whole-chain timing is unmeasured. Revisit retention if measured
+state cost exceeds the accepted workload; do not silently drop recovery checks.
+
+Before adoption, use a separately authorized isolated full reference and explicit
+refresh plan for the new KST contract. Existing identities require full numerical
+replacement/validation through the existing owners; never relabel legacy P0
+results. Before adoption, rollback is code rollback with production untouched.
+Adoption needs its own recovery plan; no cross-contract output rollback is claimed.
+Focused regression and real producer/consumer evidence is recorded in PR232;
+historical benchmark reports retain their original verdicts.
