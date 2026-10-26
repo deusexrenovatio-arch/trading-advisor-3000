@@ -19,6 +19,23 @@ Every base and derived output is covered by exactly one `indicator_roll_rules` r
 | `pandas_window_derived_level` | A | `pandas_window_adapter` | rolling/session/week levels use causal `*_0` plus current-bar `A_t` |
 | `derived_relationship_roll_aware` | C | `custom_roll_aware_adapter` | validate price-space compatibility for distances, positions, crosses, angle slopes, movement divergence |
 
+### KST price basis and invalid ROC denominators
+
+KST is a weighted combination of percentage ROC values, so adding a constant to
+its price input changes the result. KST and its signal belong to
+`anchor_sensitive_roll_aware`, using the current bar's known anchor; they must
+not use `oscillator_on_p0`. Native pandas-ta-classic owns the KST/ROC formulas.
+A denominator that is nonfinite, zero, or within the row-local floating-point
+cancellation bound (8 machine epsilons times the price/offset operand scale)
+is masked before ROC reaches rolling means. Its dependent outputs remain NULL
+with `invalid_roc_price_base` in materialization diagnostics. No epsilon is
+substituted into the denominator. Checkpoint compatibility binds calculation
+rules; incompatible states cannot retain an old numeric prefix.
+
+Activation changes KST numerical semantics and needs an explicitly planned
+refresh with a corrected full reference. Historical equality to the former P0
+KST is not an acceptance criterion for these corrected columns.
+
 ## Storage
 
 The governed sidecar tables are:
@@ -159,5 +176,11 @@ the checkpoint/input-prefix contract in
 and Delta writer owners. The numerical kernel pins the native state adapters;
 public indicator/derived formulas, bar eligibility and CF price-space rules
 retain their accepted meaning. Suffix writes alone never prove bounded compute.
+L1 now retains sparse pre-window anchors in the existing optional state field:
+256-bar stride, 4096-bar retention plus a floor anchor and current final carrier.
+Correction replay must jointly prove native full-result parity and bounded
+formula work. Retention cleanup shares the existing atomic scoped writer and
+widens its predicate together with preserved rows when necessary. This changes
+the private state lifecycle, not the public indicator schema or native owner.
 Missing/incompatible state still requires full validation on the allowed route;
 do not invoke that fallback when full selected-series recomputation is prohibited.

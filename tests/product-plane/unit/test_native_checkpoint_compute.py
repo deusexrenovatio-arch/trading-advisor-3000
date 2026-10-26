@@ -31,6 +31,89 @@ def market_frame(n=1100):
     )
 
 
+def test_nonfinite_hidden_state_survives_strict_json_roundtrip():
+    initial = NativeCheckpoint()
+    values = pd.Series([1.0, np.inf, -np.inf, np.nan])
+    initial._remember("probe", values, upper=np.inf, lower=-np.inf, missing=np.nan)
+    exported = initial.export()
+    state = json.loads(json.dumps(exported, allow_nan=False))
+    restored = NativeCheckpoint(previous=state, cutoff=4)
+    old, cached = restored._cached("probe", values.index)
+    np.testing.assert_array_equal(cached.to_numpy(), values.to_numpy())
+    assert old["upper"] == np.inf and old["lower"] == -np.inf
+    assert np.isnan(old["missing"])
+    # Export must not replace live native numeric state with transport tokens.
+    assert initial.streams["probe"]["values"][1] == np.inf
+
+
+@pytest.mark.parametrize("token", ["infinity", None, [], {"extra": 1}])
+def test_malformed_native_float_token_is_rejected(token):
+    from trading_advisor_3000.product_plane.research.indicators.native_checkpoint import (
+        CheckpointUnavailable,
+    )
+
+    state = NativeCheckpoint().export()
+    state["streams"] = {"nested": [{"__native_float__": token}]}
+    with pytest.raises(CheckpointUnavailable, match="malformed native float token"):
+        NativeCheckpoint(previous=state, cutoff=1)
+
+
+def test_native_float_tokens_do_not_replace_ordinary_nested_metadata():
+    initial = NativeCheckpoint()
+    initial.streams = {"nested": [True, False, None, "nan", 2.5, {"upper": np.inf}]}
+    state = json.loads(json.dumps(initial.export(), allow_nan=False))
+    restored = NativeCheckpoint(previous=state, cutoff=1)
+    assert restored.previous["streams"] == initial.streams
+    assert state["streams"]["nested"][-1] == {"upper": {"__native_float__": "+inf"}}
+    state["streams"]["nested"][-1]["upper"]["extra"] = True
+    from trading_advisor_3000.product_plane.research.indicators.native_checkpoint import (
+        CheckpointUnavailable,
+    )
+
+    with pytest.raises(CheckpointUnavailable, match="malformed native float token"):
+        NativeCheckpoint(previous=state, cutoff=1)
+
+
+@pytest.mark.parametrize("old_format", ["native-checkpoint.v1", "native-checkpoint.v2"])
+def test_legacy_checkpoint_format_requests_native_bootstrap(old_format):
+    from trading_advisor_3000.product_plane.research.indicators.native_checkpoint import (
+        CheckpointUnavailable,
+    )
+
+    state = NativeCheckpoint().export()
+    state["format"] = old_format
+    with pytest.raises(CheckpointUnavailable, match="identity changed"):
+        NativeCheckpoint(previous=state, cutoff=1)
+
+
+def test_pvt_infinite_native_state_continues_after_strict_json_checkpoint():
+    frame = market_frame()
+    frame.loc[990, "close"] = 0.0
+    spec = next(s for s in default_indicator_profile().indicators if s.operation_key == "pvt")
+    initial = NativeCheckpoint()
+    initial.compute(m._compute_spec, frame.iloc[:1000], spec)
+    assert any(
+        np.isinf(v)
+        for stream in initial.streams.values()
+        for v in stream.get("values", [])
+        if v is not None
+    ), "fixture must exercise an actual native nonfinite hidden stream"
+    state = json.loads(json.dumps(initial.export(), allow_nan=False))
+    resumed = NativeCheckpoint(previous=state, cutoff=1000)
+    actual = resumed.compute(m._compute_spec, frame.iloc[488:], spec)
+    expected = m._compute_spec(frame, spec)
+    for column in spec.output_columns:
+        np.testing.assert_allclose(
+            actual[column].reindex(frame.index[1000:]),
+            expected[column].reindex(frame.index[1000:]),
+            rtol=1e-10,
+            atol=1e-10,
+            equal_nan=True,
+        )
+    assert resumed.full_history_rows == 0
+    assert resumed.formula_rows <= 612
+
+
 @pytest.mark.parametrize(
     "spec", default_indicator_profile().indicators, ids=lambda s: s.indicator_id
 )
@@ -51,6 +134,35 @@ def test_every_core_spec_continues_after_serialized_checkpoint(spec):
         np.testing.assert_allclose(a, e, rtol=1e-10, atol=1e-10, equal_nan=True)
     assert resumed.full_history_rows == 0
     assert resumed.formula_rows <= 612
+
+
+@pytest.mark.parametrize(
+    "spec", default_indicator_profile().indicators, ids=lambda s: s.indicator_id
+)
+def test_historical_native_snapshot_replays_corrected_suffix(spec):
+    if spec.operation_key == "volume_profile":
+        return
+    frame = market_frame()
+    initial = NativeCheckpoint(snapshot_counts=(900,))
+    initial.compute(m._compute_spec, frame.iloc[:1000], spec)
+    state = json.loads(json.dumps(initial.export_at(900), allow_nan=False))
+    frame.loc[950, "close"] += 0.4
+    frame.loc[950, "volume"] += 19
+    frame.loc[950, "open_interest"] += 11
+    resumed = NativeCheckpoint(previous=state, cutoff=900)
+    actual = resumed.compute(m._compute_spec, frame.iloc[388:], spec)
+    expected = m._compute_spec(frame, spec)
+    for column in spec.output_columns:
+        np.testing.assert_allclose(
+            pd.to_numeric(actual[column].reindex(frame.index[900:]), errors="coerce"),
+            pd.to_numeric(expected[column].reindex(frame.index[900:]), errors="coerce"),
+            rtol=1e-10,
+            atol=1e-10,
+            equal_nan=True,
+            err_msg=column,
+        )
+    assert resumed.full_history_rows == 0
+    assert resumed.formula_rows <= 712
 
 
 @pytest.mark.parametrize("rolled", [False, True])

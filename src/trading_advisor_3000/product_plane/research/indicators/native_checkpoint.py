@@ -18,12 +18,46 @@ import numpy as np
 import pandas as pd
 import pandas_ta_classic as ta
 
-FORMAT = "native-checkpoint.v1"
+FORMAT = "native-checkpoint.v3"
 BUFFER = 512
 
 
 class CheckpointUnavailable(ValueError):
     """A complete native recomputation is required, never approximate warmup."""
+
+
+def _encode_float_state(value):
+    """Preserve native nonfinite state without nonstandard JSON numbers."""
+    if isinstance(value, (float, np.floating)):
+        if np.isnan(value):
+            return {"__native_float__": "nan"}
+        if np.isinf(value):
+            return {"__native_float__": "+inf" if value > 0 else "-inf"}
+        return float(value)
+    if isinstance(value, dict):
+        return {key: _encode_float_state(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_encode_float_state(item) for item in value]
+    return value
+
+
+def _decode_float_state(value):
+    if isinstance(value, dict):
+        if "__native_float__" in value:
+            if set(value) != {"__native_float__"}:
+                raise CheckpointUnavailable("malformed native float token")
+            token = value["__native_float__"]
+            if token == "+inf":
+                return float("inf")
+            if token == "-inf":
+                return float("-inf")
+            if token == "nan":
+                return float("nan")
+            raise CheckpointUnavailable("malformed native float token")
+        return {key: _decode_float_state(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_decode_float_state(item) for item in value]
+    return value
 
 
 def identity():
@@ -92,7 +126,7 @@ SUPPORTED_NATIVE_IDENTITY = "0c8f482072f357df2d562c5c230790a85116934949f864b0cb2
 
 
 class NativeCheckpoint:
-    def __init__(self, previous=None, cutoff=None):
+    def __init__(self, previous=None, cutoff=None, snapshot_counts=()):
         self.previous = previous or {}
         self.cutoff = cutoff
         if not isinstance(self.previous, dict):
@@ -103,6 +137,7 @@ class NativeCheckpoint:
             self.previous.get("format") != FORMAT or self.previous.get("identity") != identity()
         ):
             raise CheckpointUnavailable("native checkpoint identity changed")
+        self.previous = _decode_float_state(self.previous)
         if ta.Imports.get("talib"):
             raise CheckpointUnavailable("TA-Lib checkpoint backend is not implemented")
         self.streams = {}
@@ -110,22 +145,41 @@ class NativeCheckpoint:
         self.clones = {}
         self.formula_rows = 0
         self.full_history_rows = 0
+        self.snapshots = {int(count): {} for count in snapshot_counts}
 
     def export(self):
-        return dict(format=FORMAT, identity=identity(), streams=self.streams)
+        return dict(format=FORMAT, identity=identity(), streams=_encode_float_state(self.streams))
+
+    def export_at(self, count):
+        return dict(
+            format=FORMAT, identity=identity(), streams=_encode_float_state(self.snapshots[count])
+        )
 
     def _key(self, name):
         key = f"{self.counter}:{name}"
         self.counter += 1
         return key
 
-    def _remember(self, key, values, **extra):
+    def _remember(self, key, values, *, histories=None, **extra):
         tail = values.iloc[-BUFFER:]
         self.streams[key] = dict(
             index=[int(i) for i in tail.index],
             values=[None if pd.isna(v) else float(v) for v in tail],
             **extra,
         )
+        for count, streams in self.snapshots.items():
+            end = values.index.searchsorted(count)
+            if not end:
+                continue
+            prefix = values.iloc[max(0, end - BUFFER) : end]
+            extras = dict(extra)
+            for name, history in (histories or {}).items():
+                extras[name] = history.loc[prefix.index[-1]].item()
+            streams[key] = dict(
+                index=[int(i) for i in prefix.index],
+                values=[None if pd.isna(v) else float(v) for v in prefix],
+                **extras,
+            )
         return values
 
     def _cached(self, key, index):
@@ -155,7 +209,12 @@ class NativeCheckpoint:
             result = getattr(ta, name)(close, length=length, **kwargs)
             if result is None:
                 return None
-            return self._remember(key, result, clean_end=bool(pd.notna(close.iloc[-1])))
+            return self._remember(
+                key,
+                result,
+                clean_end=bool(pd.notna(close.iloc[-1])),
+                histories={"clean_end": close.notna()},
+            )
         if kwargs.get("adjust", False) or kwargs.get("offset", 0):
             raise CheckpointUnavailable("unsupported smoothing options")
         old, result = self._cached(key, close.index)
@@ -173,7 +232,12 @@ class NativeCheckpoint:
             )
             updated = window.mean().iloc[1:]
             result.loc[positions] = updated.to_numpy()
-        return self._remember(key, result, clean_end=bool(pd.notna(close.iloc[-1])))
+        return self._remember(
+            key,
+            result,
+            clean_end=bool(pd.notna(close.iloc[-1])),
+            histories={"clean_end": close.notna()},
+        )
 
     def _cumulative(self, name, *args, **kwargs):
         key = self._key(name)
@@ -279,10 +343,18 @@ class NativeCheckpoint:
             last_dir = int(direction.iloc[-1])
             last_upper = float(trend.iloc[-1] if last_dir < 0 else upper.iloc[-1])
             last_lower = float(trend.iloc[-1] if last_dir > 0 else lower.iloc[-1])
+            upper_history = upper.where(direction >= 0, trend)
+            lower_history = lower.where(direction <= 0, trend)
         else:
             old, trend = self._cached(key, close.index)
             last_dir, last_upper, last_lower = old["direction"], old["upper"], old["lower"]
             directions = pd.Series(np.nan, index=close.index)
+            upper_history, lower_history = upper.copy(), lower.copy()
+            prefix = close.index[close.index < self.cutoff]
+            if len(prefix):
+                directions.loc[prefix[-1]] = last_dir
+                upper_history.loc[prefix[-1]] = last_upper
+                lower_history.loc[prefix[-1]] = last_lower
             for i in close.index[close.index >= self.cutoff]:
                 direction = (
                     1
@@ -298,9 +370,16 @@ class NativeCheckpoint:
                 trend.loc[i] = lo if direction > 0 else up
                 directions.loc[i] = direction
                 last_dir, last_upper, last_lower = direction, up, lo
+                upper_history.loc[i], lower_history.loc[i] = up, lo
             result = pd.DataFrame({"SUPERT" + suffix: trend, "SUPERTd" + suffix: directions})
+            direction = directions
         self._remember(
-            key, result["SUPERT" + suffix], direction=last_dir, upper=last_upper, lower=last_lower
+            key,
+            result["SUPERT" + suffix],
+            direction=last_dir,
+            upper=last_upper,
+            lower=last_lower,
+            histories={"direction": direction, "upper": upper_history, "lower": lower_history},
         )
         return result
 
@@ -355,10 +434,15 @@ class NativeCheckpoint:
             if old is None:
                 raise CheckpointUnavailable("missing zero-range regime")
             new_zero = bool(difference.loc[difference.index >= self.cutoff].eq(0).any())
-            if new_zero and not old["zero"]:
-                raise CheckpointUnavailable("new global zero-range regime")
-            zero = zero or old["zero"]
-        self.streams[key] = {"zero": zero}
+            zero = bool(old["prefix_zero"] or new_zero)
+            if zero != old["zero"]:
+                raise CheckpointUnavailable("changed global zero-range regime")
+        self.streams[key] = {"zero": zero, "prefix_zero": zero}
+        for count, streams in self.snapshots.items():
+            prefix_zero = bool(difference.loc[difference.index < count].eq(0).any())
+            if self.cutoff is not None:
+                prefix_zero = prefix_zero or old["prefix_zero"]
+            streams[key] = {"zero": zero, "prefix_zero": prefix_zero}
         if zero:
             difference = difference + np.finfo(float).eps
         return difference

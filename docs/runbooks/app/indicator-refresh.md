@@ -47,12 +47,27 @@ production data migration, rebuild, service restart or publication.
 Change surface: product-plane. Architecture impact: contract-change (additive
 optional metadata, existing schema authorities and writers).
 
-`indicators/store.py` owns optional `compute_state_json`; the final L1 row holds
-hidden native smoothing/cumulative/Supertrend state and bounded intermediate
-buffers before public eligibility masks. State is separate per calculation
-group/spec/eligibility and bound to exact input prefix, profile, native source,
-CF ladder and epoch. The prior carrier is cleared in the same scoped write as
-the new final row. No checkpoint table, service or separate state writer exists.
+`indicators/store.py` owns optional `compute_state_json`. CF stores sparse
+`cf-tail.v2` anchors every 256 raw bars and at the final row, retaining 4096 bars
+plus the floor anchor at/before that horizon (at most 18 carriers). Each binds
+its own count/timestamp/numerical-prefix digest, profile/native/adapter identity
+and semantic CF ladder. Historical eligible buffers, clean_end, Supertrend bands
+and direction are captured at that anchor, not copied from latest state.
+`native-checkpoint.v3` retains the strict nonfinite JSON codec. Old formats are
+not certified for replay. No checkpoint table, service or separate writer exists.
+
+Correction/insertion/deletion restores the newest valid anchor before the first
+changed numerical input, then replays the suffix. Only actual dependencies enter
+the CF numerical fingerprint: declared profile inputs, native OHLC, volume/OI,
+roll epoch, identity and eligibility/session context, plus VP timing when used.
+Execution economics/provenance metadata does not trigger formulas; current
+snapshot/lineage metadata still advances through the complete final carrier.
+Close time is transient on the indicator DTO. For numerically unchanged source
+snapshots with new provenance, native projected `ts`/close-year proof also
+detects physical-year moves; their preserved suffix is routed through the
+existing writer without formulas. No new persisted close-time column is added.
+Cleanup widens both the native replacement predicate and preserved row payload
+to clear expired/invalid carriers even before the numerical correction window.
 
 The native library has no state-input API. Private function copies receive
 checkpointed native EMA/RMA helpers; native module globals are unchanged.
@@ -64,21 +79,29 @@ therefore conservatively invalidate checkpoints too. Other numerical functions
 retain normal AST identity and unknown callbacks still fail closed.
 
 Unchanged append on the supported mature core computes at most 512 eligible
-context rows plus new rows per native operation. A complete dependency group
-of at most 512 rows may bootstrap before it is mature; its old outputs must
+context rows plus new rows per native operation. A dependency group's complete
+causal prefix of at most 512 eligible rows may bootstrap before it is mature;
+a clipped 512-row suffix of a longer recurrence cannot certify this. Its old outputs must
 still match, otherwise full validation/replacement is required. Counters report
 this bootstrap separately. Reads, hashing and prefix proof may still scan the
 full partition; bounded formula work is not an end-to-end speedup claim.
 
-Corrections/insertion/deletion before the L1 checkpoint, changed ladder/roll,
+Corrections before the retained horizon, changed semantic ladder/unseen roll,
 unsupported profile/backend, malformed state or nonmonotonic epochs fail back
-explicitly. Native zero-range regime changes also invalidate the prefix. L2's
+explicitly. The complete native zero-range regime is bound independently of the
+prefix: adding the first or removing the last zero invalidates the numerical
+prefix and requires full replacement. Historical anchors cannot hide that
+global library behavior. Known roll groups and session/eligibility gaps retain
+their separate native state. L2's
 optional `input_row_hash` is owned by `derived_indicators/store.py`; metadata-only
 L1 provenance changes do not invalidate identical numerical input rows.
 
 Verification requires exact keys, NULLs and integer/event codes, numeric
 `rtol=1e-8, atol=1e-8` (native rolling floating-point order), serialized restart,
-eligibility gaps, fallback cases and native Delta producer/consumer readback.
+eligibility gaps, zero addition/removal, deletion of anchors/final bars, retention
+cleanup/retry and native Delta producer/consumer readback. Correction parity and
+bounded formula counters must pass together; full fallback cannot satisfy that
+acceptance test. Capture count/bytes, peak memory and widened write rows as costs.
 All acceptance writes stay in an isolated copy. Legacy state can bootstrap only
 through the ordinary requested route; no manual production full rebuild is part
 of this change.

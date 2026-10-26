@@ -52,8 +52,6 @@ WITH filtered_canonical_bars AS (
   FROM canonical_bars
   WHERE (:instrument_ids_empty OR instrument_id IN (:instrument_ids))
     AND (:timeframes_empty OR timeframe IN (:timeframes))
-    AND (:start_ts IS NULL OR ts >= :start_ts)
-    AND (:end_ts IS NULL OR ts <= :end_ts)
 ),
 regular_session_bars AS (
   SELECT *
@@ -88,6 +86,8 @@ active_timeline AS (
 )
 SELECT *
 FROM active_timeline
+WHERE (:start_ts IS NULL OR ts >= :start_ts)
+  AND (:end_ts IS NULL OR ts <= :end_ts)
 ORDER BY instrument_id, timeframe, ts
 """.strip()
 
@@ -917,8 +917,8 @@ def _build_spark_native_tables(
         canonical_bars_path=canonical_bars_path,
         instrument_ids=scoped_instrument_ids,
         timeframes=scoped_timeframes,
-        start_ts=None if refresh_windows else start_ts,
-        end_ts=None if refresh_windows else end_ts,
+        start_ts=None,
+        end_ts=None,
         # Roll numbering and predecessor state require the causal prefix. A
         # correction can also change later rolls, so filter only the outputs.
         refresh_windows=tuple(
@@ -926,19 +926,7 @@ def _build_spark_native_tables(
         ),
     )
     bars = _filter_policy_session(raw_bars, policy)
-    calendar_bars = None
-    if policy.roll_policy_mode == "calendar_expiry_v1" and refresh_windows:
-        calendar_bars = bars
-    elif policy.roll_policy_mode == "calendar_expiry_v1":
-        calendar_raw_bars = _load_filtered_bars(
-            spark=spark,
-            canonical_bars_path=canonical_bars_path,
-            instrument_ids=scoped_instrument_ids,
-            timeframes=scoped_timeframes,
-            start_ts=None,
-            end_ts=None,
-        )
-        calendar_bars = _filter_policy_session(calendar_raw_bars, policy)
+    calendar_bars = bars if policy.roll_policy_mode == "calendar_expiry_v1" else None
     keyed_bars = _with_maturity_columns(bars)
     timeline = _active_timeline(bars=bars, policy=policy, calendar_bars=calendar_bars)
     tl = timeline.alias("tl")
@@ -1300,6 +1288,21 @@ def _build_spark_native_tables(
                     tables[name],
                     tail_windows,
                     ts_column="ts" if name == "continuous_front_bars" else "effective_ts",
+                )
+    elif start_ts or end_ts:
+        # Direct bounds have the same causal-context requirement as refresh
+        # windows. Keep their exact output range (including sidecar tables).
+        for name in CONTINUOUS_FRONT_TABLES:
+            if name == "continuous_front_qc_report":
+                continue
+            time_column = "ts" if name == "continuous_front_bars" else "effective_ts"
+            if start_ts:
+                tables[name] = tables[name].where(
+                    F.col(time_column) >= F.lit(start_ts).cast("timestamp")
+                )
+            if end_ts:
+                tables[name] = tables[name].where(
+                    F.col(time_column) <= F.lit(end_ts).cast("timestamp")
                 )
     return tables
 

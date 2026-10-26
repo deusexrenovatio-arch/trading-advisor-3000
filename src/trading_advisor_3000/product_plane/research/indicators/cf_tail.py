@@ -1,4 +1,4 @@
-"""Append proof and atomic last-row checkpoint for the existing CF producer."""
+"""Numerically proven restoration before a changed CF window; existing store owns persistence."""
 
 from __future__ import annotations
 
@@ -11,9 +11,36 @@ import pandas as pd
 
 from .native_checkpoint import BUFFER, CheckpointUnavailable, NativeCheckpoint, identity
 
+STRIDE = 256
+RETENTION = 4096
+FORMAT = "cf-tail.v2"
+
 
 def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).hexdigest()
+
+
+def checkpoint_counts(count):
+    floor = max(STRIDE, ((count - RETENTION) // STRIDE) * STRIDE)
+    return sorted({*range(floor, count, STRIDE), count})
+
+
+def _prefix_digests(hashes, counts):
+    wanted = set(counts)
+    digest = hashlib.sha256()
+    result = {}
+    for count, value in enumerate(hashes, 1):
+        digest.update(value.encode())
+        digest.update(b"\n")
+        if count in wanted:
+            result[count] = digest.hexdigest()
+    return result
+
+
+def _state_epoch(key):
+    # group:spec; group ends in an epoch or 'invariant'.
+    token = key.rsplit(":", 2)[-2]
+    return None if token == "invariant" else int(token)
 
 
 def compute(
@@ -25,8 +52,15 @@ def compute(
     diagnostics,
     state_out,
     bootstrap_reason=None,
+    *,
+    input_hashes=(),
+    checkpoints_out=None,
 ):
     from . import materialize as m
+
+    checkpoints_out = checkpoints_out if checkpoints_out is not None else {}
+    checkpoints_out.clear()
+    state_out.clear()
 
     if not frame["roll_epoch"].is_monotonic_increasing:
         diagnostics["cf_tail_fallback_reason"] = "nonmonotonic_roll_epoch"
@@ -39,7 +73,8 @@ def compute(
     context = _digest(
         dict(
             profile=asdict(profile),
-            ladder=ladder,
+            rules=[rule.rule_hash for rule in m.rules_for_indicator_profile(profile)],
+            ladder=m._normalize_ladder_rows(ladder),
             native=identity(),
             adapter={
                 name: hashlib.sha256(
@@ -49,31 +84,52 @@ def compute(
             },
         )
     )
-    previous = {}
+    targets = checkpoint_counts(len(frame))
+    counts = {*targets, *(i + 1 for i, row in enumerate(cached_rows) if row.compute_state_json)}
+    proofs = _prefix_digests(input_hashes, counts)
+    valid = {}
+    incompatible_context = False
     reason = bootstrap_reason or "missing_checkpoint"
-    if cached_rows and cached_rows[-1].compute_state_json:
+    for index, row in enumerate(cached_rows):
+        count = index + 1
+        if not row.compute_state_json or count > min(prefix_length, len(frame)):
+            continue
         try:
-            previous = json.loads(cached_rows[-1].compute_state_json)
+            previous = json.loads(row.compute_state_json)
             checksum = previous.pop("checksum")
             if _digest(previous) != checksum:
                 raise ValueError("checkpoint checksum differs")
-            if previous.get("context") != context or previous.get("format") != "cf-tail.v1":
+            if previous.get("context") != context or previous.get("format") != FORMAT:
+                incompatible_context = True
                 raise ValueError("checkpoint context differs")
             if not isinstance(previous.get("states"), dict):
                 raise ValueError("malformed checkpoint states")
             if (
-                previous.get("count") != len(cached_rows)
-                or previous.get("last_ts") != cached_rows[-1].ts
-                or prefix_length != len(cached_rows)
-                or len(frame) < len(cached_rows)
-                or previous.get("epoch") != int(frame["roll_epoch"].iloc[-1])
+                previous.get("count") != count
+                or previous.get("last_ts") != row.ts
+                or row.ts != str(frame["ts"].iloc[index])
+                or previous.get("prefix_hash") != proofs.get(count)
+                or previous.get("max_epoch") != int(frame["roll_epoch"].iloc[-1])
+                or previous.get("epoch") != int(frame["roll_epoch"].iloc[index])
             ):
-                raise ValueError("source is not an unchanged append")
-            reason = ""
+                raise ValueError("anchor does not certify the unchanged numerical prefix")
+            valid[count] = previous
         except (ValueError, KeyError, TypeError, AttributeError):
-            previous = {}
             reason = "invalid_checkpoint_or_changed_history"
-    cutoff = len(cached_rows) if previous else None
+    cutoff = max(valid) if valid else None
+    previous = valid[cutoff] if cutoff is not None else {}
+    if cached_rows and not valid:
+        reason = "invalid_checkpoint_or_changed_history"
+        if incompatible_context:
+            diagnostics["cf_full_replacement_required"] = True
+    if cutoff is not None:
+        reason = ""
+        diagnostics["cf_replay_start"] = cutoff
+    for count in targets:
+        if count in valid:
+            payload = dict(valid[count])
+            payload["checksum"] = _digest(payload)
+            checkpoints_out[count - 1] = payload
     if cutoff is not None and len(frame) == cutoff:
         diagnostics["cf_tail_noop_count"] = int(diagnostics.get("cf_tail_noop_count", 0)) + 1
         state_out.update(previous)
@@ -83,8 +139,28 @@ def compute(
         ]
 
     states = dict(previous.get("states", {}))
+    captures = [count for count in targets if cutoff is None or count > cutoff]
+    states_at = {count: dict(states) for count in captures}
     work = {}
     bootstrap_candidates = []
+    eligible_indices = {}
+
+    def complete_prefix_size(group):
+        parts = group.split(":")
+        flags = int(parts[0]) if parts[0].isdigit() else None
+        if flags not in eligible_indices:
+            eligible_indices[flags] = (
+                frame.index[m._bar_usage_eligible_mask(frame, flags)]
+                if flags is not None
+                else frame.index
+            )
+        indices = eligible_indices[flags]
+        token = parts[-1]
+        if token != "invariant":
+            epoch = int(token)
+            epochs = frame.loc[indices, "roll_epoch"]
+            indices = indices[epochs.eq(epoch) if "reset" in parts else epochs.le(epoch)]
+        return int((indices < cutoff).sum())
 
     def runner(inputs, spec, group):
         key = f"{group}:{spec.indicator_id}"
@@ -118,25 +194,39 @@ def compute(
             local = inputs.loc[start:]
         old = previous.get("states", {}).get(key) if cutoff is not None else None
         try:
-            engine = NativeCheckpoint(previous=old, cutoff=cutoff)
+            needed = [
+                count
+                for count in captures
+                if group.endswith(":invariant")
+                or int(group.rsplit(":", 1)[-1]) >= int(frame["roll_epoch"].iloc[count - 1])
+            ]
+            engine = NativeCheckpoint(previous=old, cutoff=cutoff, snapshot_counts=needed)
             outputs = engine.compute(m._compute_spec, local, spec)
         except (ValueError, KeyError, TypeError, AttributeError, IndexError) as error:
             if cutoff is None:
                 raise
-            if len(inputs) <= BUFFER:
-                # This is the COMPLETE dependency group, never a truncated
-                # approximation to a recursive indicator's warmup.
-                engine = NativeCheckpoint()
+            if complete_prefix_size(group) <= BUFFER:
+                # Source admission proves this contains the COMPLETE causal
+                # prefix, not merely 512 rows sliced from a longer recurrence.
+                engine = NativeCheckpoint(snapshot_counts=needed)
                 outputs = engine.compute(m._compute_spec, inputs, spec)
                 bootstrap_candidates.append(
                     (spec.output_columns, inputs.index[inputs.index < cutoff])
                 )
             else:
                 raise CheckpointUnavailable(f"invalid hidden state: {error}") from error
-        if group.endswith(":invariant") or group.endswith(
-            ":" + str(int(frame["roll_epoch"].iloc[-1]))
-        ):
-            states[key] = engine.export()
+        for count in needed:
+            states_at[count][key] = engine.export_at(count)
+        invalid_inputs = next(
+            (
+                s.attrs["invalid_price_inputs"]
+                for s in outputs.values()
+                if "invalid_price_inputs" in s.attrs
+            ),
+            None,
+        )
+        if invalid_inputs is not None:
+            diagnostics.setdefault("invalid_price_inputs", {})[key] = invalid_inputs
         work[key] = dict(
             formula_rows=engine.formula_rows,
             full_history_rows=engine.full_history_rows,
@@ -160,7 +250,18 @@ def compute(
         if cutoff is not None:
             if "global zero-range" in str(error):
                 diagnostics["cf_full_replacement_required"] = True
-            return compute(frame, profile, ladder, [], 0, diagnostics, state_out, str(error))
+            return compute(
+                frame,
+                profile,
+                ladder,
+                [],
+                0,
+                diagnostics,
+                state_out,
+                str(error),
+                input_hashes=input_hashes,
+                checkpoints_out=checkpoints_out,
+            )
         result = m._compute_profile_frame_for_series(
             frame,
             profile,
@@ -189,10 +290,16 @@ def compute(
                             diagnostics,
                             state_out,
                             "native_minimum_length_changed_prefix",
+                            input_hashes=input_hashes,
+                            checkpoints_out=checkpoints_out,
                         )
+        result = pd.concat(
+            [frame.drop(columns=columns, errors="ignore"), result[columns].reindex(frame.index)],
+            axis=1,
+        )
         result[columns] = result[columns].astype(object)
         result.loc[: cutoff - 1, columns] = pd.DataFrame(
-            [r.values for r in cached_rows], columns=columns
+            [r.values for r in cached_rows[:cutoff]], columns=columns
         ).to_numpy()
         # Reproject held/reset state across a boundary with no eligible new row.
         if "bar_usage_flags" in frame:
@@ -215,14 +322,24 @@ def compute(
     else:
         diagnostics["cf_tail_fallback_reason"] = reason or "bootstrap"
     diagnostics["cf_formula_work"] = work
-    payload = dict(
-        format="cf-tail.v1",
-        context=context,
-        count=len(frame),
-        last_ts=str(frame["ts"].iloc[-1]),
-        epoch=int(frame["roll_epoch"].iloc[-1]),
-        states=states,
-    )
-    state_out.update(payload)
-    state_out["checksum"] = _digest(payload)
+    for count in captures:
+        epoch = int(frame["roll_epoch"].iloc[count - 1])
+        payload = dict(
+            format=FORMAT,
+            context=context,
+            count=count,
+            prefix_hash=proofs[count],
+            last_ts=str(frame["ts"].iloc[count - 1]),
+            epoch=epoch,
+            max_epoch=int(frame["roll_epoch"].iloc[-1]),
+            states={
+                key: value
+                for key, value in states_at[count].items()
+                if _state_epoch(key) is None or _state_epoch(key) >= epoch
+            },
+        )
+        payload["checksum"] = _digest(payload)
+        checkpoints_out[count - 1] = payload
+    state_out.update(checkpoints_out[len(frame) - 1])
+    diagnostics["cf_checkpoint_count"] = len(checkpoints_out)
     return result

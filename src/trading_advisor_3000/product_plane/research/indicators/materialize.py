@@ -995,7 +995,9 @@ def _compute_spec(frame: pd.DataFrame, spec: IndicatorSpec) -> dict[str, pd.Seri
             spec.output_columns[1]: trix[f"TRIXs_{suffix}"],
         }
     if spec.operation_key == "kst":
-        kst = ta.kst(close)
+        from .kst import compute_kst
+
+        kst = compute_kst(frame)
         if kst is None:
             return _none_outputs()
         return {
@@ -1307,6 +1309,13 @@ def _compute_continuous_front_profile_frame(
     checkpoint_runner=None,
     tail_start=None,
 ) -> pd.DataFrame:
+    if checkpoint_runner is not None and tail_start is not None:
+        # Eligibility has already been applied. Bound normalization, derived
+        # price inputs and roll-boundary masks as well as indicator calls.
+        from .native_checkpoint import BUFFER
+
+        prefix = frame.index[frame.index < tail_start]
+        frame = frame.loc[prefix[-BUFFER:].append(frame.index[frame.index >= tail_start])]
     if frame.empty:
         return _compute_profile_frame(frame, profile)
     rules = rules_for_indicator_profile(profile)
@@ -1795,6 +1804,8 @@ def _compute_partition_frame(
     resolved_volume_profile_source_rows,
     volume_profile_tick_size_by_instrument,
     checkpoint_state=None,
+    checkpoint_rows=None,
+    input_hashes=(),
 ):
     if series_mode == "continuous_front":
         from .cf_tail import compute
@@ -1807,6 +1818,8 @@ def _compute_partition_frame(
             prefix_length,
             diagnostics,
             checkpoint_state,
+            input_hashes=input_hashes,
+            checkpoints_out=checkpoint_rows,
         )
     elif prefix_length:
         existing_frame = pd.DataFrame([row.values for row in cached_rows[:prefix_length]])
@@ -1949,6 +1962,7 @@ def _build_partition_rows(
             diagnostics.get("full_history_spec_count", 0)
         ) + len(compute_profile.indicators)
     checkpoint_state = {}
+    checkpoint_rows = {}
     computed = _compute_partition_frame(
         frame=frame,
         series=series,
@@ -1963,6 +1977,8 @@ def _build_partition_rows(
         resolved_volume_profile_source_rows=resolved_volume_profile_source_rows,
         volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
         checkpoint_state=checkpoint_state,
+        checkpoint_rows=checkpoint_rows,
+        input_hashes=input_row_hashes,
     )
     payload_rows = computed.to_dict("records")
     output_columns = profile.expected_output_columns()
@@ -2038,10 +2054,25 @@ def _build_partition_rows(
                 refresh_context_hash=refresh_context_hash,
                 source_snapshot_hash=source_snapshot_hash,
                 volume_profile_input_hash=volume_profile_hashes.get(original.ts, ""),
-                compute_state_json=json.dumps(checkpoint_state, sort_keys=True, allow_nan=False)
-                if checkpoint_state and index == len(series) - 1
+                compute_state_json=json.dumps(
+                    checkpoint_rows[index], sort_keys=True, allow_nan=False
+                )
+                if index in checkpoint_rows
                 else "",
             )
+        )
+    if series_mode == "continuous_front":
+        changed_states = [
+            row.ts
+            for row in rows
+            if row.compute_state_json
+            != getattr(existing_by_ts.get(row.ts), "compute_state_json", "")
+        ]
+        diagnostics.pop("cf_checkpoint_write_start_ts", None)
+        if changed_states:
+            diagnostics["cf_checkpoint_write_start_ts"] = min(changed_states)
+        diagnostics["cf_checkpoint_bytes"] = sum(
+            len(row.compute_state_json.encode()) for row in rows
         )
     return rows
 
@@ -2948,8 +2979,23 @@ def _indicator_input_row_hashes(
             # CF math consumes native OHLC, roll epochs and session projections,
             # beyond a profile's declared public-price columns. Old partial row
             # proofs must not certify reuse after a native/projection correction.
-            payload["cf_input_version"] = 2
-            payload["bar"] = row.to_dict()
+            payload["cf_input_version"] = 3
+            dependencies = input_columns | {
+                "native_open",
+                "native_high",
+                "native_low",
+                "native_close",
+                "roll_epoch",
+                "volume",
+                "open_interest",
+                "session_open_ts",
+                "session_close_ts",
+            }
+            if has_volume_profile:
+                dependencies |= {"bar_start_ts", "bar_end_ts"}
+            payload["bar"] = {
+                key: value for key, value in row.to_dict().items() if key in dependencies
+            }
         if has_volume_profile and (cached_volume_profile_hashes or {}).get(row.ts):
             payload["volume_profile"] = cached_volume_profile_hashes[row.ts]
         elif has_volume_profile:
@@ -3516,28 +3562,71 @@ def _materialize_indicator_window_tails(
                 candidates = [*changed_ts, *[row.ts for row in existing if row.ts not in source_ts]]
                 if not candidates:
                     reused += 1
+                    layout_changed_ts = []
                     if not snapshot_matches:
-                        # Advance one complete carrier after actual content proof;
-                        # preserve every earlier row and all numerical values.
+                        from trading_advisor_3000.product_plane.common.table_layout import (
+                            YEAR_PARTITION_COLUMN,
+                        )
+
+                        # Close time is transient on the DTO; compare its
+                        # persisted physical year rather than a missing field.
+                        filters = [
+                            (name, "=", getattr(partition, name))
+                            for name in (
+                                "dataset_version",
+                                "indicator_set_version",
+                                "contour_id",
+                                "series_mode",
+                                "series_id",
+                                "instrument_id",
+                                "timeframe",
+                                "contract_id",
+                            )
+                            if getattr(partition, name) not in (None, "")
+                        ]
+                        layout = read_delta_table_arrow(
+                            indicator_output_dir / "research_indicator_frames.delta",
+                            columns=["ts", YEAR_PARTITION_COLUMN],
+                            filters=filters,
+                        ).to_pydict()
+                        years = {
+                            _utc_timestamp(ts): int(year)
+                            for ts, year in zip(
+                                layout["ts"], layout[YEAR_PARTITION_COLUMN], strict=True
+                            )
+                        }
+                        layout_changed_ts = [
+                            row.ts
+                            for row in series
+                            if years.get(_utc_timestamp(row.ts))
+                            != _utc_timestamp(row.bar_end_ts).year
+                        ]
+                    if not snapshot_matches:
+                        # A lineage-only change advances the final carrier;
+                        # a close-year correction rewrites its preserved suffix.
                         carrier = existing_by_ts[series[-1].ts]
                         stamp = max(
                             pd.Timestamp.now(tz="UTC"),
                             _utc_timestamp(str(metadata.get("created_at") or carrier.created_at))
                             + pd.Timedelta(1, unit="us"),
                         )
-                        starts[partition] = carrier.ts
+                        starts[partition] = (
+                            min(layout_changed_ts) if layout_changed_ts else carrier.ts
+                        )
                         assert_source_stable()
                         yield (
                             partition,
                             [
                                 replace(
-                                    carrier,
+                                    existing_by_ts[row.ts],
                                     source_snapshot_hash=source_snapshot_hash,
                                     source_dataset_bars_hash=source_dataset_bars_hash,
                                     row_count=count,
-                                    bar_end_ts=series[-1].bar_end_ts,
+                                    bar_end_ts=row.bar_end_ts,
                                     created_at=stamp.isoformat().replace("+00:00", "Z"),
                                 )
+                                for row in series
+                                if row.ts >= starts[partition]
                             ],
                         )
                         metadata_rebased += 1
@@ -3576,9 +3665,13 @@ def _materialize_indicator_window_tails(
                     start = series[0].ts
                     starts[partition] = start
                 elif existing and partition in starts:
-                    # Clear the previous final-row checkpoint atomically with
-                    # the new tail; one bounded state carrier per partition.
-                    start = min(start, existing[-1].ts)
+                    # Expired anchors may precede the numerical window. Widen
+                    # the predicate AND preserved payload atomically.
+                    start = min(
+                        start,
+                        existing[-1].ts,
+                        str(diagnostics.get("cf_checkpoint_write_start_ts") or start),
+                    )
                     starts[partition] = start
             if _profile_has_volume_profile_spec(profile) and (
                 volume_profile_source_rows is None and volume_profile_raw_1m_table_path is None
