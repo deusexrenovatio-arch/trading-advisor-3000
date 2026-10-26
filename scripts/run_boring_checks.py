@@ -30,6 +30,13 @@ PYTHON_ENTRYPOINTS = (".githooks/pre-push", ".githooks/post-checkout")
 PYPROJECT = "pyproject.toml"
 CONFIG_SMOKE_TARGET = "scripts/run_boring_checks.py"
 FAST_TEST_TARGETS = ("tests/process", "tests/architecture")
+TEST_AUDIT_FILES = {
+    "docs/agent/audits/test-audit-matrix.csv",
+    "docs/agent/audits/test-audit-summary.md",
+    "pyproject.toml",
+    "scripts/sync_test_audit_matrix.py",
+}
+TEST_AUDIT_PREFIXES = ("tests/", "docs/agent/audits/test-audit-updates/")
 
 
 def _normalize(path_text: str) -> str:
@@ -193,6 +200,32 @@ def _run_fast_pytest(repo_root: Path, *, timeout: int | None) -> int:
     )
 
 
+def _run_test_audit_matrix_check(repo_root: Path, *, timeout: int | None) -> int:
+    if os.getenv("AI_SHELL_BORING_SKIP_FAST_TESTS") == "1":
+        print("[boring] test audit matrix skipped for re-entrant gate subprocess")
+        return 0
+    return _run(
+        [
+            sys.executable,
+            "scripts/sync_test_audit_matrix.py",
+            "--check",
+            "--collection-mode",
+            "static",
+        ],
+        repo_root=repo_root,
+        timeout=timeout,
+    )
+
+
+def _test_audit_matrix_required(scope: str, changed_files: list[str]) -> bool:
+    if scope == "all":
+        return True
+    normalized = {_normalize(path) for path in changed_files}
+    return any(
+        path in TEST_AUDIT_FILES or path.startswith(TEST_AUDIT_PREFIXES) for path in normalized
+    )
+
+
 def _run_mypy(
     repo_root: Path,
     scope: str,
@@ -229,7 +262,12 @@ def _changed_files_for_args(args: argparse.Namespace) -> list[str]:
     )
 
 
-def _run_profile(repo_root: Path, args: argparse.Namespace, python_targets: list[str]) -> int:
+def _run_profile(
+    repo_root: Path,
+    args: argparse.Namespace,
+    python_targets: list[str],
+    changed_files: list[str],
+) -> int:
     steps: list[Callable[[Path], int]] = [_parse_pyproject]
     if args.profile in {"quick", "code", "full"}:
         steps.append(
@@ -243,6 +281,8 @@ def _run_profile(repo_root: Path, args: argparse.Namespace, python_targets: list
         steps.append(lambda root: _run_compileall(root, python_targets))
     if args.profile in {"quick", "full"}:
         steps.append(lambda root: _run_fast_pytest(root, timeout=args.timeout))
+        if _test_audit_matrix_required(args.scope, changed_files):
+            steps.append(lambda root: _run_test_audit_matrix_check(root, timeout=args.timeout))
     if args.profile in {"type", "full"}:
         steps.append(lambda root: _run_mypy(root, args.scope, python_targets, timeout=args.timeout))
 
@@ -276,7 +316,7 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
     changed_files = _changed_files_for_args(args)
     python_targets = _python_targets(repo_root, scope=args.scope, changed_files=changed_files)
-    return _run_profile(repo_root, args, python_targets)
+    return _run_profile(repo_root, args, python_targets, changed_files)
 
 
 if __name__ == "__main__":
