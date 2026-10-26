@@ -9,8 +9,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from trading_advisor_3000.product_plane.common.staging_test_fixture import (  # noqa: E402
-    prepare_fixture,
     verify_fixture,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.staging_test_fixture import (  # noqa: E402
+    prepare_fixture,
 )
 
 

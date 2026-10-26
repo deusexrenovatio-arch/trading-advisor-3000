@@ -86,7 +86,9 @@ row/file count and file hash. Hard preparation limits: 32768 total input rows,
 block before native work. Inputs live under the read-only protected control mount;
 outputs are new isolated tables. No production mount, live acquisition or large
 seed fallback is available. Existing native-call, RAM, deadline and output-growth
-limits still apply. The native Dagster multiprocess executor uses its existing
+limits still apply. Market Data owns synthetic input construction through its
+existing schemas and Delta writer; shared staging verification is read-only.
+The native Dagster multiprocess executor uses its existing
 DAGSTER_MULTIPROCESS_EXECUTOR_MAX_CONCURRENT=1 setting in staging; no new job or
 executor is introduced. Prepare inputs once and reuse their immutable identity.
 

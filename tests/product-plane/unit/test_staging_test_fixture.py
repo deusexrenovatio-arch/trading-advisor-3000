@@ -8,12 +8,13 @@ from pathlib import Path
 import pytest
 
 from trading_advisor_3000.product_plane.common import staging_test_fixture as owner
+from trading_advisor_3000.product_plane.data_plane.moex import staging_test_fixture as builder
 
 
 @pytest.fixture(scope="module")
 def prepared(tmp_path_factory):
     root = tmp_path_factory.mktemp("native-input-fixture") / "fixture"
-    descriptor = owner.prepare_fixture(root)
+    descriptor = builder.prepare_fixture(root)
     return root, descriptor
 
 
@@ -38,7 +39,7 @@ def test_fixture_has_native_pins_and_bounded_synthetic_inputs(prepared):
 
 
 def test_input_builder_aligns_groups_and_declares_real_minute_coverage():
-    rows = owner._inputs(3)
+    rows = builder._inputs(3)
     bars, provenance = rows["canonical_bars"], rows["canonical_bar_provenance"]
     assert len(bars) == len(provenance) == 24
     groups = {
@@ -97,7 +98,7 @@ def test_fixture_rejects_rebound_metadata(prepared, tmp_path, change):
 def test_prepare_never_overwrites(prepared):
     root, _ = prepared
     with pytest.raises(ValueError, match="must be new"):
-        owner.prepare_fixture(root)
+        builder.prepare_fixture(root)
 
 
 def _branch_plan():
@@ -193,9 +194,9 @@ def test_fixture_prepare_failure_does_not_install_destination(tmp_path, monkeypa
     def blocked(**kwargs):
         raise RuntimeError("fixture input writer failed")
 
-    monkeypatch.setattr(owner, "write_delta_table_rows", blocked)
+    monkeypatch.setattr(builder, "write_delta_table_rows", blocked)
     with pytest.raises(RuntimeError, match="writer failed"):
-        owner.prepare_fixture(tmp_path / "fixture")
+        builder.prepare_fixture(tmp_path / "fixture")
     assert list(tmp_path.iterdir()) == []
 
 
@@ -206,7 +207,7 @@ def test_inventory_rejects_hard_links(tmp_path):
     source.write_text("fixture")
     os.link(source, tmp_path / "two")
     with pytest.raises(ValueError, match="hard links"):
-        owner._inventory(tmp_path)
+        owner.fixture_inventory(tmp_path)
 
 
 def test_inventory_rejects_byte_cap_before_hashing(tmp_path):
@@ -214,14 +215,14 @@ def test_inventory_rejects_byte_cap_before_hashing(tmp_path):
     with file.open("wb") as stream:
         stream.truncate(owner.MAX_BYTES + 1)
     with pytest.raises(ValueError, match="cap"):
-        owner._inventory(tmp_path)
+        owner.fixture_inventory(tmp_path)
 
 
 def test_inventory_rejects_file_cap(tmp_path):
     for index in range(owner.MAX_FILES + 1):
         (tmp_path / str(index)).write_bytes(b"")
     with pytest.raises(ValueError, match="cap"):
-        owner._inventory(tmp_path)
+        owner.fixture_inventory(tmp_path)
 
 
 def test_inventory_rejects_reparse_metadata(tmp_path, monkeypatch):
@@ -232,4 +233,4 @@ def test_inventory_rejects_reparse_metadata(tmp_path, monkeypatch):
         Path, "lstat", lambda _: SimpleNamespace(st_mode=0, st_file_attributes=0x400)
     )
     with pytest.raises(ValueError, match="links/reparse"):
-        owner._inventory(tmp_path)
+        owner.fixture_inventory(tmp_path)
