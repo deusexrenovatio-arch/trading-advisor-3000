@@ -10,9 +10,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -97,6 +98,59 @@ def _absolute_parts(value: str) -> tuple[str, ...]:
     return tuple(part.lower() for part in path.parts) if path.drive else path.parts
 
 
+def _execution_windows(plan: Mapping[str, Any]):
+    if "execution_window" in plan and "daily_execution_window_utc" in plan:
+        raise ValueError("absolute and daily execution windows are mutually exclusive")
+    if "execution_window" in plan:
+        window = plan["execution_window"]
+        if not isinstance(window, Mapping) or set(window) != {"start_utc", "end_utc"}:
+            raise ValueError("execution_window requires start_utc and end_utc")
+        if any(not isinstance(value, str) for value in window.values()):
+            raise ValueError("execution_window requires UTC timestamps")
+        start = _utc(window["start_utc"], field="execution_window.start_utc")
+        end = _utc(window["end_utc"], field="execution_window.end_utc")
+        if start >= end:
+            raise ValueError("execution_window must have increasing bounds")
+        return (start, end), None
+    if "daily_execution_window_utc" in plan:
+        window = plan["daily_execution_window_utc"]
+        if not isinstance(window, Mapping) or set(window) != {"start", "end"}:
+            raise ValueError("daily_execution_window_utc requires start and end")
+        minutes = []
+        for key in ("start", "end"):
+            value = window[key]
+            if not isinstance(value, str) or not re.fullmatch(
+                r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", value
+            ):
+                raise ValueError("daily execution window requires exact UTC HH:MM bounds")
+            hour, minute = map(int, value.split(":"))
+            minutes.append(hour * 60 + minute)
+        if minutes[0] == minutes[1]:
+            raise ValueError("daily execution window bounds must differ")
+        return None, tuple(minutes)
+    return None, None
+
+
+def execution_window_end(plan: Mapping[str, Any], now: datetime) -> datetime | None:
+    """Active half-open UTC window end only; runtime/deadline authorization is separate."""
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("execution window observation time must be timezone-aware")
+    observed = now.astimezone(UTC)
+    absolute, daily = _execution_windows(plan)
+    if absolute is not None:
+        start, end = absolute
+        return end if start <= observed < end else None
+    if daily is None:
+        return None
+    midnight = observed.replace(hour=0, minute=0, second=0, microsecond=0)
+    start, end = (midnight + timedelta(minutes=value) for value in daily)
+    if start < end:
+        return end if start <= observed < end else None
+    if observed >= start:
+        return end + timedelta(days=1)
+    return end if observed < end else None
+
+
 def _validate_plan(plan: Mapping[str, Any]) -> None:
     root = plan["root_job"]
     jobs = plan["jobs"]
@@ -123,11 +177,9 @@ def _validate_plan(plan: Mapping[str, Any]) -> None:
     if end <= start:
         raise ValueError("plan scope must have an increasing time interval")
     deadline = _utc(plan["deadline_utc"], field="deadline_utc")
-    window = plan.get("execution_window")
+    window, _ = _execution_windows(plan)
     if window is not None:
-        window_start = _utc(window["start_utc"], field="execution_window.start_utc")
-        window_end = _utc(window["end_utc"], field="execution_window.end_utc")
-        if not window_start < window_end <= deadline:
+        if window[1] > deadline:
             raise ValueError(
                 "protected execution_window must increase and end within plan deadline"
             )

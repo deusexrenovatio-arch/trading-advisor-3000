@@ -26,6 +26,7 @@ from build_staging_candidate import verify_deployed_files  # noqa: E402
 
 from trading_advisor_3000.product_plane.common.staging_contracts import (  # noqa: E402
     digest,
+    execution_window_end,
     load_plan,
     sign_receipt,
 )
@@ -267,294 +268,28 @@ def _production_identity(container):
     }
 
 
-def observe_production_noop(prepared, production, root, tick):
-    """Run only the protected native metadata reader; production HOME stays RO."""
-    from observe_production_noop import CORE
-
-    name = prepared["project"] + "-prod-noop-" + uuid4().hex[:12]
-    inventory = (
-        "import json,sys; from pathlib import Path; p=Path('/production-home'); "
-        "core=json.loads(sys.argv[1]); "
-        "files=core+[name+'-wal' for name in core if (p/(name+'-wal')).exists()]; "
-        "assert all((p/name).is_file() and not (p/name).is_symlink() for name in files); "
-        "assert sum((p/name).stat().st_size for name in files)<=402653184; print(json.dumps(files))"
-    )
-    image = prepared["plan"]["candidate"]["image_digest"]
-    inventory_name = name + "-inventory"
-    try:
-        found = run(
-            "docker",
-            "run",
-            "--rm",
-            "--name",
-            inventory_name,
-            "--label",
-            f"com.docker.compose.project={prepared['project']}",
-            "--label",
-            "com.docker.compose.service=collector",
-            "--label",
-            "ta3000.staging.owner=protected-observer",
-            "--network",
-            "none",
-            "--read-only",
-            "--cap-drop",
-            "ALL",
-            "--security-opt",
-            "no-new-privileges",
-            "--memory",
-            "64m",
-            "--cpus",
-            "1",
-            "--mount",
-            f"type=volume,source={production['home']['Name']},target=/production-home,readonly",
-            image,
-            "python",
-            "-I",
-            "-c",
-            inventory,
-            json.dumps(CORE),
-            timeout=10,
-        )
-    finally:
-        leftover = run("docker", "inspect", inventory_name)
-        if leftover.returncode == 0:
-            stop_owned(prepared["project"], json.loads(leftover.stdout))
-    if found.returncode:
-        return {"status": "BLOCKED", "reason": "Bounded production metadata inventory failed"}
-    files = json.loads(found.stdout)
-    allowed = {path + suffix for path in CORE for suffix in ("", "-wal")}
-    if (
-        not isinstance(files, list)
-        or not set(files).issubset(allowed)
-        or len(files) != len(set(files))
-    ):
-        raise ValueError("Unexpected production metadata inventory")
-    command = [
-        "docker",
-        "run",
-        "--rm",
-        "--pull",
-        "never",
-        "--name",
-        name,
-        "--read-only",
-        "--network",
-        "none",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--memory",
-        str(2 * 1024**3),
-        "--cpus",
-        "1",
-        "--tmpfs",
-        "/tmp:size=268435456,mode=1777",
-        "--label",
-        f"com.docker.compose.project={prepared['project']}",
-        "--label",
-        "com.docker.compose.service=collector",
-        "--label",
-        "ta3000.staging.owner=protected-observer",
-        "--env",
-        "PYTHONDONTWRITEBYTECODE=1",
-        "--env",
-        "NUMBA_CACHE_DIR=/tmp/numba",
-        "--mount",
-        f"type=bind,source={prepared['paths']['VERIFIER_WORKTREE']},target=/staging-verifier,readonly",
-        "--mount",
-        f"type=volume,source={production['home']['Name']},target=/production-home,readonly",
-    ]
-    for relative in files:
-        command += [
-            "--mount",
-            f"type=bind,source={production['home']['Source']}/{relative},target=/tmp/production-noop-home/{relative},readonly",
-        ]
-    command += [
-        image,
-        "python",
-        "-I",
-        "/staging-verifier/scripts/observe_production_noop.py",
-        "--source-files",
-        json.dumps(files),
-        "--root-run-id",
-        root["runId"],
-        "--scheduled-timestamp",
-        str(tick["timestamp"]),
-        "--cron",
-        prepared["plan"]["source"]["native_schedule"]["cron"],
-    ]
-    try:
-        result = run(*command, timeout=30)
-        payload = json.loads(result.stdout) if result.stdout.strip() else {"status": "BLOCKED"}
-        if result.returncode:
-            payload.update(status="BLOCKED", observer_exit_code=result.returncode)
-        return payload
-    finally:
-        leftover = run("docker", "inspect", name)
-        if leftover.returncode == 0:
-            stop_owned(prepared["project"], json.loads(leftover.stdout))
-
-
-def _public_noop_prefilter(prepared, root):
-    location = "trading_advisor_3000.dagster_defs:product_plane_definitions"
-    value = graphql_read(
-        prepared["production_url"],
-        """query Noop($selector:SensorSelector!){
-      sensorOrError(sensorSelector:$selector){__typename ... on Sensor{name sensorState{status
-      ticks(limit:100){status timestamp runIds skipReason}}}}}""",
-        {
-            "selector": {
-                "repositoryName": "__repository__",
-                "repositoryLocationName": location,
-                "sensorName": "moex_cf_catch_up_after_moex_baseline_sensor",
-            }
-        },
-    )["sensorOrError"]
-    state = value.get("sensorState", {})
-    return (
-        value.get("__typename") == "Sensor"
-        and state.get("status") == "RUNNING"
-        and any(
-            item["status"] == "SKIPPED"
-            and not item["runIds"]
-            and item["timestamp"] >= (root.get("endTime") or float("inf"))
-            and re.fullmatch(r"NOOP: .+; admission=[0-9a-f]{64}", item.get("skipReason") or "")
-            for item in state.get("ticks", [])
-        )
-    )
-
-
-def production_noop_witness(prepared, root, tick):
-    expected = prepared.get("production_runtime_identity")
-    if not expected:
-        return False
-    cache = prepared.setdefault("production_noop_cache", {})
-    previous = cache.get(root["runId"], {})
-    now = time.monotonic()
-    binding = digest({"root": root, "tick": tick, "production": expected})
-    before = inspect_container(expected["id"])
-    if _production_identity(before) != expected or not before["State"]["Running"]:
-        raise ValueError("Actual production container/HOME identity changed")
-    url = prepared["production_url"]
-    if previous.get("proof") and previous.get("binding") == binding:
-        fresh = [
-            item
-            for item in graphql_runs(url, job_name=root["pipelineName"])
-            if item["runId"] == root["runId"]
-        ]
-        return (
-            fresh == [root]
-            and _root_tick(graphql_schedule(prepared, url), root["runId"]) == tick
-            and not graphql_runs(url)
-            and not any(
-                item["pipelineName"] == "moex_cf_catch_up_job"
-                for item in graphql_runs(url, tags={"ta3000/upstream_run_id": root["runId"]})
-            )
-        )
-    if now < previous.get("next_attempt", 0):
-        return False
-    if previous.get("failures", 0) >= 3:
-        raise ValueError("Production NOOP metadata witness failed three times; diagnosis required")
-    if not _public_noop_prefilter(prepared, root):
-        return False
-    cache[root["runId"]] = {
-        "next_attempt": now + 30,
-        "binding": binding,
-        "proof": None,
-        "failures": previous.get("failures", 0) + 1,
-    }
-    if graphql_runs(url):
-        return False
-    try:
-        proof = observe_production_noop(prepared, expected, root, tick)
-    except (ValueError, OSError, subprocess.TimeoutExpired):
-        return False
-    cache[root["runId"]]["observation"] = proof
-    after = inspect_container(expected["id"])
-    current_tick = _root_tick(graphql_schedule(prepared, url), root["runId"])
-    current = [
-        item
-        for item in graphql_runs(url, job_name=root["pipelineName"])
-        if item["runId"] == root["runId"]
-    ]
-    if (
-        _production_identity(after) != expected
-        or not after["State"]["Running"]
-        or graphql_runs(url)
-        or current != [root]
-        or current_tick != tick
-    ):
-        return False
-    if any(
-        item["pipelineName"] == "moex_cf_catch_up_job"
-        for item in graphql_runs(url, tags={"ta3000/upstream_run_id": root["runId"]})
-    ):
-        return False
-    if (
-        not proof
-        or proof.get("status") != "PASS-NOOP"
-        or proof.get("root_run_id") != root["runId"]
-        or proof.get("schedule", {}).get("id") != tick["id"]
-        or proof.get("compute_attempts") != 0
-        or proof.get("sensor", {}).get("upstream_run_id") != root["runId"]
-        or proof.get("sensor", {}).get("status") != "SKIPPED"
-        or not proof.get("sensor", {}).get("cursor")
-        or not re.fullmatch(
-            r"NOOP: .+; admission=[0-9a-f]{64}", proof.get("sensor", {}).get("skip_reason", "")
-        )
-        or proof.get("metadata_observation", {}).get("observation_complete") is not True
-    ):
-        return False
-    cache[root["runId"]]["proof"] = proof
-    return True
-
-
 def production_barrier(prepared, root, now):
+    """Resource admission uses an operator window and live idle state, never market proof."""
     prepared["permit_window_end"] = None
     if graphql_runs(prepared["production_url"]):
         return False
-    if prepared["plan"]["stage"] == "branch":
-        return True
-    if root is None:
-        return False
-    own_tick = _root_tick(graphql_schedule(prepared, prepared["staging_url"]), root["runId"])
-    if own_tick is None:
-        return False
-    window = prepared["plan"].get("execution_window")
-    if window and datetime.fromisoformat(
-        window["start_utc"].replace("Z", "+00:00")
-    ) <= now < datetime.fromisoformat(window["end_utc"].replace("Z", "+00:00")):
-        prepared["permit_window_end"] = datetime.fromisoformat(
-            window["end_utc"].replace("Z", "+00:00")
-        )
-        return True
-    from collect_staging_acceptance import JOBS
-
-    ticks = [
-        tick
-        for tick in graphql_schedule(prepared, prepared["production_url"])["ticks"]
-        if tick["status"] == "SUCCESS" and tick["timestamp"] == own_tick["timestamp"]
-    ]
-    if len(ticks) != 1 or len(ticks[0]["runIds"]) != 1:
-        return False
-    matches = [
-        item
-        for item in graphql_runs(prepared["production_url"], job_name=JOBS[0])
-        if item["runId"] == ticks[0]["runIds"][0]
-    ]
-    production_root = matches[0] if len(matches) == 1 else None
-    for index, job in enumerate(JOBS):
-        if index == 1 and not matches and production_root is not None:
-            return production_noop_witness(prepared, production_root, ticks[0])
-        candidates = [item for item in matches if item["pipelineName"] == job]
-        if len(candidates) != 1 or candidates[0]["status"] != "SUCCESS":
+    if prepared["plan"]["stage"] == "acceptance":
+        if (
+            root is None
+            or _root_tick(graphql_schedule(prepared, prepared["staging_url"]), root["runId"])
+            is None
+        ):
             return False
-        if index < len(JOBS) - 1:
-            matches = graphql_runs(
-                prepared["production_url"], tags={"ta3000/upstream_run_id": candidates[0]["runId"]}
-            )
-    return not graphql_runs(prepared["production_url"])
+    end = execution_window_end(prepared["plan"], now)
+    if end is None:
+        return False
+    expected = prepared.get("production_runtime_identity")
+    if expected is not None:
+        current = inspect_container("ta3000-dagster-webserver")
+        if not current["State"]["Running"] or _production_identity(current) != expected:
+            raise ValueError("Production runtime identity changed during resource admission")
+    prepared["permit_window_end"] = end
+    return True
 
 
 def inspect_container(identifier):
@@ -977,48 +712,6 @@ def signer_preflight(args, control):
         raise ValueError("Signing key is not admitted by the protected verifier keyring")
 
 
-def upstream_change_preflight(plan, paths, production, source):
-    mount = next(
-        (item for item in production["Mounts"] if item["Destination"] == plan["data_root"]), None
-    )
-    if mount is None or mount["Type"] != "bind" or len(source.get("parents", [])) != 1:
-        raise ValueError("Authoritative production Data root/source parent is unavailable")
-    relative = Path("canonical/moex/baseline-4y-current/.data_snapshots")
-    registry = host_path(mount["Source"]) / relative
-    pointer = json.loads((registry / "published_current.json").read_text("utf-8"))
-    current = _read_manifest(registry / "manifests" / (pointer["snapshot_id"] + ".json"))
-    prior = _read_manifest(
-        paths["DATA_ROOT"] / relative / "manifests" / (source["parents"][0] + ".json")
-    )
-    if (
-        current["snapshot_id"] != pointer["snapshot_id"]
-        or prior["snapshot_id"] != source["parents"][0]
-    ):
-        raise ValueError("Upstream snapshot pointer/parent identity changed")
-
-    def identity(item):
-        return {
-            name: {key: ref.get(key) for key in ("active_files_sha256", "row_count")}
-            for name, ref in item["tables"].items()
-        }
-
-    fixed = ("table_path", "table_id", "schema_hash", "layout_version", "partition_columns")
-    if set(current["tables"]) != set(prior["tables"]) or any(
-        any(current["tables"][name].get(key) != ref.get(key) for key in fixed)
-        for name, ref in prior["tables"].items()
-    ):
-        raise ValueError("Upstream schema/layout/table-set drift requires explicit migration proof")
-    if current["manifest_sha256"] != pointer["manifest_sha256"] or identity(current) == identity(
-        prior
-    ):
-        raise ValueError("No changed accepted upstream Data pins observed; compute remains pending")
-    return {
-        "frozen_data_snapshot_id": prior["snapshot_id"],
-        "observed_production_data_snapshot_id": current["snapshot_id"],
-        "status": "CHANGED_PINS_OBSERVED",
-    }
-
-
 def prepare(args, *, historical_observation=False):
     plan = load_plan(args.plan)
     if plan["stage"] != args.stage:
@@ -1033,12 +726,10 @@ def prepare(args, *, historical_observation=False):
         args.stage != "acceptance" or plan.get("mode", "candidate") != "candidate"
     ):
         raise ValueError("Read-only reattestation requires an original candidate acceptance plan")
-    if getattr(args, "initialize_catch_up", False) and (
-        historical_observation
-        or args.stage != "acceptance"
-        or plan.get("mode", "candidate") != "candidate"
+    if not historical_observation and not any(
+        plan.get(key) for key in ("execution_window", "daily_execution_window_utc")
     ):
-        raise ValueError("Catch-up initialization requires candidate acceptance")
+        raise ValueError("Compute requires a protected absolute or daily execution window")
     values = read_environment(args.env_file)
     if plan.get("required_scenarios"):
         raise ValueError("Unsupported scenario-specific proof; no compute admission")
@@ -1133,11 +824,6 @@ def prepare(args, *, historical_observation=False):
             raise ValueError("Staging host roots overlap an actual production mount")
     port = production["NetworkSettings"]["Ports"]["3000/tcp"][0]["HostPort"]
     production_url = f"http://127.0.0.1:{int(port)}/graphql"
-    upstream = (
-        upstream_change_preflight(plan, paths, production, source_document)
-        if args.stage == "acceptance" and not reference and not historical_observation
-        else None
-    )
     production_busy = bool(graphql_runs(production_url))
     slug = values.get(PREFIX + "TASK_SLUG", "")
     if args.stage == "branch" and not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", slug):
@@ -1190,7 +876,6 @@ def prepare(args, *, historical_observation=False):
         production_container_id=production.get("Id"),
         production_runtime_identity=_production_identity(production),
         reference=reference,
-        upstream=upstream,
         source_document=source_document,
         historical_observation=historical_observation,
         observer_verifier_revision=(
@@ -1548,138 +1233,6 @@ def observed_result(prepared, web, mode, root_run_id=None):
     return json.loads(result.stdout)
 
 
-def initialize_catch_up(prepared, web, lease, *, registration_seconds=35):
-    """Initialize once under a held own lease; no dataset or compute permit is exposed."""
-    plan, paths = prepared["plan"], prepared["paths"]
-    if plan["stage"] != "acceptance" or plan.get("mode", "candidate") != "candidate":
-        raise ValueError("Catch-up initialization requires candidate acceptance")
-    permit = _owned_lease(prepared, lease)
-    context_path = paths["CONTROL_ROOT"] / "schedule-initialization.json"
-    result_path = paths["CONTROL_ROOT"] / "schedule-initialization-result.json"
-    if context_path.exists() or result_path.exists():
-        raise ValueError("Prior initialization requires explicit recovery; no automatic retry")
-    if permit.exists() or graphql_runs(runtime_url(prepared, web)):
-        raise ValueError("Existing compute permit or active staging work prohibits initialization")
-    verify_runtime(inspect_container(web["Id"]), prepared)
-    daemon_state(prepared, True)
-    try:
-        started = time.monotonic()
-        while time.monotonic() - started < registration_seconds:
-            watch_limits(prepared)
-            _owned_lease(prepared, lease)
-            runtime_services(prepared)
-            if permit.exists() or graphql_runs(runtime_url(prepared, web)):
-                raise ValueError(
-                    "Unexpected permit or active staging work during native registration"
-                )
-            time.sleep(max(0, min(2, registration_seconds - (time.monotonic() - started))))
-    finally:
-        daemon_state(prepared, False)
-    web, containers = runtime_services(prepared, include_stopped=True)
-    daemons = [
-        item
-        for item in containers
-        if item["Config"]["Labels"].get("com.docker.compose.service") == "daemon"
-    ]
-    if len(daemons) != 1 or daemons[0]["State"]["Running"]:
-        raise ValueError("One verified stopped own daemon is required")
-    if permit.exists() or graphql_runs(runtime_url(prepared, web)):
-        raise ValueError("Active staging work or permit appeared before initialization")
-    watch_limits(prepared)
-    _owned_lease(prepared, lease)
-    now = datetime.now(UTC)
-    expires = min(now + timedelta(seconds=30), prepared["deadline"])
-    if expires <= now:
-        raise ValueError("Initialization lease deadline expired")
-    home = next(
-        item["Name"] for item in web["Mounts"] if item["Destination"] == "/opt/dagster/dagster_home"
-    )
-    if home != "ta3000-acceptance_staging-home":
-        raise ValueError("Initialization HOME is not the verified acceptance volume")
-    _control_json(
-        context_path,
-        dict(
-            schema_version="staging_schedule_initialization_context.v1",
-            project=prepared["project"],
-            plan_sha256=digest(plan),
-            lease_nonce=lease.nonce,
-            daemon_stopped=True,
-            home_volume=home,
-            home_path="/opt/dagster/dagster_home",
-            image_digest=web["Image"],
-            verified_at_utc=now.isoformat(),
-            expires_at_utc=expires.isoformat(),
-        ),
-    )
-    name = prepared["project"] + "-initializer-" + uuid4().hex[:12]
-    scratch = min(int(prepared["values"][PREFIX + "SCRATCH_BYTES"]), 256 * 1024**2)
-    command = [
-        "docker",
-        "run",
-        "--rm",
-        "--name",
-        name,
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--memory",
-        str(min(int(prepared["config"]["services"]["webserver"]["mem_limit"]), 2 * 1024**3)),
-        "--cpus",
-        "1",
-        "--tmpfs",
-        f"/tmp:size={scratch},mode=1777",
-        "--label",
-        f"com.docker.compose.project={prepared['project']}",
-        "--label",
-        "com.docker.compose.service=schedule-initializer",
-        "--env",
-        "DAGSTER_HOME=/opt/dagster/dagster_home",
-        "--env",
-        "NUMBA_CACHE_DIR=/tmp/numba",
-        "--env",
-        "PYTHONDONTWRITEBYTECODE=1",
-    ]
-    bindings = {
-        "/staging-verifier": paths["VERIFIER_WORKTREE"],
-        "/staging-control": paths["CONTROL_ROOT"],
-        "/staging-host-state": paths["HOST_STATE"],
-        "/staging-quota": paths["QUOTA_ROOT"],
-        "/opt/dagster/dagster_home/dagster.yaml": ROOT
-        / "deployment/docker/dagster-staging/dagster-staging-instance.yaml",
-    }
-    for target, source in bindings.items():
-        command += ["--mount", f"type=bind,source={source},target={target},readonly"]
-    command += [
-        "--mount",
-        f"type=volume,source={home},target=/opt/dagster/dagster_home",
-        web["Image"],
-        "python",
-        "-I",
-        "/staging-verifier/scripts/initialize_staging_schedule.py",
-        "--apply",
-    ]
-    try:
-        result = run(*command, timeout=min(25, (expires - datetime.now(UTC)).total_seconds()))
-        if result.returncode:
-            raise ValueError(
-                "Protected native schedule initializer failed; explicit recovery required"
-            )
-        payload = json.loads(result.stdout)
-        if (
-            payload.get("status") != "INITIALIZED_NATIVE_CHECKPOINT"
-            or payload.get("compute_attempts") != 0
-            or payload.get("plan_sha256") != digest(plan)
-        ):
-            raise ValueError("Native initialization result is invalid; explicit recovery required")
-        _control_json(result_path, payload)
-    finally:
-        leftover = run("docker", "inspect", name)
-        if leftover.returncode == 0:
-            stop_owned(prepared["project"], json.loads(leftover.stdout))
-
-
 def active_bindings(runs):
     return sorted((item["runId"], item["status"], item["pipelineName"]) for item in runs)
 
@@ -1754,11 +1307,6 @@ def supervise(args, prepared):
         if observed_result(prepared, web, "preflight").get("status") != "PREFLIGHT_PASS":
             raise ValueError("Native source/consumer preflight did not pass")
         begin_native_observation(prepared, url)
-        if getattr(args, "initialize_catch_up", False):
-            lease = acquire_heavy(prepared)
-            initialize_catch_up(prepared, web, lease)
-            release_heavy(prepared, lease)
-            lease = None
         if reference:
             from trading_advisor_3000.product_plane.common.staging_execution import (
                 _key,
@@ -2027,8 +1575,6 @@ def dispatch_candidate(args):
     import reattest_staging_acceptance as reuse
 
     action = candidate_action(args)
-    if action == "REUSE" and args.initialize_catch_up:
-        raise ValueError("Read-only reuse cannot initialize a schedule")
     if args.prepare_only:
         if action == "REUSE":
             prepare_reattest(args)
@@ -2071,7 +1617,6 @@ def main():
     parser.add_argument("--key-id")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--prepare-only", action="store_true")
-    parser.add_argument("--initialize-catch-up", action="store_true")
     parser.add_argument("--authorization-id")
     parser.add_argument("--reason")
     args = parser.parse_args()

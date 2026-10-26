@@ -46,22 +46,17 @@ def test_explicit_safe_window_accepts_only_idle_production(monkeypatch):
     )
 
 
-def test_matching_slot_requires_all_three_successful_production_jobs(monkeypatch):
+def test_missing_window_cannot_borrow_successful_production_graph(monkeypatch):
     jobs = ("moex_baseline_update_job", "moex_cf_catch_up_job", "research_data_prep_job")
-    root = {"runId": "stage-root", "tags": []}
-    missing = False
 
     def runs(url, **kwargs):
-        tags = kwargs.get("tags")
         if kwargs.get("job_name"):
             return [{"runId": "root", "pipelineName": jobs[0], "status": "SUCCESS"}]
-        if tags is None:
-            return []
-        if tags["ta3000/upstream_run_id"] == "root":
-            return (
-                [] if missing else [{"runId": "cf", "pipelineName": jobs[1], "status": "SUCCESS"}]
-            )
-        return [{"runId": "research", "pipelineName": jobs[2], "status": "SUCCESS"}]
+        parent = (kwargs.get("tags") or {}).get("ta3000/upstream_run_id")
+        if parent:
+            job, run_id = (jobs[1], "cf") if parent == "root" else (jobs[2], "research")
+            return [{"runId": run_id, "pipelineName": job, "status": "SUCCESS"}]
+        return []
 
     monkeypatch.setattr(control, "graphql_runs", runs)
     monkeypatch.setattr(
@@ -78,9 +73,7 @@ def test_matching_slot_requires_all_three_successful_production_jobs(monkeypatch
         },
     )
     value = {"production_url": "prod", "staging_url": "stage", "plan": {"stage": "acceptance"}}
-    assert control.production_barrier(value, root, datetime.now(UTC))
-    missing = True
-    assert not control.production_barrier(value, root, datetime.now(UTC))
+    assert not control.production_barrier(value, {"runId": "stage-root"}, datetime.now(UTC))
 
 
 def test_unsupported_scenarios_and_invalid_consumer_fail_before_native_work():
@@ -138,3 +131,39 @@ def test_signer_must_match_both_operator_and_protected_gate_keyrings(tmp_path, m
         control.signer_preflight(args, operator)
     gate.write_text(json.dumps({"keys": {"fixture": public}}))
     control.signer_preflight(args, operator)
+
+
+def test_runtime_identity_change_blocks_resource_admission(monkeypatch):
+    value = {
+        "production_url": "prod",
+        "production_runtime_identity": {"id": "old"},
+        "plan": {
+            "stage": "branch",
+            "daily_execution_window_utc": {"start": "00:00", "end": "02:00"},
+        },
+    }
+    monkeypatch.setattr(control, "graphql_runs", lambda *a, **kw: [])
+    monkeypatch.setattr(control, "inspect_container", lambda *a: {"State": {"Running": False}})
+    with pytest.raises(ValueError, match="runtime identity changed"):
+        control.production_barrier(value, None, datetime(2030, 1, 1, 1, tzinfo=UTC))
+
+
+def test_replaced_production_name_cannot_hide_behind_old_container_id(monkeypatch):
+    value = {
+        "production_url": "prod",
+        "production_runtime_identity": {"id": "old"},
+        "plan": {
+            "stage": "branch",
+            "daily_execution_window_utc": {"start": "00:00", "end": "02:00"},
+        },
+    }
+
+    def inspect(name):
+        assert name == "ta3000-dagster-webserver"
+        return {"Id": "replacement", "State": {"Running": True}}
+
+    monkeypatch.setattr(control, "graphql_runs", lambda *a, **kw: [])
+    monkeypatch.setattr(control, "inspect_container", inspect)
+    monkeypatch.setattr(control, "_production_identity", lambda c: {"id": c["Id"]})
+    with pytest.raises(ValueError, match="runtime identity changed"):
+        control.production_barrier(value, None, datetime(2030, 1, 1, 1, tzinfo=UTC))

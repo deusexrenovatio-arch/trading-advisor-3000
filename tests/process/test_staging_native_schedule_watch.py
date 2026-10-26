@@ -1,6 +1,5 @@
 """Native GraphQL metadata fixtures: hidden run tags are not a schedule witness."""
 
-import copy
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -165,32 +164,26 @@ def test_safe_window_still_waits_for_persisted_success_tick_link(monkeypatch):
     )
 
 
-def test_matching_production_uses_actual_tick_run_ids_with_hidden_tag_absent(monkeypatch):
+def test_daily_window_preserves_own_tick_without_querying_production_history(monkeypatch):
     value = prepared()
-    payloads = {"stage": native(run_id="candidate"), "prod": native(run_id="production")}
+    value["plan"]["daily_execution_window_utc"] = {"start": "00:00", "end": "02:00"}
 
     def read(url, query):
-        return copy.deepcopy(payloads[url])
+        assert url == "stage"
+        return native(run_id="candidate")
 
-    def runs(url, **kw):
-        if kw.get("job_name"):
-            return [
-                {"runId": "production", "status": "SUCCESS", "pipelineName": ROOT_JOB, "tags": []}
-            ]
-        upstream = (kw.get("tags") or {}).get("ta3000/upstream_run_id")
-        if upstream:
-            job, run_id = (
-                ("moex_cf_catch_up_job", "cf")
-                if upstream == "production"
-                else ("research_data_prep_job", "research")
-            )
-            return [{"runId": run_id, "status": "SUCCESS", "pipelineName": job, "tags": []}]
+    def active(url, **kw):
+        assert url == "prod" and not kw
         return []
 
     monkeypatch.setattr(control, "graphql_read", read)
-    monkeypatch.setattr(control, "graphql_runs", runs)
-    assert control.production_barrier(value, {"runId": "candidate", "tags": []}, datetime.now(UTC))
-    payloads["prod"] = native(1792969200, "production")
+    monkeypatch.setattr(control, "graphql_runs", active)
+    assert control.production_barrier(
+        value, {"runId": "candidate"}, datetime(2030, 1, 1, 1, tzinfo=UTC)
+    )
+    assert control.production_barrier(
+        value, {"runId": "candidate"}, datetime(2030, 1, 2, 1, tzinfo=UTC)
+    )
     assert not control.production_barrier(
-        value, {"runId": "candidate", "tags": []}, datetime.now(UTC)
+        value, {"runId": "candidate"}, datetime(2030, 1, 2, 2, tzinfo=UTC)
     )

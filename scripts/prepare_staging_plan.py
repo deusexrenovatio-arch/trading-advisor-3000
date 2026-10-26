@@ -80,9 +80,23 @@ def capture_parameters(assets, op_config):
     return parameter_value(captured), cutoff
 
 
-def scheduled_instant(assets, value):
+def scheduled_instant(assets, value="next", *, stage="acceptance", now=None):
     from dagster._utils.schedules import cron_string_iterator
 
+    now = now if now is not None else datetime.now(UTC)
+    if now.tzinfo is None or now.utcoffset() is None or stage not in {"branch", "acceptance"}:
+        raise ValueError("Preparation requires an aware clock and known stage")
+    next_instant = next(
+        tick
+        for tick in cron_string_iterator(
+            now.timestamp(),
+            assets.MOEX_BASELINE_DAILY_CRON,
+            assets.MOEX_HISTORICAL_EXECUTION_TIMEZONE,
+        )
+        if tick.timestamp() > now.timestamp()
+    )
+    if value == "next":
+        return next_instant
     instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if instant.tzinfo is None:
         raise ValueError("Preparation requires an aware native cron instant")
@@ -95,18 +109,9 @@ def scheduled_instant(assets, value):
     )
     if native.timestamp() != instant.timestamp():
         raise ValueError("Selected time is not an actual native schedule instant")
-    now = datetime.now(UTC)
-    if (
-        instant > now
-        and instant.timestamp()
-        != next(
-            cron_string_iterator(
-                now.timestamp(),
-                assets.MOEX_BASELINE_DAILY_CRON,
-                assets.MOEX_HISTORICAL_EXECUTION_TIMEZONE,
-            )
-        ).timestamp()
-    ):
+    if stage == "acceptance" and instant <= now:
+        raise ValueError("Acceptance preparation requires the next future native cron")
+    if instant > now and instant.timestamp() != next_instant.timestamp():
         raise ValueError("A future proposal must name the next native cron instant")
     return instant
 
@@ -156,7 +161,23 @@ def initial_limits(stage, small_attempts=0):
     return dict(small=small_attempts, acceptance=1, rebuild=0)
 
 
+def plan_windows(args):
+    """Assemble CLI alternatives; shared contract owns syntax and ambiguity checks."""
+    windows = {}
+    start, end = getattr(args, "window_start", None), getattr(args, "window_end", None)
+    if start is not None or end is not None:
+        windows["execution_window"] = dict(start_utc=start, end_utc=end)
+    start, end = (
+        getattr(args, key, None) for key in ("daily_window_start_utc", "daily_window_end_utc")
+    )
+    if start is not None or end is not None:
+        windows["daily_execution_window_utc"] = dict(start=start, end=end)
+    contracts().execution_window_end(windows, datetime.now(UTC))
+    return windows
+
+
 def prepare(args):
+    windows = plan_windows(args)
     limits = initial_limits(args.stage, getattr(args, "small_attempts", 0))
     sys.path.insert(0, str(args.deployed_root / "src"))
     from trading_advisor_3000.dagster_defs import moex_historical_assets as assets
@@ -173,7 +194,7 @@ def prepare(args):
     root = args.data_root.resolve()
     if assets._route_artifact_root().resolve() != root:
         raise ValueError("Native configured data root differs from the requested staging root")
-    instant = scheduled_instant(assets, args.scheduled_at)
+    instant = scheduled_instant(assets, args.scheduled_at, stage=args.stage)
     if instant >= datetime.fromisoformat(args.deadline.replace("Z", "+00:00")):
         raise ValueError("Proposed schedule must occur before the protected deadline")
     run_config = native_root_run_config(assets, instant, args.stage, args.deployed_root)
@@ -260,8 +281,7 @@ def prepare(args):
             native_schedule=native_schedule_metadata(assets, instant, run_config),
         ),
     )
-    if args.window_start or args.window_end:
-        plan["execution_window"] = dict(start_utc=args.window_start, end_utc=args.window_end)
+    plan.update(windows)
     return contracts().validate_document("plan", plan)
 
 
@@ -269,8 +289,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("candidate", "research-manifest", "consumer", "data-root"):
         parser.add_argument("--" + name, type=Path, required=True)
-    for name in ("task-id", "scheduled-at", "deadline", "verifier-revision"):
+    for name in ("task-id", "deadline", "verifier-revision"):
         parser.add_argument("--" + name, required=True)
+    parser.add_argument("--scheduled-at", default="next")
     for name in ("max-runtime-seconds", "max-source-bytes"):
         parser.add_argument("--" + name, type=int, required=True)
     parser.add_argument("--stage", choices=("branch", "acceptance"), default="acceptance")
@@ -279,6 +300,8 @@ def main():
     parser.add_argument("--quota-home", type=Path, default=Path("/staging-quota"))
     parser.add_argument("--window-start")
     parser.add_argument("--window-end")
+    parser.add_argument("--daily-window-start-utc")
+    parser.add_argument("--daily-window-end-utc")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     try:

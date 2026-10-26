@@ -90,6 +90,15 @@
           },
           "additionalProperties": false
         },
+        "daily_execution_window_utc": {
+          "type": "object",
+          "required": ["start", "end"],
+          "properties": {
+            "start": {"type": "string", "minLength": 5, "maxLength": 5, "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"},
+            "end": {"type": "string", "minLength": 5, "maxLength": 5, "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"}
+          },
+          "additionalProperties": false
+        },
         "mode": {"enum": ["candidate", "reference"], "default": "candidate"},
         "reference": {
           "type": "object",
@@ -104,6 +113,7 @@
       },
       "additionalProperties": false,
       "allOf": [
+        {"not": {"required": ["execution_window", "daily_execution_window_utc"]}},
         {
           "if": {"required": ["mode"], "properties": {"mode": {"const": "reference"}}},
           "then": {

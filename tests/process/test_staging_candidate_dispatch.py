@@ -34,7 +34,6 @@ def dispatch(tmp_path, monkeypatch):
         plan=tmp_path / "plan.json",
         original_receipt=None,
         prepare_only=False,
-        initialize_catch_up=False,
     )
     args.candidate.write_text(json.dumps({"candidate": candidate}))
     monkeypatch.setattr(reuse, "resolve", lambda *a: "base")
@@ -122,13 +121,6 @@ def test_compute_failure_is_not_retried(dispatch, monkeypatch):
     with pytest.raises(ValueError, match="native failure"):
         control.dispatch_candidate(dispatch[0])
     assert calls == [1]
-
-
-def test_no_initialization_during_reuse(dispatch, monkeypatch):
-    with_proof(dispatch, monkeypatch)
-    dispatch[0].initialize_catch_up = True
-    with pytest.raises(ValueError, match="initializ"):
-        control.dispatch_candidate(dispatch[0])
 
 
 def test_new_plan_disables_small_and_rebuild_by_default():

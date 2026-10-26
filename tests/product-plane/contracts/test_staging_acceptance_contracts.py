@@ -13,6 +13,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from jsonschema import Draft202012Validator
 
+from trading_advisor_3000.product_plane.common import staging_contracts
 from trading_advisor_3000.product_plane.common.staging_contracts import (
     SCHEMA_PATH,
     canonical_bytes,
@@ -267,3 +268,70 @@ def test_staging_dependencies_are_opt_in_and_schema_is_packaged():
         "product_plane/contracts/schemas/staging_acceptance.v1.json"
         in config["tool"]["setuptools"]["package-data"]["trading_advisor_3000"]
     )
+
+
+def test_daily_execution_window_is_additive_and_mutually_exclusive():
+    value = load_plan(FIXTURE)
+    value["daily_execution_window_utc"] = {"start": "22:00", "end": "02:00"}
+    assert validate_document("plan", value) == value
+    value["execution_window"] = {
+        "start_utc": "2030-01-01T12:00:00Z",
+        "end_utc": "2030-01-01T13:00:00Z",
+    }
+    with pytest.raises(ValueError):
+        validate_document("plan", value)
+
+
+@pytest.mark.parametrize(
+    "start", ["24:00", "0:00", "23:60", "10:00:00", "10:00Z", " 10:00", "10:00\n", "02:00"]
+)
+def test_daily_execution_window_rejects_invalid_or_equal_clock_bounds(start):
+    value = load_plan(FIXTURE)
+    value["daily_execution_window_utc"] = {"start": start, "end": "02:00"}
+    with pytest.raises(ValueError):
+        validate_document("plan", value)
+
+
+@pytest.mark.parametrize(
+    "start,end,instant,expected",
+    [
+        ("06:00", "08:00", "2030-01-01T05:59:59.999999Z", None),
+        ("06:00", "08:00", "2030-01-01T06:00:00Z", "2030-01-01T08:00:00Z"),
+        ("06:00", "08:00", "2030-01-01T07:59:59.999999Z", "2030-01-01T08:00:00Z"),
+        ("06:00", "08:00", "2030-01-01T08:00:00Z", None),
+        ("22:00", "02:00", "2030-12-31T22:00:00Z", "2031-01-01T02:00:00Z"),
+        ("22:00", "02:00", "2031-01-01T01:59:59.999999Z", "2031-01-01T02:00:00Z"),
+        ("22:00", "02:00", "2031-01-01T02:00:00Z", None),
+        ("22:00", "02:00", "2031-01-01T12:00:00Z", None),
+        ("22:00", "02:00", "2031-01-01T02:30:00+03:00", "2031-01-01T02:00:00Z"),
+    ],
+)
+def test_execution_window_end_uses_utc_and_half_open_daily_bounds(start, end, instant, expected):
+    plan = {"daily_execution_window_utc": {"start": start, "end": end}}
+    observed = datetime.fromisoformat(instant.replace("Z", "+00:00"))
+    result = staging_contracts.execution_window_end(plan, observed)
+    assert result == (datetime.fromisoformat(expected.replace("Z", "+00:00")) if expected else None)
+    assert result is None or result.tzinfo is UTC
+
+
+def test_execution_window_end_preserves_absolute_missing_and_separate_deadline():
+    assert staging_contracts.execution_window_end({}, NOW) is None
+    absolute = {
+        "execution_window": {"start_utc": "2030-01-01T12:00:00Z", "end_utc": "2030-01-01T13:00:00Z"}
+    }
+    assert staging_contracts.execution_window_end(absolute, NOW) == datetime(
+        2030, 1, 1, 13, tzinfo=UTC
+    )
+    assert (
+        staging_contracts.execution_window_end(absolute, datetime(2030, 1, 1, 13, tzinfo=UTC))
+        is None
+    )
+    with pytest.raises(ValueError, match="aware"):
+        staging_contracts.execution_window_end({}, NOW.replace(tzinfo=None))
+    plan = {
+        "deadline_utc": "2029-01-01T00:00:00Z",
+        "daily_execution_window_utc": {"start": "12:00", "end": "13:00"},
+    }
+    assert staging_contracts.execution_window_end(plan, NOW) == datetime(2030, 1, 1, 13, tzinfo=UTC)
+    with pytest.raises(ValueError):
+        staging_contracts.execution_window_end({**plan, **absolute}, NOW)

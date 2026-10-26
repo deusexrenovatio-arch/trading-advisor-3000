@@ -178,9 +178,9 @@ baseline; partial Delta writes remain isolated until recovery.
 The genuine acceptance schedule may record and queue its tick while production
 is busy. The protected coordinator keeps dequeue at zero until a short-lived,
 read-only host execution permit matches the plan and shared heavy-work lock.
-The host grants it only in a declared safe execution window or after the matching
-production tick/chain has completed; a single idle poll at the common cron is
-insufficient. Quota/runtime start at actual execution, not while queued. Stale
+The host grants it only inside a declared absolute or recurring safe execution
+window while production is idle. A matching production tick/chain or idle poll
+alone cannot substitute for that window. Quota/runtime start at actual execution, not while queued. Stale
 queued candidates are held before allocating any new candidate quota. Permit
 expiry stops new native handoffs/publication; native run monitoring and the
 external supervisor enforce termination. Production is never paused to test staging.
@@ -216,9 +216,8 @@ checks then operate on the private capture; Dagster reads its observation snapsh
 It is not an authoritative store or a cross-database transaction. Total bytes,
 files/time, exact run/tick identities, live state and publication are checked before
 signing. Original HOME writes and immutable SQLite mode remain forbidden.
-Native scheduler catch-up may exercise a declared preceding real cron instant;
-the daemon creates its tick/run/configuration itself. Evidence labels catch-up
-separately from a later wall-clock scheduled observation.
+Candidate preparation proposes the next genuine future native cron; the daemon
+creates the real tick and run without retrospective checkpoint edits.
 Protected metadata may propose the next native cron before it occurs; the proposal
 is not an observed tick. Admission reads Dagster's canonical hidden scheduled-time
 tag. Native dequeue and launch require the matching persisted successful tick and
@@ -254,27 +253,32 @@ afterward. Registration, installation, policy readback and measured refusal are
 operational acceptance requirements; a proposed ruleset is not enforcement proof.
 The repository owner can still change policy settings.
 
-## Production NOOP admission
+## Resource coexistence and reduced operation
 
-The normal coexistence proof is a matching production tick and successful native
-three-job chain. A successful baseline without a child is not sufficient. A NOOP
-exception requires an explicit native NOOP sensor tick whose cursor resolves to
-that exact root's RUN_SUCCESS record, zero children and no active production work.
+The complete acceptance package uses one candidate command and native future
+cron ticks. Remove retrospective schedule initialization, production-NOOP
+observation, production cursor/event caches and matching production graph proofs.
+The candidate proves its own real scheduled graph, changed writes, QC, publication
+and fresh consumer. Production Data advancing first is not an admission condition.
 
-Public GraphQL cannot resolve that global cursor alone. A separate protected
-metadata reader uses native Dagster APIs on read-only main/WAL file aliases with
-private derived WAL/SHM in bounded tmpfs. Original family sets, identities and
-hashes must stay unchanged throughout observation; new/mutated WAL blocks it.
-Root/tick/event and runtime identity are rechecked before/after. No production
-pause, original write, `immutable=1`, data mount or private key is permitted.
+The protected host must configure an absolute execution window or a recurring
+UTC daily window once. An absent or closed window blocks compute even if an
+unrelated production graph succeeded. A recurring window supports the ordinary
+reference schedule across days without per-day operator work. The host also
+requires idle production, renews its short-lived permit under the shared staging
+lock, and stops staging when production starts or the window closes. Service
+memory/swap/scratch, disk and runtime caps remain mandatory. Production does not
+share the staging lock: watcher delay can contain overlap; the window is an
+operator scheduling policy, not proof of impossible concurrency or measured RAM
+headroom. Live safety and route activation remain pending native acceptance.
 
-This reader bounds metadata source size to 384 MiB, RAM to 2 GiB, CPU to one,
-scratch to 256 MiB and elapsed work to 30 seconds. It does not copy the complete
-303 MiB schedules database into scratch. Three failed observations require
-diagnosis. A successful immutable witness is reused for the same runtime/tick/root
-with fresh status/zero-child/zero-active checks. Generic empty skips are not NOOP.
-Native fixtures prove the positive branch; actual production readback may honestly
-return NOT_NOOP. Neither establishes full market-route acceptance by itself.
+Reference mode retains protected activation of accepted main, one graph per real
+native tick and FAIL-to-STOP behavior; it cannot admit a new candidate. Optional
+branch perf retains its explicit budget. The retained core needs no alternate
+source, quota reset, historical catch-up transaction or production semantic probe.
+Retired initialization records and failed attempts remain in the append-only
+ledger. Existing plans without an execution window require explicit preparation;
+the command does not silently edit their policy or create another task identity.
 
 ## Promotion and rollout
 

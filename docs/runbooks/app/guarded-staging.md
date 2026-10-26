@@ -42,11 +42,15 @@ can freeze a checkpoint when production advances during preparation.
 Retain its candidate document and executable manifest. Run
 `scripts/prepare_staging_plan.py` against the actual candidate in the native Linux
 image with read-only data. It captures the real schedule RunConfig and producer
-defaults without invoking the producer. Select an elapsed genuine cron instant
-or propose the next genuine future cron as metadata; admission still requires its
-actual persisted successful tick and run link. Select accepted source, explicit
-nonempty consumer columns, input-byte cap, deadline and
-execution window. No guessed parameters or Windows translation of Linux paths.
+defaults without invoking the producer. Use `--scheduled-at next` (the default)
+to propose the next genuine native cron. Admission requires its persisted
+successful tick and run link. Select accepted source, explicit nonempty consumer
+columns, input-byte cap, deadline and
+execution window. Configure an absolute window with `--window-start/--window-end`
+or a recurring UTC window with `--daily-window-start-utc/--daily-window-end-utc`;
+recurring windows keep reference updates automatic across days. Missing/closed
+windows block compute; production success or NOOP cannot substitute.
+No guessed parameters or Windows translation of Linux paths.
 
 Place `plan.json`, `execution-manifest.json`, `root-marker.json` and public
 `operator-keyring.json` in a host-owned control directory mounted read-only.
@@ -88,10 +92,9 @@ accepted pins; a second run on mutated data is not a comparable measurement.
 
 Acceptance adds host-only `--private-key`, `--key-id` and a new `--output` receipt
 path. It runs the ordinary schedule, baseline job, catch-up sensor, Research job,
-QC, publication and fresh candidate consumer. Optional `--initialize-catch-up`
-initializes a fresh isolated schedule checkpoint once under the host lock; the
-daemon creates the actual preceding cron tick and runs. Label this native catch-up
-separately from future wall-clock daily operation. Never inject fake ticks/runs.
+QC, publication and fresh candidate consumer. It waits for the next genuine
+native cron without historical checkpoint edits.
+Never inject ticks/runs or initialize a past schedule to accelerate proof.
 
 New-plan defaults per stable task: zero small attempts, one acceptance graph, zero
 rebuilds. Optional branch perf requires explicit `--small-attempts 1|2` at initial
@@ -104,7 +107,8 @@ Do not replace the protected host supervisor with direct Compose startup.
 Production stays active. A short-lived host permit and shared staging lock gate
 dequeue; the supervisor stops staging if production unexpectedly starts. Production
 does not share that lock, so the monitoring interval can contain resource overlap.
-Keep caps safe for that interval. One idle production poll is insufficient.
+Keep caps safe for that interval. The window must be configured once for safe scheduling; idle alone cannot admit
+compute. No production market-data, sensor-cursor or NOOP proof is collected.
 
 ## Admit and promote
 

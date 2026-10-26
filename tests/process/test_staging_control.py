@@ -29,6 +29,7 @@ def prepared_inputs(tmp_path, monkeypatch):
     monkeypatch.setattr(control, "ROOT", paths["VERIFIER_WORKTREE"])
     plan = {
         "stage": "branch",
+        "daily_execution_window_utc": {"start": "00:00", "end": "23:59"},
         "data_root": "/ta3000-data/moex-historical",
         "candidate": {"executable_sha256": "a" * 64, "image_digest": "sha256:" + "b" * 64},
         "deadline_utc": "2030-01-01T00:00:00Z",
@@ -227,7 +228,6 @@ def test_reattest_keeps_original_plan_but_has_only_a_short_read_transport(tmp_pa
     monkeypatch.setattr(control, "validate_config", lambda *a: None)
     seen = []
     monkeypatch.setattr(control, "source_preflight", lambda *a, **k: seen.append(k) or {})
-    monkeypatch.setattr(control, "upstream_change_preflight", lambda *a: pytest.fail("new compute"))
     monkeypatch.setattr(
         control,
         "checked",
@@ -252,7 +252,7 @@ def test_reattest_keeps_original_plan_but_has_only_a_short_read_transport(tmp_pa
     assert control.digest(result["plan"]) == original_digest
     assert now < result["deadline"] <= datetime.now(UTC) + timedelta(seconds=180)
     assert result["observer_verifier_revision"] == "c" * 40
-    assert result["historical_observation"] and result["upstream"] is None
+    assert result["historical_observation"]
     with pytest.raises(ValueError, match="cannot activate"):
         control.supervise(args, result)
     with pytest.raises(ValueError, match="reattestation only"):
@@ -400,3 +400,11 @@ def test_resources_refuse_swap_outside_memory_cap():
             {"MemTotal": 16 * GIB, "NCPU": 2},
             "branch",
         )
+
+
+def test_missing_execution_window_blocks_before_runtime_or_compute(tmp_path, monkeypatch):
+    args, _, plan = prepared_inputs(tmp_path, monkeypatch)
+    plan.pop("daily_execution_window_utc")
+    monkeypatch.setattr(control, "inspect_container", lambda *a: pytest.fail("runtime inspection"))
+    with pytest.raises(ValueError, match="execution window"):
+        control.prepare(args)

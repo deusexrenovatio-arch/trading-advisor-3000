@@ -84,7 +84,7 @@ def test_schedule_preparation_uses_native_cron_instant():
     assets = SimpleNamespace(
         MOEX_BASELINE_DAILY_CRON="0 2 * * *", MOEX_HISTORICAL_EXECUTION_TIMEZONE="Europe/Moscow"
     )
-    assert preparation.scheduled_instant(assets, "2026-10-24T23:00:00Z").hour == 23
+    assert preparation.scheduled_instant(assets, "2026-10-24T23:00:00Z", stage="branch").hour == 23
 
 
 def test_next_native_cron_is_only_a_future_metadata_proposal():
@@ -143,3 +143,82 @@ def test_branch_plan_uses_registered_small_recipe_and_native_clock_only():
         minutes=config["stability_lag_minutes"]
     )
     assert preparation.native_root_run_config(assets, instant, "acceptance", root) is daily
+
+
+def test_schedule_next_is_real_native_future_cron_even_at_exact_tick():
+    assets = SimpleNamespace(
+        MOEX_BASELINE_DAILY_CRON="0 2 * * *", MOEX_HISTORICAL_EXECUTION_TIMEZONE="Europe/Moscow"
+    )
+    now = datetime(2030, 1, 1, 23, tzinfo=UTC)
+    assert preparation.scheduled_instant(assets, "next", now=now).astimezone(
+        UTC
+    ) == now + timedelta(days=1)
+
+
+def test_acceptance_rejects_elapsed_cron_while_branch_metadata_preserves_it():
+    assets = SimpleNamespace(
+        MOEX_BASELINE_DAILY_CRON="0 2 * * *", MOEX_HISTORICAL_EXECUTION_TIMEZONE="Europe/Moscow"
+    )
+    now = datetime(2030, 1, 1, 12, tzinfo=UTC)
+    past = "2029-12-31T23:00:00Z"
+    with pytest.raises(ValueError, match="future"):
+        preparation.scheduled_instant(assets, past, stage="acceptance", now=now)
+    assert preparation.scheduled_instant(assets, past, stage="branch", now=now).year == 2029
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"daily_window_end_utc": None},
+        {"window_start": "2030-01-01T12:00:00Z", "window_end": "2030-01-01T13:00:00Z"},
+    ],
+)
+def test_window_arguments_reject_incomplete_or_mixed_alternatives(change):
+    args = SimpleNamespace(
+        window_start=None,
+        window_end=None,
+        daily_window_start_utc="22:00",
+        daily_window_end_utc="02:00",
+    )
+    vars(args).update(change)
+    with pytest.raises(ValueError):
+        preparation.plan_windows(args)
+
+
+def test_plan_cli_defaults_next_and_passes_daily_window_flags(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(preparation, "prepare", lambda args: captured.update(vars(args)) or {})
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "prepare",
+            "--candidate",
+            str(tmp_path / "candidate.json"),
+            "--research-manifest",
+            str(tmp_path / "source.json"),
+            "--consumer",
+            str(tmp_path / "consumer.json"),
+            "--data-root",
+            str(tmp_path / "data"),
+            "--task-id",
+            "contract-test",
+            "--deadline",
+            "2035-01-01T00:00:00Z",
+            "--verifier-revision",
+            "a" * 40,
+            "--max-runtime-seconds",
+            "60",
+            "--max-source-bytes",
+            "1024",
+            "--daily-window-start-utc",
+            "22:00",
+            "--daily-window-end-utc",
+            "02:00",
+        ],
+    )
+    assert preparation.main() == 0
+    assert captured["scheduled_at"] == "next"
+    assert preparation.plan_windows(SimpleNamespace(**captured)) == {
+        "daily_execution_window_utc": {"start": "22:00", "end": "02:00"}
+    }
