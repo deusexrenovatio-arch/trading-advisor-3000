@@ -45,6 +45,8 @@ Allowed engines are the native Delta/Arrow/Spark read paths used by the Product 
   PR gate requires a current classification for nonempty scopes and independent
   review for triggered decisions. See
   [Architecture Review](docs/agent/architecture-review.md).
+- Only triggered choices require a permanent owning architecture record and
+  content pin. Ordinary `none` needs no document/hash; do not create an ADR per PR.
 - Hosted clean post-merge nightly on `main` reuses checks as hygiene without
   claiming a new architecture admission; local dirty scopes retain admission.
 - `run_loop_gate.py` and `run_pr_gate.py` emit explicit `snapshot_mode` and `profile` markers in gate output.

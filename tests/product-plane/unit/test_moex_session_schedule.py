@@ -5,6 +5,8 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     read_delta_table_rows,
@@ -144,14 +146,14 @@ def test_materialize_official_session_schedule_builds_raw_and_canonical_delta(
                 "source_timeframe": "1m",
                 "source_interval": 1,
                 "moex_secid": "BRM6@MOEX",
-                "window_start_utc": "2026-04-21T00:00:00Z",
-                "window_end_utc": "2026-04-21T23:59:00Z",
+                "window_start_utc": "2026-04-20T21:00:00Z",
+                "window_end_utc": "2026-04-21T21:00:00Z",
             }
         ],
         mappings=[],
         raw_schedule_path=raw_schedule_path,
         canonical_session_intervals_path=intervals_path,
-        fetched_at_utc="2026-04-21T00:00:00Z",
+        fetched_at_utc="2026-04-20T21:00:00Z",
     )
 
     assert report["status"] == "PASS"
@@ -611,3 +613,215 @@ def test_normalize_session_schedule_keeps_moscow_trade_date_for_utc_boundary() -
     assert interval_rows[0]["session_date"] == "2026-04-22"
     assert interval_rows[0]["expected_open_ts"] == "2026-04-21T21:15:00Z"
     assert interval_rows[0]["expected_close_ts"] == "2026-04-21T22:00:00Z"
+
+
+def test_daily_calendar_persists_explicit_closed_weekend_evidence(tmp_path: Path) -> None:
+    windows = [
+        {
+            **_changed_window("2026-10-19", days=7)[0],
+            "internal_id": f"FUT_TEST_{i}",
+            "moex_secid": f"TEST{i}@MOEX",
+        }
+        for i in range(13)
+    ]
+    intervals = tmp_path / "canonical_session_intervals.delta"
+    report = materialize_reconstructed_session_schedule_for_changed_windows(
+        changed_windows=windows,
+        mappings=[],
+        raw_schedule_path=tmp_path / "raw_moex_session_schedule.delta",
+        canonical_session_intervals_path=intervals,
+        allow_candle_inference=False,
+    )
+    closed = intervals.with_name("canonical_closed_session_dates.delta")
+    assert has_delta_log(closed), "daily producer discarded explicit closed-date evidence"
+    rows = read_delta_table_rows(closed, limit=100)
+    assert len(rows) == report["canonical_closed_session_date_rows"] == 26
+    assert report["canonical_closed_session_dates_path"] == closed.as_posix()
+    assert {r["session_date"] for r in rows} == {"2026-10-24", "2026-10-25"}
+    assert len({(r["instrument_id"], r["session_date"]) for r in rows}) == 26
+    assert all(r["policy_id"] and r["source_id"] and r["source_document_hash"] for r in rows)
+
+
+def test_partial_official_schedule_blocks_before_any_write(tmp_path):
+    with pytest.raises(ValueError, match="cover exactly"):
+        materialize_official_session_schedule_for_changed_windows(
+            client=FakeClient(),
+            changed_windows=_changed_window(days=2),
+            mappings=[],
+            raw_schedule_path=tmp_path / "raw.delta",
+            canonical_session_intervals_path=tmp_path / "intervals.delta",
+        )
+    assert not list(tmp_path.glob("*.delta"))
+
+
+def _calendar_catalog(path, *, closed=()):
+    path = _rule_catalog(path)
+    data = json.loads(path.read_text())
+    data["rules"][0].update(
+        effective_from="2026-10-19", effective_to="2026-10-25", weekdays=[1, 2, 3, 4, 5, 6, 7]
+    )
+    data["calendar_exceptions"] = (
+        [
+            {
+                "exception_id": "declared-closure",
+                "action": "closed",
+                "dates": list(closed),
+                "source_title": "fixture official closed-date evidence",
+                "source_urls": ["https://www.moex.com/fixture"],
+            }
+        ]
+        if closed
+        else []
+    )
+    path.write_text(json.dumps(data))
+    return path
+
+
+def test_calendar_transitions_preserve_outside_scope_and_retry(tmp_path, monkeypatch):
+    from trading_advisor_3000.product_plane.data_plane.moex import session_schedule as owner
+
+    intervals = tmp_path / "open.delta"
+    closed = tmp_path / "selected" / "closed.delta"
+    catalog = _calendar_catalog(tmp_path / "catalog.json")
+    kwargs = dict(
+        mappings=[],
+        raw_schedule_path=tmp_path / "raw.delta",
+        canonical_session_intervals_path=intervals,
+        canonical_closed_session_dates_path=closed,
+        rule_catalog_path=catalog,
+        allow_candle_inference=False,
+    )
+
+    def run(windows):
+        return materialize_reconstructed_session_schedule_for_changed_windows(
+            changed_windows=windows, **kwargs
+        )
+
+    run(_changed_window("2026-10-19", days=7))
+    before = {r["session_date"]: r for r in read_delta_table_rows(intervals, limit=100)}
+    _calendar_catalog(catalog, closed=["2026-10-24"])
+    windows = _changed_window("2026-10-24", days=2)
+    original = owner.replace_delta_table_rows
+
+    def fail_closed(**args):
+        if args["table_path"] == closed:
+            raise RuntimeError("interrupted closed write")
+        return original(**args)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(owner, "replace_delta_table_rows", fail_closed)
+        with pytest.raises(RuntimeError, match="interrupted"):
+            run(windows)
+    run(windows)
+    rows = {r["session_date"]: r for r in read_delta_table_rows(intervals, limit=100)}
+    assert "2026-10-24" not in rows and "2026-10-25" in rows
+    assert [r["session_date"] for r in read_delta_table_rows(closed, limit=100)] == ["2026-10-24"]
+    assert all(rows[day] == value for day, value in before.items() if day < "2026-10-24")
+    _calendar_catalog(catalog)
+    run(_changed_window("2026-10-24"))
+    assert has_delta_log(closed) and read_delta_table_rows(closed, limit=100) == []
+    assert {r["session_date"] for r in read_delta_table_rows(intervals, limit=100)} == set(before)
+
+
+def test_disjoint_calendar_windows_do_not_widen_instrument_date_scope(tmp_path):
+    catalog = _calendar_catalog(tmp_path / "catalog.json")
+    intervals = tmp_path / "open.delta"
+    kwargs = dict(
+        mappings=[],
+        raw_schedule_path=tmp_path / "raw.delta",
+        canonical_session_intervals_path=intervals,
+        rule_catalog_path=catalog,
+        allow_candle_inference=False,
+    )
+    a = _changed_window("2026-10-19", days=7)[0]
+    b = {**a, "internal_id": "FUT_SI", "moex_secid": "SIU6@MOEX"}
+    materialize_reconstructed_session_schedule_for_changed_windows(changed_windows=[a, b], **kwargs)
+    before = {
+        (r["instrument_id"], r["session_date"]): r
+        for r in read_delta_table_rows(intervals, limit=100)
+    }
+    _calendar_catalog(catalog, closed=["2026-10-19", "2026-10-25"])
+    a = _changed_window("2026-10-19")[0]
+    b = {**_changed_window("2026-10-25")[0], "internal_id": "FUT_SI", "moex_secid": "SIU6@MOEX"}
+    materialize_reconstructed_session_schedule_for_changed_windows(changed_windows=[a, b], **kwargs)
+    after = {
+        (r["instrument_id"], r["session_date"]): r
+        for r in read_delta_table_rows(intervals, limit=100)
+    }
+    changed = {("FUT_BR", "2026-10-19"), ("FUT_SI", "2026-10-25")}
+    assert set(after) == set(before) - changed
+    assert all(after[key] == value for key, value in before.items() if key not in changed)
+    closed = read_delta_table_rows(
+        intervals.with_name("canonical_closed_session_dates.delta"), limit=100
+    )
+    assert {(r["instrument_id"], r["session_date"]) for r in closed} == changed
+
+
+def test_overlapping_calendar_paths_reject_before_any_write(tmp_path):
+    path = tmp_path / "same.delta"
+    with pytest.raises(ValueError, match="must not overlap"):
+        materialize_reconstructed_session_schedule_for_changed_windows(
+            changed_windows=_changed_window(),
+            mappings=[],
+            raw_schedule_path=path,
+            canonical_session_intervals_path=tmp_path / "open.delta",
+            canonical_closed_session_dates_path=path,
+            rule_catalog_path=_rule_catalog(tmp_path / "rules.json"),
+            allow_candle_inference=False,
+        )
+    assert not list(tmp_path.glob("*.delta"))
+
+
+@pytest.mark.parametrize("defect", ["missing_provenance", "wrong_date_type"])
+@pytest.mark.parametrize(
+    "argument,table,date_field",
+    [
+        ("canonical_closed_session_dates_path", "canonical_closed_session_dates", "session_date"),
+        ("canonical_session_intervals_path", "canonical_session_intervals", "session_date"),
+        ("raw_schedule_path", "raw_moex_session_schedule", "trade_date"),
+    ],
+)
+def test_calendar_target_schema_blocks_before_any_write(
+    tmp_path, argument, table, date_field, defect
+):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.data_plane.schemas import (
+        historical_data_delta_schema_manifest,
+    )
+
+    kwargs = dict(
+        changed_windows=_changed_window("2026-10-19", days=7),
+        mappings=[],
+        raw_schedule_path=tmp_path / "raw.delta",
+        canonical_session_intervals_path=tmp_path / "open.delta",
+        canonical_closed_session_dates_path=tmp_path / "closed.delta",
+        allow_candle_inference=False,
+    )
+    materialize_reconstructed_session_schedule_for_changed_windows(**kwargs)
+    rows = read_delta_table_rows(kwargs[argument], limit=1000)
+    columns = dict(historical_data_delta_schema_manifest()[table]["columns"])
+    if defect == "missing_provenance":
+        del columns["source_document_hash"]
+    else:
+        columns[date_field] = "string"
+    kwargs[argument] = tmp_path / "invalid_selected.delta"
+    write_delta_table_rows(table_path=kwargs[argument], rows=rows, columns=columns)
+    paths = [
+        kwargs[name]
+        for name in (
+            "raw_schedule_path",
+            "canonical_session_intervals_path",
+            "canonical_closed_session_dates_path",
+        )
+    ]
+    before = {
+        path: (DeltaTable(path).version(), read_delta_table_rows(path, limit=1000))
+        for path in paths
+    }
+    with pytest.raises(ValueError, match="calendar target schema"):
+        materialize_reconstructed_session_schedule_for_changed_windows(**kwargs)
+    assert before == {
+        path: (DeltaTable(path).version(), read_delta_table_rows(path, limit=1000))
+        for path in paths
+    }

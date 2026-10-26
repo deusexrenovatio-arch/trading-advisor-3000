@@ -23,7 +23,16 @@ Use these sources for current product-state questions:
 | What product-plane surfaces are implemented? | `docs/architecture/product-plane/STATUS.md` |
 | Which contracts are release-blocking? | `docs/architecture/product-plane/CONTRACT_SURFACES.md` |
 | How does the current research plane run? | `docs/architecture/product-plane/research-plane-platform.md` and `docs/runbooks/app/research-plane-operations.md` |
-| What data is physically real? | `D:/TA3000-data/trading-advisor-3000-nightly/...` |
+| What data is physically real? | Selected instance in [runtime registry](deployment/runtime-instances/moex-runtime-instances.v1.yaml), resolved environment/mount binding, accepted manifest and pinned physical readback |
+
+Runtime roots are selected by the registry and resolved launch environment;
+`docker.host_root_default` is the repository default, and `docker.host_root_env`
+names its override. The registry's container `paths` resolve the table locations.
+Do not infer the active root from a dated prose path or a source default alone.
+The former `D:/TA3000-data/trading-advisor-3000-nightly` root belongs to this
+map's historical provenance; current operations follow the
+[production runbook](docs/runbooks/app/ta3000-production-nightly.md) and actual
+runtime binding evidence.
 
 ## Current Product Frame
 

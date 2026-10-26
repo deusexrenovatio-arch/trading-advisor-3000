@@ -431,6 +431,7 @@ def _materialize_baseline_session_schedule(
     run_id: str,
     raw_table_path: Path,
     canonical_session_intervals_path: Path,
+    canonical_closed_session_dates_path: Path,
     mappings: Sequence[object],
     changed_windows: list[dict[str, object]],
 ) -> dict[str, object]:
@@ -443,6 +444,7 @@ def _materialize_baseline_session_schedule(
             raw_table_path=raw_table_path,
             raw_schedule_path=raw_schedule_path,
             canonical_session_intervals_path=canonical_session_intervals_path,
+            canonical_closed_session_dates_path=canonical_closed_session_dates_path,
             rule_catalog_path=DEFAULT_PUBLIC_RULE_CATALOG_PATH,
             allow_candle_inference=True,
         )
@@ -1323,6 +1325,10 @@ def run_moex_baseline_update(
         canonical_session_intervals_path
         or (canonical_bars_path.parent / CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME)
     ).resolve()
+    canonical_closed_session_dates_path = (
+        canonical_closed_session_dates_path
+        or canonical_session_intervals_path.with_name("canonical_closed_session_dates.delta")
+    ).resolve()
     canonical_roll_map_path = (
         canonical_roll_map_path or (canonical_bars_path.parent / "canonical_roll_map.delta")
     ).resolve()
@@ -1591,6 +1597,7 @@ def run_moex_baseline_update(
             run_id=run_id,
             raw_table_path=raw_table_path,
             canonical_session_intervals_path=canonical_session_intervals_path,
+            canonical_closed_session_dates_path=canonical_closed_session_dates_path,
             mappings=mappings,
             changed_windows=merged_changed_windows,
         )
@@ -1725,6 +1732,7 @@ def run_moex_baseline_update(
             run_id=run_id,
             raw_table_path=raw_table_path,
             canonical_session_intervals_path=canonical_session_intervals_path,
+            canonical_closed_session_dates_path=canonical_closed_session_dates_path,
             mappings=mappings,
             changed_windows=merged_changed_windows,
         )
@@ -1897,6 +1905,7 @@ def run_moex_baseline_update(
         "session_schedule_required": True,
         "raw_session_schedule_path": str(session_schedule_report.get("raw_schedule_path", "")),
         "canonical_session_intervals_path": canonical_session_intervals_path.as_posix(),
+        "canonical_closed_session_dates_path": canonical_closed_session_dates_path.as_posix(),
         "canonical_session_calendar_path": canonical_session_calendar_path.as_posix(),
         "canonical_roll_map_path": canonical_roll_map_path.as_posix(),
         "raw_economics_root": raw_economics_root.as_posix(),
@@ -1921,7 +1930,11 @@ def run_moex_baseline_update(
         "cf_catch_up": cf_catch_up_report,
         "windowed_input_references": {
             path.stem: snapshot_inputs[path.stem]
-            for path in (raw_table_path, canonical_session_intervals_path)
+            for path in (
+                raw_table_path,
+                canonical_session_intervals_path,
+                canonical_closed_session_dates_path,
+            )
             if path.stem in snapshot_inputs and merged_changed_windows
         },
         "economics_refresh": economics_report,

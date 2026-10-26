@@ -18,10 +18,13 @@ from gate_common import collect_changed_files  # noqa: E402
 from validate_architecture_review import (  # noqa: E402
     decision_digest,
     load_review_body,
+    read_decision_record,
     read_standard,
     scope_digest,
     validate_review,
 )
+
+RECORD_PATH = "docs/architecture/adr/0003-durable-decision-records.md"
 
 
 def body(record: dict) -> str:
@@ -39,6 +42,7 @@ def record(binding: str = "current-scope", *, standard=None) -> dict:
         "compatibility": "Diagnostic loop stays usable without admission evidence",
         "validation": "Real Git scope -> body -> existing gate consumer; reject stale input",
         "standard": standard.pin,
+        "record": read_decision_record(ROOT, RECORD_PATH),
     }
     review = {
         "reviewer": "independent-reviewer",
@@ -74,9 +78,9 @@ def record(binding: str = "current-scope", *, standard=None) -> dict:
     }
 
 
-def errors(value: dict | None, phase: str = "implementation", binding="current-scope"):
+def errors(value: dict | None, phase: str = "implementation", binding="current-scope", repo=ROOT):
     return validate_review(
-        None if value is None else body(value), phase=phase, expected_scope=binding
+        None if value is None else body(value), phase=phase, expected_scope=binding, repo_root=repo
     )
 
 
@@ -88,6 +92,42 @@ def test_ordinary_accepted_implementation_needs_no_spec_or_reviewer():
         "scope_digest": "current-scope",
     }
     assert errors(value) == []
+
+
+@pytest.mark.parametrize("impact", ["within-contract", "contract-change"])
+@pytest.mark.parametrize("phase", ["design", "implementation"])
+def test_admission_requires_a_durable_decision_record(impact, phase):
+    value = record()
+    value["impact"] = impact
+    value["decision"].pop("record", None)
+    assert any("decision.record" in item for item in errors(value, phase=phase))
+
+
+def test_none_does_not_read_an_optional_record_or_standard(tmp_path, monkeypatch):
+    import validate_architecture_review as validator
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("ordinary implementation must not depend on architecture documents")
+
+    monkeypatch.setattr(validator, "read_decision_record", forbidden)
+    monkeypatch.setattr(validator, "read_standard", forbidden)
+    value = {
+        "impact": "none",
+        "author": "author",
+        "reason": "Accepted formatting rule reused",
+        "scope_digest": "current-scope",
+    }
+    assert errors(value, repo=tmp_path) == []
+    assert errors(value, phase="design", repo=tmp_path) == []
+
+
+@pytest.mark.parametrize("phase", ["design", "implementation"])
+def test_record_pin_participates_in_both_review_bindings(phase):
+    value = record()
+    original = decision_digest(value["decision"])
+    value["decision"]["record"]["digest"] = "another-revision"
+    assert decision_digest(value["decision"]) != original
+    assert any(f"{phase}.decision_digest" in item for item in errors(value, phase=phase))
 
 
 def test_code_only_boundary_change_requires_both_independent_reviews():
@@ -195,6 +235,9 @@ def repository(tmp_path):
     standard_path = tmp_path / "docs/architecture/product-plane/architecture-standard.md"
     standard_path.parent.mkdir(parents=True)
     shutil.copy2(ROOT / "docs/architecture/product-plane/architecture-standard.md", standard_path)
+    record_path = tmp_path / RECORD_PATH
+    record_path.parent.mkdir(parents=True)
+    shutil.copy2(ROOT / RECORD_PATH, record_path)
     git(tmp_path, "add", ".")
     git(tmp_path, "commit", "-qm", "initial producer")
     return tmp_path
@@ -712,7 +755,10 @@ def test_missing_standard_is_not_accepted_by_triggered_gate(gate_repository, nam
     assert "architecture" in result.stdout
 
 
-def test_print_binding_exposes_standard_pin_and_current_ids(gate_repository):
+def test_print_binding_exposes_standard_pin_and_current_ids(gate_repository, monkeypatch):
+    # This fixture requests only a standard binding, without any enclosing PR review.
+    monkeypatch.delenv("AI_SHELL_ARCHITECTURE_REVIEW_SOURCE", raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
     repo, _, _ = gate_repository
     result = subprocess.run(
         [
@@ -730,3 +776,186 @@ def test_print_binding_exposes_standard_pin_and_current_ids(gate_repository):
     binding = json.loads(result.stdout)
     expected = read_standard(repo)
     assert binding["standard"] == {**expected.pin, "criteria": list(expected.criteria)}
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../outside.md",
+        "/outside.md",
+        "C:/outside.md",
+        "docs/architecture/../outside.md",
+        "docs/other.md",
+        "docs/architecture/record.json",
+        "docs/architecture/record.md:hidden.md",
+    ],
+)
+def test_record_rejects_unsafe_or_non_architecture_paths(repository, path):
+    with pytest.raises(ValueError, match="repository-relative"):
+        read_decision_record(repository, path)
+
+
+@pytest.mark.parametrize("content", [b"", b" \r\n\t", b"\xef\xbb\xbf\r\n"])
+def test_empty_record_cannot_authorize_triggered_work(repository, content):
+    (repository / RECORD_PATH).write_bytes(content)
+    assert any("record must not be empty" in item for item in errors(record(), repo=repository))
+
+
+def test_record_digest_normalizes_bom_and_windows_newlines(repository):
+    path = repository / RECORD_PATH
+    text = path.read_text(encoding="utf-8")
+    expected = read_decision_record(repository, RECORD_PATH)
+    path.write_bytes(b"\xef\xbb\xbf" + text.replace("\n", "\r\n").encode("utf-8"))
+    assert read_decision_record(repository, RECORD_PATH) == expected
+
+
+@pytest.mark.parametrize("ancestor", [False, True])
+def test_record_rejects_symlink_and_symlink_ancestor(repository, ancestor):
+    target = repository / "original"
+    target.mkdir()
+    (target / "decision.md").write_text("# Decision\n", encoding="utf-8")
+    link = repository / "docs/architecture/linked"
+    try:
+        if ancestor:
+            link.symlink_to(target, target_is_directory=True)
+            path = "docs/architecture/linked/decision.md"
+        else:
+            link = link.with_suffix(".md")
+            link.symlink_to(target / "decision.md")
+            path = "docs/architecture/linked.md"
+    except OSError as exc:
+        pytest.skip(f"Host cannot create test symlink: {exc}")
+    with pytest.raises(ValueError, match="symlinks/reparse"):
+        read_decision_record(repository, path)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction guard")
+def test_record_rejects_real_windows_junction_ancestor(repository):
+    target = repository / "junction-target"
+    target.mkdir()
+    (target / "decision.md").write_text("# Decision\n", encoding="utf-8")
+    junction = repository / "docs/architecture/junction"
+    result = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(junction), str(target)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    with pytest.raises(ValueError, match="symlinks/reparse"):
+        read_decision_record(repository, "docs/architecture/junction/decision.md")
+
+
+def test_immutable_git_symlink_is_not_a_record(repository):
+    blob = git(repository, "hash-object", "-w", "--stdin")
+    # Git mode is authoritative even when this host cannot create a native symlink.
+    path = "docs/architecture/link.md"
+    git(repository, "update-index", "--add", "--cacheinfo", f"120000,{blob},{path}")
+    git(repository, "commit", "-qm", "symlink producer")
+    with pytest.raises(ValueError, match="regular file in reviewed head"):
+        read_decision_record(repository, path, head_ref="HEAD")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="NTFS alternate stream guard")
+def test_windows_alternate_stream_is_not_a_trackable_record(repository):
+    path = repository / "docs/architecture/record.md"
+    path.write_text("# Ordinary tracked file\n", encoding="utf-8")
+    stream = Path(str(path) + ":hidden.md")
+    stream.write_text("# Hidden alternate stream\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="repository-relative"):
+        read_decision_record(repository, "docs/architecture/record.md:hidden.md")
+
+
+@pytest.mark.parametrize("name", ["run_loop_gate", "run_pr_gate"])
+@pytest.mark.parametrize("mutation", ["changed", "missing"])
+def test_record_outside_selected_scope_is_checked_by_nested_gates(gate_repository, name, mutation):
+    repo, _, _ = gate_repository
+    export = repo / ".tmp/record-review.md"
+    export.parent.mkdir()
+    digest = scope_digest(repo, ["boundary.py"])
+    export.write_text(body(record(digest)), encoding="utf-8")
+    accepted = run_gate(
+        repo, name, "--changed-files", "boundary.py", "--architecture-review-source", str(export)
+    )
+    assert accepted.returncode == 0, accepted.stdout + accepted.stderr
+    path = repo / RECORD_PATH
+    if mutation == "changed":
+        path.write_text(
+            path.read_text(encoding="utf-8") + "\nRevised ownership.\n", encoding="utf-8"
+        )
+    else:
+        path.unlink()
+    assert scope_digest(repo, ["boundary.py"]) == digest
+    rejected = run_gate(
+        repo, name, "--changed-files", "boundary.py", "--architecture-review-source", str(export)
+    )
+    assert rejected.returncode == 2, rejected.stdout + rejected.stderr
+    assert "decision.record" in rejected.stdout
+
+
+def test_immutable_record_is_read_from_reviewed_head_by_actual_pr_gate(gate_repository):
+    repo, base, _ = gate_repository
+    path = repo / RECORD_PATH
+    path.write_text(
+        path.read_text(encoding="utf-8") + "\nReviewed decision revision.\n", encoding="utf-8"
+    )
+    git(repo, "commit", "-qam", "actual owning decision producer")
+    head = git(repo, "rev-parse", "HEAD")
+    binding = scope_digest(repo, ["boundary.py", RECORD_PATH], base_ref=base, head_ref=head)
+    value = record(binding)
+    value["decision"]["record"] = read_decision_record(repo, RECORD_PATH, head_ref=head)
+    for phase in ("design", "implementation"):
+        value[phase]["decision_digest"] = decision_digest(value["decision"])
+    export = repo / ".tmp/body.md"
+    export.parent.mkdir()
+    export.write_text(body(value), encoding="utf-8")
+    path.write_text("# Divergent merge checkout\n", encoding="utf-8")
+    accepted = run_gate(
+        repo,
+        "run_pr_gate",
+        "--base-ref",
+        base,
+        "--head-ref",
+        head,
+        "--architecture-review-source",
+        str(export),
+    )
+    assert accepted.returncode == 0, accepted.stdout + accepted.stderr
+    value["decision"]["record"] = read_decision_record(repo, RECORD_PATH)
+    for phase in ("design", "implementation"):
+        value[phase]["decision_digest"] = decision_digest(value["decision"])
+    export.write_text(body(value), encoding="utf-8")
+    rejected = run_gate(
+        repo,
+        "run_pr_gate",
+        "--base-ref",
+        base,
+        "--head-ref",
+        head,
+        "--architecture-review-source",
+        str(export),
+    )
+    assert rejected.returncode == 2
+    assert "decision.record.digest" in rejected.stdout
+
+
+@pytest.mark.parametrize("mode", ["explicit", "from-body"])
+def test_print_binding_exposes_current_decision_record(gate_repository, mode):
+    repo, _, _ = gate_repository
+    args = ["--record-path", RECORD_PATH]
+    if mode == "from-body":
+        export = repo / "body.md"
+        export.write_text(body(record()), encoding="utf-8")
+        args = ["--architecture-review-source", str(export)]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/validate_architecture_review.py",
+            "--changed-files",
+            "boundary.py",
+            "--print-binding",
+            *args,
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["decision_record"] == read_decision_record(repo, RECORD_PATH)
