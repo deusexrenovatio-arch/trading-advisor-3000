@@ -867,12 +867,7 @@ def prepare(args, *, historical_observation=False):
     config = json.loads(checked(*command, "config", "--format", "json", env=environment))
     validate_config(config, paths, plan)
     hardware = json.loads(checked("docker", "info", "--format", "{{json .}}"))
-    for service in config["services"].values():
-        if (
-            int(service["mem_limit"]) > hardware["MemTotal"]
-            or float(service["cpus"]) > hardware["NCPU"]
-        ):
-            raise ValueError("Staging caps exceed Docker hardware resources")
+    validate_resources(config, hardware, plan["stage"])
     free = shutil.disk_usage(paths["DATA_ROOT"]).free
     if free < int(values[PREFIX + "MIN_FREE_BYTES"]) + int(values[PREFIX + "MAX_GROWTH_BYTES"]):
         raise ValueError("Insufficient host disk reserve for the declared growth cap")
@@ -917,6 +912,51 @@ def prepare_reattest(args):
     if not original.is_file() or original.resolve() != original:
         raise ValueError("Reattestation requires the canonical protected original receipt")
     return prepared
+
+
+def _spark_memory_bytes(value):
+    match = re.fullmatch(r"([1-9][0-9]*)([gmk])", str(value).strip().lower())
+    if not match:
+        raise ValueError("Effective Spark driver memory must be positive g/m/k bytes")
+    return int(match[1]) * 1024 ** {"g": 3, "m": 2, "k": 1}[match[2]]
+
+
+def validate_resources(config, hardware, stage):
+    """Conservative admission floors; reserves do not prove measured process RSS."""
+    gib = 1024**3
+    services = config["services"]
+    for service in services.values():
+        if (
+            int(service["mem_limit"]) > hardware["MemTotal"]
+            or float(service["cpus"]) > hardware["NCPU"]
+        ):
+            raise ValueError("Staging caps exceed Docker hardware resources")
+    if (
+        sum(int(service["mem_limit"]) for service in services.values()) + 2 * gib
+        > hardware["MemTotal"]
+    ):
+        raise ValueError("Staging total memory caps plus host reserve exceed Docker hardware")
+    if stage not in {"branch", "acceptance"}:
+        raise ValueError("Unknown staging resource owner")
+    heavy = "webserver" if stage == "branch" else "daemon"
+    for name, service in services.items():
+        memory = int(service["mem_limit"])
+        if int(service.get("memswap_limit", 0)) != memory:
+            raise ValueError("Staging memory and swap caps must match; extra swap is forbidden")
+        environment = service.get("environment", {})
+        heap = _spark_memory_bytes(environment.get("TA3000_SPARK_DRIVER_MEMORY"))
+        scratch = service.get("tmpfs", [])
+        match = (
+            re.fullmatch(r"/tmp:size=([1-9][0-9]*),mode=1777,exec,nosuid,nodev", scratch[0])
+            if isinstance(scratch, list) and len(scratch) == 1
+            else None
+        )
+        if not match:
+            raise ValueError("Scratch must be one byte-bounded /tmp tmpfs")
+        scratch_bytes = int(match[1])
+        required = scratch_bytes + (heap + 2 * gib if name == heavy else gib)
+        if required > memory:
+            raise ValueError(f"Staging {name} memory policy reserve exceeds its container cap")
 
 
 def validate_config(config, paths, plan):
@@ -1042,6 +1082,7 @@ def verify_runtime(container, prepared, *, allow_stopped=False):
     if (
         host.get("Privileged")
         or host.get("Memory") != int(expected["mem_limit"])
+        or host.get("MemorySwap") != int(expected["memswap_limit"])
         or host.get("NanoCpus") != int(float(expected["cpus"]) * 1_000_000_000)
         or set(host.get("Tmpfs", {}).get("/tmp", "").split(",")) != set(scratch.split(","))
     ):
