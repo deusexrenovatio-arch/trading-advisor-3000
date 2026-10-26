@@ -508,7 +508,22 @@ def run_rebuild_storage_layout_spark_job(
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory=None,
 ) -> dict[str, object]:
+    from trading_advisor_3000.product_plane.common.staging_execution import require_staging_compute
+
+    require_staging_compute(
+        stage="run_rebuild_storage_layout_spark_job",
+        output_path=target_root,
+        operation="rebuild",
+    )
     layout = load_rebuild_storage_layout(layout_manifest_path)
+    from trading_advisor_3000.product_plane.common.staging_source_scope import (
+        require_staging_source_bytes,
+    )
+
+    require_staging_source_bytes(
+        output_path=target_root,
+        input_paths=[layout.table_path(source_root, table.name) for table in layout.tables],
+    )
     factory = spark_session_factory or _create_spark_session
     spark = factory("ta3000-rebuild-storage-layout", spark_master)
     try:

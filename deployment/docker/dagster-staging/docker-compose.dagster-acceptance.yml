@@ -1,0 +1,26 @@
+name: ta3000-acceptance
+
+services:
+  webserver:
+    extends:
+      file: docker-compose.dagster-staging-common.yml
+      service: webserver
+    mem_limit: ${TA3000_ACCEPTANCE_MEMORY_LIMIT:-14g}
+    memswap_limit: ${TA3000_ACCEPTANCE_MEMORY_LIMIT:-14g}
+    ports:
+      - 127.0.0.1:${TA3000_STAGING_PORT:-3012}:3000
+    restart: unless-stopped
+  daemon:
+    extends:
+      file: docker-compose.dagster-staging-common.yml
+      service: daemon
+    mem_limit: ${TA3000_ACCEPTANCE_MEMORY_LIMIT:-14g}
+    memswap_limit: ${TA3000_ACCEPTANCE_MEMORY_LIMIT:-14g}
+    restart: unless-stopped
+
+# Own HOME persists across candidate changes; quota storage is a separate host mount.
+volumes:
+  staging-home:
+networks:
+  staging:
+    driver: bridge

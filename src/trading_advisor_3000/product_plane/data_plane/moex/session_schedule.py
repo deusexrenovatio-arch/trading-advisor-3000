@@ -613,22 +613,6 @@ def _missing_weekday_scope_dates(
     return missing
 
 
-def _interval_replace_scope_rows(
-    *,
-    affected_scope: list[dict[str, str]],
-    date_from: date,
-    date_till: date,
-) -> list[dict[str, object]]:
-    return [
-        {
-            "instrument_id": scope["instrument_id"],
-            "session_date": session_date.isoformat(),
-        }
-        for scope in affected_scope
-        for session_date in _iter_dates(date_from, date_till)
-    ]
-
-
 def _raw_rows_from_candle_inference(
     *,
     raw_table_path: Path,
@@ -898,10 +882,67 @@ def _write_session_schedule_tables(
     *,
     raw_rows: list[dict[str, object]],
     interval_rows: list[dict[str, object]],
-    interval_replace_scope_rows: list[dict[str, object]] | None = None,
+    instrument_by_moex_secid: dict[str, str],
     raw_schedule_path: Path,
     canonical_session_intervals_path: Path,
-) -> None:
+) -> dict[str, object]:
+    closed_path = canonical_session_intervals_path.parent / "canonical_closed_session_dates.delta"
+    targets = [
+        path.resolve()
+        for path in (raw_schedule_path, canonical_session_intervals_path, closed_path)
+    ]
+    for index, target in enumerate(targets):
+        if any(
+            target.is_relative_to(other) or other.is_relative_to(target)
+            for other in targets[index + 1 :]
+        ):
+            raise ValueError("session schedule output paths must not overlap")
+    unmapped = {str(row["moex_secid"]) for row in raw_rows} - instrument_by_moex_secid.keys()
+    if unmapped:
+        raise ValueError(f"raw session schedule has unmapped SECIDs: {sorted(unmapped)}")
+    # Open normalization stringifies provenance; validate the raw values first
+    # so a missing value cannot become the apparently nonempty literal "None".
+    if any(
+        not str(row.get(field) or "").strip()
+        for row in raw_rows
+        for field in ("source_id", "source_document_hash")
+    ):
+        raise ValueError("raw session schedule requires source provenance")
+    closed_rows = normalize_raw_closed_session_dates(
+        raw_rows, instrument_by_moex_secid=instrument_by_moex_secid
+    )
+    open_dates = {(row["instrument_id"], row["session_date"]) for row in interval_rows}
+    if any((row["instrument_id"], row["session_date"]) in open_dates for row in closed_rows):
+        raise ValueError("conflicting open and closed session dates")
+    if any(
+        not str(row.get(field) or "").strip()
+        for row in interval_rows
+        for field in (
+            "instrument_id",
+            "session_date",
+            "policy_id",
+            "source_id",
+            "source_document_hash",
+        )
+    ):
+        raise ValueError("session intervals require instrument, date and source provenance")
+    # Only explicit raw evidence authorizes replacement. Mixed open/closed scopes
+    # must retire the opposite projection too; missing evidence never means closed.
+    scope_rows = [
+        {
+            "instrument_id": instrument_by_moex_secid[str(row["moex_secid"])],
+            "session_date": _parse_date(row["trade_date"], field_name="trade_date").isoformat(),
+        }
+        for row in raw_rows
+    ]
+    evidenced_dates = open_dates | {
+        (row["instrument_id"], row["session_date"]) for row in closed_rows
+    }
+    if any(
+        (row["instrument_id"], row["session_date"]) not in evidenced_dates for row in scope_rows
+    ):
+        raise ValueError("session replacement requires explicit open or closed evidence")
+    projection_predicate = _or_predicate(scope_rows, ("instrument_id", "session_date"))
     manifest = historical_data_delta_schema_manifest()
     raw_columns = manifest["raw_moex_session_schedule"]["columns"]
     interval_columns = manifest["canonical_session_intervals"]["columns"]
@@ -921,20 +962,20 @@ def _write_session_schedule_tables(
             rows=raw_rows,
             columns=raw_columns,
         )
-    if has_delta_log(canonical_session_intervals_path):
-        replace_scope_rows = interval_rows or interval_replace_scope_rows or []
-        replace_delta_table_rows(
-            table_path=canonical_session_intervals_path,
-            rows=interval_rows,
-            columns=interval_columns,
-            predicate=_or_predicate(replace_scope_rows, ("instrument_id", "session_date")),
-        )
-    else:
-        write_delta_table_rows(
-            table_path=canonical_session_intervals_path,
-            rows=interval_rows,
-            columns=interval_columns,
-        )
+    for path, rows, columns in (
+        (canonical_session_intervals_path, interval_rows, interval_columns),
+        (closed_path, closed_rows, manifest["canonical_closed_session_dates"]["columns"]),
+    ):
+        if has_delta_log(path):
+            replace_delta_table_rows(
+                table_path=path, rows=rows, columns=columns, predicate=projection_predicate
+            )
+        else:
+            write_delta_table_rows(table_path=path, rows=rows, columns=columns)
+    return {
+        "canonical_closed_session_dates_path": closed_path.as_posix(),
+        "canonical_closed_session_date_rows": len(closed_rows),
+    }
 
 
 def materialize_reconstructed_session_schedule_for_changed_windows(
@@ -1012,14 +1053,10 @@ def materialize_reconstructed_session_schedule_for_changed_windows(
             "rule catalog coverage and candle inference are empty"
         )
 
-    _write_session_schedule_tables(
+    closed_report = _write_session_schedule_tables(
         raw_rows=raw_rows,
         interval_rows=interval_rows,
-        interval_replace_scope_rows=_interval_replace_scope_rows(
-            affected_scope=affected_scope,
-            date_from=date_from,
-            date_till=date_till,
-        ),
+        instrument_by_moex_secid=instrument_by_moex_secid,
         raw_schedule_path=raw_schedule_path,
         canonical_session_intervals_path=canonical_session_intervals_path,
     )
@@ -1058,6 +1095,7 @@ def materialize_reconstructed_session_schedule_for_changed_windows(
         "closed_calendar_rows": closed_calendar_rows,
         "candle_inferred_rows": inferred_rows,
         "canonical_session_interval_rows": len(interval_rows),
+        **closed_report,
     }
 
 
@@ -1101,9 +1139,10 @@ def materialize_official_session_schedule_for_changed_windows(
     if not interval_rows:
         raise ValueError("official MOEX futures session schedule produced no canonical intervals")
 
-    _write_session_schedule_tables(
+    closed_report = _write_session_schedule_tables(
         raw_rows=raw_rows,
         interval_rows=interval_rows,
+        instrument_by_moex_secid=instrument_by_moex_secid,
         raw_schedule_path=raw_schedule_path,
         canonical_session_intervals_path=canonical_session_intervals_path,
     )
@@ -1119,4 +1158,5 @@ def materialize_official_session_schedule_for_changed_windows(
         "canonical_session_intervals_path": canonical_session_intervals_path.as_posix(),
         "raw_schedule_rows": len(raw_rows),
         "canonical_session_interval_rows": len(interval_rows),
+        **closed_report,
     }

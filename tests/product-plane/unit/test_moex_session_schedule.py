@@ -5,11 +5,15 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
+
+from trading_advisor_3000.product_plane.common.data_snapshots import capture_table
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     read_delta_table_rows,
     write_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.data_plane.moex import session_schedule as session_module
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import (
     FuturesSessionScheduleRow,
 )
@@ -293,6 +297,146 @@ def test_reconstructed_session_schedule_records_closed_holiday_without_intervals
     assert payload["trading_status"] == "closed"
     assert payload["exception_id"] == "test-closed-holiday"
     assert interval_rows == []
+    closed_path = tmp_path / "canonical_closed_session_dates.delta"
+    assert report["canonical_closed_session_dates_path"] == closed_path.as_posix()
+    assert read_delta_table_rows(closed_path, limit=10) == [
+        {
+            "instrument_id": "FUT_BR",
+            "session_date": "2026-04-21",
+            "policy_id": payload["policy_id"],
+            "source_id": raw_rows[0]["source_id"],
+            "source_document_hash": raw_rows[0]["source_document_hash"],
+        }
+    ]
+
+
+def test_reconstructed_session_schedule_replaces_both_projections_in_mixed_scope(
+    tmp_path: Path,
+) -> None:
+    raw_path = tmp_path / "raw_moex_session_schedule.delta"
+    intervals_path = tmp_path / "canonical_session_intervals.delta"
+    closed_path = tmp_path / "canonical_closed_session_dates.delta"
+    catalog_path = tmp_path / "rules.json"
+
+    def materialize(start: str, days: int, closed_dates: list[str]) -> None:
+        _rule_catalog(
+            catalog_path,
+            effective_from="2026-04-20",
+            calendar_exceptions=[
+                {
+                    "exception_id": "fixture-closed",
+                    "action": "closed",
+                    "dates": closed_dates,
+                    "source_title": "fixture",
+                    "source_urls": ["https://www.moex.com/fixture"],
+                    "applies_to": {"engine": "futures", "market": "forts"},
+                }
+            ],
+        )
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+        catalog["rules"][0]["effective_to"] = "2026-04-22"
+        catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+        materialize_reconstructed_session_schedule_for_changed_windows(
+            changed_windows=_changed_window(start, days=days),
+            mappings=[],
+            raw_schedule_path=raw_path,
+            canonical_session_intervals_path=intervals_path,
+            rule_catalog_path=catalog_path,
+            allow_candle_inference=False,
+        )
+
+    materialize("2026-04-20", 3, ["2026-04-20", "2026-04-21"])
+    paths = (raw_path, intervals_path, closed_path)
+    before = [capture_table(path) for path in paths]
+    outside = next(
+        row
+        for row in read_delta_table_rows(closed_path, limit=10)
+        if row["session_date"] == "2026-04-20"
+    )
+    materialize("2026-04-21", 2, ["2026-04-22"])
+    assert {row["session_date"] for row in read_delta_table_rows(intervals_path, limit=10)} == {
+        "2026-04-21"
+    }
+    assert sorted(
+        read_delta_table_rows(closed_path, limit=10), key=lambda row: row["session_date"]
+    ) == [
+        outside,
+        {
+            **outside,
+            "session_date": "2026-04-22",
+            "source_document_hash": next(
+                row["source_document_hash"]
+                for row in read_delta_table_rows(raw_path, limit=10)
+                if str(row["trade_date"]) == "2026-04-22"
+            ),
+        },
+    ]
+    materialize("2026-04-21", 1, ["2026-04-21"])
+    assert read_delta_table_rows(intervals_path, limit=10) == []
+    assert {row["session_date"] for row in read_delta_table_rows(closed_path, limit=10)} == {
+        "2026-04-20",
+        "2026-04-21",
+        "2026-04-22",
+    }
+    for path, original in zip(paths, before, strict=True):
+        actual = capture_table(path)
+        for key in ("table_id", "schema_hash", "layout_version"):
+            assert actual[key] == original[key]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing_provenance",
+        "conflicting_closed",
+        "open_closed",
+        "open_source_null",
+        "open_hash_null",
+        "unsupported_status",
+    ],
+)
+def test_reconstructed_session_schedule_rejects_conflict_before_any_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
+) -> None:
+    raw_path = tmp_path / "raw_moex_session_schedule.delta"
+    intervals_path = tmp_path / "canonical_session_intervals.delta"
+    catalog = _rule_catalog(tmp_path / "rules.json")
+    kwargs = dict(
+        changed_windows=_changed_window(),
+        mappings=[],
+        raw_schedule_path=raw_path,
+        canonical_session_intervals_path=intervals_path,
+        rule_catalog_path=catalog,
+        allow_candle_inference=False,
+    )
+    materialize_reconstructed_session_schedule_for_changed_windows(**kwargs)
+    paths = [raw_path, intervals_path, tmp_path / "canonical_closed_session_dates.delta"]
+    before = [capture_table(path) for path in paths]
+    opened = read_delta_table_rows(raw_path, limit=10)[0]
+    closed = {
+        **opened,
+        "raw_payload_json": json.dumps(
+            {"trading_status": "closed", "policy_id": "fixture-explicit-closed"}
+        ),
+    }
+    bad_rows = [closed]
+    if fault == "missing_provenance":
+        closed["source_document_hash"] = ""
+    elif fault == "conflicting_closed":
+        bad_rows.append({**closed, "source_document_hash": "different-evidence"})
+    elif fault in {"open_source_null", "open_hash_null"}:
+        field = "source_id" if fault == "open_source_null" else "source_document_hash"
+        bad_rows = [{**opened, field: None}]
+    elif fault == "unsupported_status":
+        bad_rows = [{**closed, "raw_payload_json": json.dumps({"trading_status": "unknown"})}]
+    else:
+        bad_rows.append(opened)
+    monkeypatch.setattr(session_module, "_raw_rows_from_public_rules", lambda **_kw: bad_rows)
+    with pytest.raises(ValueError, match="provenance|conflicting|evidence"):
+        materialize_reconstructed_session_schedule_for_changed_windows(**kwargs)
+    assert [capture_table(path) for path in paths] == before
 
 
 def test_reconstructed_session_schedule_applies_special_working_weekend(
