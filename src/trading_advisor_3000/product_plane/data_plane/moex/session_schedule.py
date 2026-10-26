@@ -7,9 +7,12 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pyarrow as pa
 from deltalake import DeltaTable
 
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
+    _build_schema,
+    _normalize_rows,
     has_delta_log,
     iter_delta_table_row_batches,
     replace_delta_table_rows,
@@ -955,9 +958,7 @@ def _write_session_schedule_tables(
     if any(tuple(str(r[k]) for k in raw_keys) not in allowed for r in raw_rows):
         raise ValueError("raw session evidence is outside replacement scope")
     manifest = historical_data_delta_schema_manifest()
-    # All calendar evidence is validated before the first native Delta commit.
-    # Per-table transactions retain existing pending/publication recovery semantics.
-    for path, rows, name, keys in (
+    tables = (
         (raw_schedule_path, raw_rows, "raw_moex_session_schedule", raw_keys),
         (
             canonical_session_intervals_path,
@@ -971,7 +972,17 @@ def _write_session_schedule_tables(
             "canonical_closed_session_dates",
             ("instrument_id", "session_date"),
         ),
-    ):
+    )
+    # Reuse the native writer's schema/row conversion before any destructive replace.
+    # Every family target must also have the accepted schema before the first write.
+    for path, rows, name, _ in tables:
+        columns = manifest[name]["columns"]
+        expected = _build_schema(columns)
+        pa.Table.from_pylist(_normalize_rows(rows, columns), schema=expected)
+        if has_delta_log(path) and not DeltaTable(path).schema().to_pyarrow().equals(expected):
+            raise ValueError(f"calendar target schema does not match {name}: {path}")
+    # Native writes retain existing pending/publication recovery semantics.
+    for path, rows, name, keys in tables:
         columns = manifest[name]["columns"]
         if has_delta_log(path):
             replace_delta_table_rows(

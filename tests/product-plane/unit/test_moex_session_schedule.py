@@ -770,3 +770,58 @@ def test_overlapping_calendar_paths_reject_before_any_write(tmp_path):
             allow_candle_inference=False,
         )
     assert not list(tmp_path.glob("*.delta"))
+
+
+@pytest.mark.parametrize("defect", ["missing_provenance", "wrong_date_type"])
+@pytest.mark.parametrize(
+    "argument,table,date_field",
+    [
+        ("canonical_closed_session_dates_path", "canonical_closed_session_dates", "session_date"),
+        ("canonical_session_intervals_path", "canonical_session_intervals", "session_date"),
+        ("raw_schedule_path", "raw_moex_session_schedule", "trade_date"),
+    ],
+)
+def test_calendar_target_schema_blocks_before_any_write(
+    tmp_path, argument, table, date_field, defect
+):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.data_plane.schemas import (
+        historical_data_delta_schema_manifest,
+    )
+
+    kwargs = dict(
+        changed_windows=_changed_window("2026-10-19", days=7),
+        mappings=[],
+        raw_schedule_path=tmp_path / "raw.delta",
+        canonical_session_intervals_path=tmp_path / "open.delta",
+        canonical_closed_session_dates_path=tmp_path / "closed.delta",
+        allow_candle_inference=False,
+    )
+    materialize_reconstructed_session_schedule_for_changed_windows(**kwargs)
+    rows = read_delta_table_rows(kwargs[argument], limit=1000)
+    columns = dict(historical_data_delta_schema_manifest()[table]["columns"])
+    if defect == "missing_provenance":
+        del columns["source_document_hash"]
+    else:
+        columns[date_field] = "string"
+    kwargs[argument] = tmp_path / "invalid_selected.delta"
+    write_delta_table_rows(table_path=kwargs[argument], rows=rows, columns=columns)
+    paths = [
+        kwargs[name]
+        for name in (
+            "raw_schedule_path",
+            "canonical_session_intervals_path",
+            "canonical_closed_session_dates_path",
+        )
+    ]
+    before = {
+        path: (DeltaTable(path).version(), read_delta_table_rows(path, limit=1000))
+        for path in paths
+    }
+    with pytest.raises(ValueError, match="calendar target schema"):
+        materialize_reconstructed_session_schedule_for_changed_windows(**kwargs)
+    assert before == {
+        path: (DeltaTable(path).version(), read_delta_table_rows(path, limit=1000))
+        for path in paths
+    }
