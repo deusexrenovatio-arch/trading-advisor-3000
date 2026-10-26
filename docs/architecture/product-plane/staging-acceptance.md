@@ -13,8 +13,9 @@ Per-SHA retry/rebuild budgets were rejected: they erase spend history and grow c
 A new compute/quota service or separate reference environment was rejected: reuse
 native Dagster/Delta ownership, existing Postgres and the acceptance environment.
 
-Build/review inert foundations in branches; complete the whole native pilot before
-any foundation merge. Then adopt protected authority and activate the gate. Rollback
+Build/review inert foundations through ordinary fast CI. Activate the protected
+compute gate only after its native pilot; a changed product route still requires
+full candidate acceptance before main. Rollback
 disables activation and restores accepted code/image/checkpoint together; preserve
 quota history and receipts. No automatic rebuild, quota reset or acceptance-data copy.
 Sources: [native owners](docs/architecture/product-plane/native-runtime-ownership.md),
@@ -25,8 +26,9 @@ storage/ownership or recurring-cost changes; reuse this record rather than add a
 
 ## Delivery contract
 
-Branch -> bounded branch staging -> one integration candidate -> persistent
-acceptance staging -> existing required pr-lane -> main -> production promotion.
+Ordinary PR -> fast CI. Changed executable product route -> one integration
+candidate -> reuse applicable proof or one acceptance graph -> required pr-lane
+-> main -> production promotion. Branch native perf is optional, never a prerequisite.
 The integration candidate pins the current main commit, selected branch heads,
 resulting tree, executable dependency closure, runtime image, configuration and
 input snapshot versions. A batch lands as one integration PR. A stale main or
@@ -49,6 +51,24 @@ snapshot at cycle start. A proven NOOP is a normal reference outcome. The first
 failed, cancelled or BLOCKED reference graph pauses subsequent cycles until
 diagnosis and a protected-host decision. Switching modes preserves all task
 attempt history; a new day cannot reset a failed candidate's proof budget.
+
+## Single candidate command
+
+The protected host runs `run_staging_control.py --candidate <candidate.json>`
+with its existing env/plan/manifest and signer configuration. The host validates
+current main and candidate binding, then selects protected read-only reattestation
+or the existing supervisor. An original receipt must verify before it can influence
+routing. Reuse requires identical executable/config/image and original plan; the
+existing observer must establish unchanged pinned inputs/outputs, environment and
+fresh consumer readback. SHA alone is not a compute identity.
+
+A missing proof or proven changed closure selects one acceptance graph, only with
+a plan bound to the new candidate. An invalid signature, unknown applicability,
+failed observer or failed graph stops the command. Never fall back from a failed
+reuse attempt to computation; never retry, rebuild, reseed or extend quota inside
+this command. Existing quotas guard repeated invocations. Setup and incident
+repair are agent work; ordinary integrations use this fixed machine route.
+Implementation and real-route activation remain separate evidence.
 
 ## Native owners and isolation
 
@@ -108,8 +128,9 @@ v1; required-field/meaning changes require a new version and explicit compatibil
 
 The protected task plan fixes a stable task identity, candidate identity, stage,
 source scope, allowed graph/steps, output roots, deadline and attempt limits.
-Initial limits: two small attempts per task, one acceptance graph attempt per
-batch, zero full rebuilds. An explicitly authorized rebuild plan may allow one.
+New-plan defaults: zero small attempts, one acceptance graph per batch, zero
+rebuilds. Optional branch perf requires an explicit small-attempt budget. Existing
+plans and append-only spend remain unchanged; changing these defaults cannot reset them.
 Task identity and prior spend survive SHA/branch/PR/HOME/output recreation.
 
 Reserve before expensive work through native Dagster PostgresRunStorage

@@ -69,8 +69,9 @@ Change surface: `shell` for these execution rules and gate/CI plumbing.
    actual correctness blockers remain part of the current task.
 
 Development materialization, perf and acceptance use [guarded staging](docs/runbooks/app/guarded-staging.md)
-under one stable task plan: two small attempts, one acceptance graph, zero rebuilds
-by default. Reuse applicable proof. SHA/branch/PR/HOME/output recreation and retry
+under one stable task plan: zero small attempts, one acceptance graph, zero rebuilds
+by default. Branch perf is optional. Use the single candidate command to reuse
+applicable proof or run one native acceptance; failure stops without retry. SHA/branch/PR/HOME/output recreation and retry
 cannot reset spend. Ad hoc compute through alternate roots or unprotected CLI/UI
 is forbidden; exhaustion requires diagnosis and explicit protected-budget authorization.
 

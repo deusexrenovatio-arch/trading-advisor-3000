@@ -1982,9 +1982,89 @@ def supervise(args, prepared):
             session.unlink()
 
 
+def candidate_action(args):
+    """Choose once; untrusted or inconclusive evidence never grants computation."""
+    import reattest_staging_acceptance as reuse
+
+    if args.stage != "acceptance":
+        raise ValueError("Candidate dispatch requires acceptance; branch perf is optional")
+    base = reuse.resolve(args.repo, args.base_ref)
+    if reuse.resolve(ROOT, "HEAD") != base or reuse.git(
+        ROOT, "status", "--porcelain", "--untracked-files=no"
+    ):
+        raise ValueError("Candidate dispatch requires clean protected current main")
+    proposed = json.loads(args.candidate.read_text("utf-8"))
+    candidate = reuse.checked_candidate(args.repo, proposed.get("candidate", proposed), base)
+    plan = load_plan(args.plan)
+    if plan.get("mode", "candidate") != "candidate" or plan["stage"] != "acceptance":
+        raise ValueError("Candidate dispatch cannot activate reference or branch mode")
+    if args.original_receipt is not None:
+        original = json.loads(args.original_receipt.read_text("utf-8"))
+        keys = json.loads(reuse.git(args.repo, "show", f"{base}:{reuse.KEYRING}"))["keys"]
+        native = reuse.verify_acceptance_route(
+            original,
+            keys,
+            now=datetime.fromisoformat(original["payload"]["issued_at_utc"].replace("Z", "+00:00")),
+        )
+        if "compute_origin" in native:
+            raise ValueError("Candidate dispatch requires the original native receipt")
+        if all(
+            candidate[key] == native["candidate"][key]
+            for key in ("executable_sha256", "config_sha256", "image_digest")
+        ):
+            if native["plan_sha256"] != digest(plan):
+                raise ValueError("Unchanged artifact requires its original plan for reuse")
+            return "REUSE"
+    if plan["candidate"] != candidate:
+        raise ValueError("A fresh acceptance plan must bind the new candidate")
+    if plan["limits"]["acceptance"] != 1 or plan["limits"]["rebuild"] != 0:
+        raise ValueError("Candidate dispatch permits one acceptance and zero rebuilds")
+    return "RUN"
+
+
+def dispatch_candidate(args):
+    """One route, no retries or compute fallback after an observer failure."""
+    import reattest_staging_acceptance as reuse
+
+    action = candidate_action(args)
+    if action == "REUSE" and args.initialize_catch_up:
+        raise ValueError("Read-only reuse cannot initialize a schedule")
+    if args.prepare_only:
+        if action == "REUSE":
+            prepare_reattest(args)
+        else:
+            prepare(args)
+        print(
+            json.dumps(
+                {
+                    "status": "PREPARED",
+                    "action": action,
+                    "compute_attempts": 0,
+                    "native_consumer": "CONSUMER_NOT_CHECKED",
+                }
+            )
+        )
+    elif action == "REUSE":
+        envelope = reuse.reattest(args)
+        print(
+            json.dumps(
+                {"status": "REATTESTED", "compute_attempts": 0, "receipt_sha256": digest(envelope)}
+            )
+        )
+    else:
+        prepared = prepare(args)
+        supervise(args, prepared)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=("branch", "acceptance"), required=True)
+    parser.add_argument("--stage", choices=("branch", "acceptance"), default="acceptance")
+    parser.add_argument(
+        "--candidate", type=Path, help="Select reuse or one acceptance automatically"
+    )
+    parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument("--base-ref", default="origin/main")
+    parser.add_argument("--original-receipt", type=Path)
     for field in ("env-file", "plan", "execution-manifest"):
         parser.add_argument("--" + field, type=Path, required=True)
     parser.add_argument("--private-key", type=Path)
@@ -1996,6 +2076,11 @@ def main():
     parser.add_argument("--reason")
     args = parser.parse_args()
     try:
+        if args.candidate is not None:
+            dispatch_candidate(args)
+            return 0
+        if args.original_receipt is not None:
+            raise ValueError("Original receipt requires automatic candidate dispatch")
         prepared = prepare(args)
         if args.prepare_only:
             print(
@@ -2018,7 +2103,7 @@ def main():
                 raise ValueError("Acceptance signing requires host-only key, key ID and output")
             supervise(args, prepared)
         return 0
-    except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
+    except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as exc:
         print(json.dumps({"status": "BLOCKED", "reason": str(exc)}), file=sys.stderr)
         return 2
 

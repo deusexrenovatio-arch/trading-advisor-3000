@@ -148,7 +148,16 @@ def native_root_run_config(assets, instant, stage, deployed_root):
     return branch
 
 
+def initial_limits(stage, small_attempts=0):
+    if type(small_attempts) is not int or not 0 <= small_attempts <= 2:
+        raise ValueError("Optional small-attempt budget must be between zero and two")
+    if stage == "branch" and small_attempts == 0:
+        raise ValueError("Branch perf requires an explicit --small-attempts budget")
+    return dict(small=small_attempts, acceptance=1, rebuild=0)
+
+
 def prepare(args):
+    limits = initial_limits(args.stage, getattr(args, "small_attempts", 0))
     sys.path.insert(0, str(args.deployed_root / "src"))
     from trading_advisor_3000.dagster_defs import moex_historical_assets as assets
     from trading_advisor_3000.product_plane.common.data_snapshots import (
@@ -223,7 +232,7 @@ def prepare(args):
         quota_home=str(args.quota_home),
         deadline_utc=args.deadline,
         max_runtime_seconds=args.max_runtime_seconds,
-        limits=dict(small=2, acceptance=1, rebuild=0),
+        limits=limits,
         root_job=JOBS[0],
         jobs={
             job: dict(upstream_job=jobs[i - 1] if i else None, max_runs=1)
@@ -265,6 +274,7 @@ def main():
     for name in ("max-runtime-seconds", "max-source-bytes"):
         parser.add_argument("--" + name, type=int, required=True)
     parser.add_argument("--stage", choices=("branch", "acceptance"), default="acceptance")
+    parser.add_argument("--small-attempts", type=int, choices=(0, 1, 2), default=0)
     parser.add_argument("--deployed-root", type=Path, default=Path("/workspace"))
     parser.add_argument("--quota-home", type=Path, default=Path("/staging-quota"))
     parser.add_argument("--window-start")

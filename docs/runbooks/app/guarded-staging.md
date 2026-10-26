@@ -4,13 +4,17 @@ Change surface: mixed. Contract: [staging acceptance](docs/architecture/product-
 
 ```mermaid
 flowchart LR
-  L[Static and focused tests] --> B[Branch: bounded native baseline]
-  B --> C[Frozen integration candidate]
-  C --> A[Acceptance: actual schedule and sensors]
-  A --> R[Native writes / QC / publication / fresh consumer]
-  R --> M[Protected admission before main]
-  M --> P[Same artifact: production compatibility and promotion]
-  M --> F[Reference: ordinary daily schedule]
+  L[PR: fast CI] --> C{Changed product route?}
+  C -->|No| M[Main]
+  C -->|Yes| F[Frozen batch + preflight]
+  F --> E{Applicable original proof?}
+  E -->|Yes| R[Read-only reattestation]
+  E -->|No| A[One native acceptance graph]
+  R --> M
+  A --> M
+  M --> P[Same artifact: compatibility + production]
+  R -->|Failure| S[STOP]
+  A -->|Failure| S
 ```
 
 ## Prepare once
@@ -53,7 +57,24 @@ Prepare a literal env file using the `TA3000_STAGING_*` allowlist in
 state paths, exact image and dataset, port, CPU/RAM/scratch/growth/free-space caps.
 Set `TA3000_ACCEPTANCE_MEMORY_LIMIT` within actual Docker VM capacity.
 
-## Run the proof ladder
+## Ordinary integration: one command
+
+After the one-time environment setup, the protected host runs:
+
+```text
+python scripts/run_staging_control.py --candidate candidate.json --repo <candidate-repo> --base-ref origin/main --env-file staging.env --plan <control>/plan.json --execution-manifest <control>/execution-manifest.json --private-key <host-only-key> --key-id <issuer> --output <new-receipt.json>
+```
+
+Provide `--original-receipt <control>/original-receipt.json` to reuse retained
+proof. Reuse keeps the original plan and manifest; the candidate document supplies
+the new Git binding. Changed computation uses its new candidate-bound plan.
+The command verifies original evidence, selects once, and calls the existing
+read-only observer or supervisor. An observer failure stops; no compute fallback.
+`--prepare-only` checks preparation without launching or signing evidence.
+Ordinary non-product PRs use fast CI; native branch perf is optional. Do not
+manually repeat this ladder for every branch or for a SHA-only change.
+
+## Optional branch perf and native acceptance
 
 Run the protected host supervisor with `--stage branch|acceptance`, `--env-file`,
 `--plan` and `--execution-manifest`. `--prepare-only` checks configuration; its
@@ -72,7 +93,9 @@ initializes a fresh isolated schedule checkpoint once under the host lock; the
 daemon creates the actual preceding cron tick and runs. Label this native catch-up
 separately from future wall-clock daily operation. Never inject fake ticks/runs.
 
-Limits per stable task: two small attempts, one acceptance graph, zero rebuilds.
+New-plan defaults per stable task: zero small attempts, one acceptance graph, zero
+rebuilds. Optional branch perf requires explicit `--small-attempts 1|2` at initial
+plan preparation. Existing plans and spent attempts are retained unchanged.
 Reservation occurs before actual launch; failure/cancellation spends the attempt.
 New SHA/PR/HOME/day never resets it. Stop after failure, diagnose using retained
 metadata, and obtain an explicit new budget authorization before another attempt.
@@ -101,8 +124,8 @@ and host-only App configuration/key; it limits and revokes its temporary token.
 Verify actual rules and refusal through another identity before marking enforcement
 accepted. Policy settings remain editable by the owner.
 
-Bootstrap: complete the entire native pilot before any foundation merge. After
-inert foundations land, an identical artifact may receive protected read-only
+Inert foundations use ordinary PR/CI; activate the compute gate after its native
+pilot. An identical artifact may receive protected read-only
 reattestation through `scripts/reattest_staging_acceptance.py`; retain immutable
 `compute_origin`, original plan and quota spend. Any executable/config/input/output
 change needs new evidence rather than this reuse path.
