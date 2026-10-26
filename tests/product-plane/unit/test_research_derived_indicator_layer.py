@@ -381,6 +381,7 @@ def test_derived_indicator_store_contract_is_separate_wide_layer() -> None:
             "source_indicator_output_columns_hash",
             "source_indicator_columns_hash",
             "source_inputs_hash",
+            "input_row_hash",
             "source_snapshot_hash",
             "compute_contract_hash",
             "row_count",

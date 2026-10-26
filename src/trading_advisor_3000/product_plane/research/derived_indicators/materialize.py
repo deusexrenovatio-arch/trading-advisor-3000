@@ -813,17 +813,17 @@ def _compute_opening_range(frame: pd.DataFrame, *, opening_bars: int) -> dict[st
 
 
 def _compute_swing_levels(
-    frame: pd.DataFrame, *, left_bars: int, right_bars: int
+    frame: pd.DataFrame, *, left_bars: int, right_bars: int, state=None
 ) -> dict[str, pd.Series]:
     highs = frame["high"].tolist()
     lows = frame["low"].tolist()
     confirmed_highs: list[float | None] = []
     confirmed_lows: list[float | None] = []
-    last_high: float | None = None
-    last_low: float | None = None
+    last_high: float | None = None if state is None or pd.isna(state["high"]) else state["high"]
+    last_low: float | None = None if state is None or pd.isna(state["low"]) else state["low"]
     for current_index in range(len(frame)):
         candidate_index = current_index - right_bars
-        if candidate_index >= left_bars:
+        if candidate_index >= left_bars and (state is None or current_index >= state["start"]):
             high_window = highs[candidate_index - left_bars : candidate_index + right_bars + 1]
             low_window = lows[candidate_index - left_bars : candidate_index + right_bars + 1]
             if highs[candidate_index] == max(high_window):
@@ -940,6 +940,7 @@ def _compute_derived_frame_unmasked(
     *,
     base_frame: pd.DataFrame,
     profile: DerivedIndicatorProfile,
+    swing_state=None,
 ) -> pd.DataFrame:
     assert_rule_coverage(
         output_columns=set(profile.output_columns), rules=rules_for_derived_profile(profile)
@@ -1010,7 +1011,9 @@ def _compute_derived_frame_unmasked(
         if is_continuous_front:
             level_source["high"] = high0
             level_source["low"] = low0
-        swing_levels = _compute_swing_levels(level_source, left_bars=5, right_bars=5)
+        swing_levels = _compute_swing_levels(
+            level_source, left_bars=5, right_bars=5, state=swing_state
+        )
         if is_continuous_front:
             swing_levels = {
                 column: pd.to_numeric(series, errors="coerce") + offset
@@ -1656,6 +1659,7 @@ def _build_prepared_partition_rows(
     old_reader=None,
     source_snapshot_hash: str = "",
     compute_contract_hash: str = "",
+    compute_diagnostics: dict | None = None,
 ) -> list[DerivedIndicatorFrameRow]:
     if base_frame is None:
         base_frame = _prepare_base_frame(
@@ -1667,9 +1671,36 @@ def _build_prepared_partition_rows(
     compute_profile = compute_profile or profile
     if prepared_hashes is not None:
         prepared_hashes.validate(base_frame, profile)
-    computed = _compute_derived_frame(
-        base_frame=base_frame,
-        profile=compute_profile,
+    from .compute_tail import compute, input_hashes
+    from .tails import partition_filters
+
+    row_hashes = input_hashes(base_frame, profile)
+    old = None
+    diagnostics = compute_diagnostics if compute_diagnostics is not None else {}
+    if tail_output_dir is not None and tail_compatible and compute_profile == profile:
+        partition = _derived_partition_key(
+            dataset_version=dataset_version,
+            indicator_set_version=indicator_set_version,
+            derived_indicator_set_version=derived_indicator_set_version,
+            series_key=_series_key_from_bar(local_series[0], series_mode=series_mode),
+            timeframe=current_timeframe,
+        )
+        path = tail_output_dir / "research_derived_indicator_frames.delta"
+        if has_delta_log(path):
+            names = ["ts", "input_row_hash", "compute_contract_hash", *profile.output_columns]
+            if old_reader is not None:
+                old = old_reader.read(
+                    columns=names, filters=partition_filters(partition)
+                ).to_pandas()
+            else:
+                available = set(delta_table_columns(path))
+                old = read_delta_table_arrow(
+                    path,
+                    columns=[c for c in names if c in available],
+                    filters=partition_filters(partition),
+                ).to_pandas()
+    computed, input_start = compute(
+        base_frame, compute_profile, old, row_hashes, compute_contract_hash, diagnostics
     )
     if prepared_hashes is not None:
         source_inputs_hash = prepared_hashes.inputs
@@ -1733,10 +1764,13 @@ def _build_prepared_partition_rows(
             compatible=tail_compatible,
             reader=old_reader,
         )
+        start = min(start, input_start)
     # Serialize only the proved changed suffix, not the full computed history.
     payload_rows = values_frame.iloc[start:].to_dict("records")
     rows: list[DerivedIndicatorFrameRow] = []
-    for original, payload in zip(local_series[start:], payload_rows, strict=True):
+    for original_index, (original, payload) in enumerate(
+        zip(local_series[start:], payload_rows, strict=True), start=start
+    ):
         rows.append(
             _derived_output_row(
                 original=original,
@@ -1750,6 +1784,7 @@ def _build_prepared_partition_rows(
                 source_bars_hash=source_bars_hash,
                 source_indicators_hash=source_indicators_hash,
                 source_inputs_hash=source_inputs_hash,
+                input_row_hash=row_hashes[original_index],
                 source_indicator_columns_hash=derived_source_indicator_columns_hash(
                     _source_indicator_columns_for_profile(profile)
                 ),
@@ -2414,6 +2449,7 @@ def materialize_derived_indicator_frames(
     timeframes = requested_scope.timeframes
     dataset_instrument_ids = requested_scope.instruments
     stage_timings: StageTimings = {}
+    compute_diagnostics = {}
     stage_started = stage_timer("load_dataset_manifest")
     dataset_manifest = _load_dataset_manifest(
         output_dir=dataset_output_dir,
@@ -3103,6 +3139,7 @@ def materialize_derived_indicator_frames(
                     base_frame=source_base_frame,
                     prepared_hashes=prepared_hashes,
                     previous_created_at=previous_head.get("created_at"),
+                    compute_diagnostics=compute_diagnostics,
                     tail_output_dir=derived_indicator_output_dir,
                     old_reader=old_cache,
                     tail_compatible=(
@@ -3213,6 +3250,7 @@ def materialize_derived_indicator_frames(
         "loaded_source_frame_partition_count": len(loaded_source_partitions),
         "output_paths": output_paths,
         "stage_timings": stage_timings,
+        "compute_diagnostics": compute_diagnostics,
         "source_read_cache": source_cache.stats,
         "old_read_cache": old_cache.stats if old_cache is not None else None,
         "delta_manifest": {
