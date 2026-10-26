@@ -613,20 +613,33 @@ def _missing_weekday_scope_dates(
     return missing
 
 
-def _interval_replace_scope_rows(
+def _calendar_replace_scope_rows(
     *,
-    affected_scope: list[dict[str, str]],
-    date_from: date,
-    date_till: date,
+    changed_windows: list[dict[str, object]],
+    mappings: Iterable[MappingRecord],
+) -> list[dict[str, str]]:
+    mappings = tuple(mappings)
+    cells: dict[tuple[str, ...], dict[str, str]] = {}
+    for window in changed_windows:
+        first, last = _changed_window_dates([window])
+        scopes = _scope_from_changed_windows(changed_windows=[window], mappings=mappings)
+        for scope in scopes:
+            for day in _iter_dates(first, last):
+                cell = {**scope, "session_date": day.isoformat(), "trade_date": day.isoformat()}
+                key = tuple(
+                    cell[k] for k in ("engine", "market", "board", "moex_secid", "trade_date")
+                )
+                if key in cells and cells[key]["instrument_id"] != cell["instrument_id"]:
+                    raise ValueError("calendar source cell maps to conflicting instruments")
+                cells[key] = cell
+    return [cells[key] for key in sorted(cells)]
+
+
+def _scope_calendar_raw_rows(
+    raw_rows: list[dict[str, object]], scope_rows: list[dict[str, str]]
 ) -> list[dict[str, object]]:
-    return [
-        {
-            "instrument_id": scope["instrument_id"],
-            "session_date": session_date.isoformat(),
-        }
-        for scope in affected_scope
-        for session_date in _iter_dates(date_from, date_till)
-    ]
+    keys = {(row["moex_secid"], row["trade_date"]) for row in scope_rows}
+    return [row for row in raw_rows if (str(row["moex_secid"]), str(row["trade_date"])) in keys]
 
 
 def _raw_rows_from_candle_inference(
@@ -898,43 +911,77 @@ def _write_session_schedule_tables(
     *,
     raw_rows: list[dict[str, object]],
     interval_rows: list[dict[str, object]],
-    interval_replace_scope_rows: list[dict[str, object]] | None = None,
+    closed_rows: list[dict[str, object]],
+    replace_scope_rows: list[dict[str, str]],
     raw_schedule_path: Path,
     canonical_session_intervals_path: Path,
+    canonical_closed_session_dates_path: Path,
 ) -> None:
+    paths = [
+        p.resolve()
+        for p in (
+            raw_schedule_path,
+            canonical_session_intervals_path,
+            canonical_closed_session_dates_path,
+        )
+    ]
+    for index, path in enumerate(paths):
+        if any(
+            path == other or path.is_relative_to(other) or other.is_relative_to(path)
+            for other in paths[index + 1 :]
+        ):
+            raise ValueError("session calendar output paths must not overlap")
+    scope = {(r["instrument_id"], r["session_date"]) for r in replace_scope_rows}
+    open_dates = {(r["instrument_id"], r["session_date"]) for r in interval_rows}
+    closed_dates = {(r["instrument_id"], r["session_date"]) for r in closed_rows}
+    if not scope or open_dates & closed_dates:
+        raise ValueError("empty calendar scope or conflicting open and closed session dates")
+    if (open_dates | closed_dates) - scope or scope - (open_dates | closed_dates):
+        raise ValueError("session calendar evidence must cover exactly the replacement scope")
+    for row in closed_rows:
+        if any(
+            not isinstance(row.get(k), str) or not row[k].strip()
+            for k in (
+                "instrument_id",
+                "session_date",
+                "policy_id",
+                "source_id",
+                "source_document_hash",
+            )
+        ):
+            raise ValueError("closed session date requires valid source provenance")
+    raw_keys = ("engine", "market", "board", "moex_secid", "trade_date")
+    allowed = {tuple(r[k] for k in raw_keys) for r in replace_scope_rows}
+    if any(tuple(str(r[k]) for k in raw_keys) not in allowed for r in raw_rows):
+        raise ValueError("raw session evidence is outside replacement scope")
     manifest = historical_data_delta_schema_manifest()
-    raw_columns = manifest["raw_moex_session_schedule"]["columns"]
-    interval_columns = manifest["canonical_session_intervals"]["columns"]
-    if has_delta_log(raw_schedule_path):
-        replace_delta_table_rows(
-            table_path=raw_schedule_path,
-            rows=raw_rows,
-            columns=raw_columns,
-            predicate=_or_predicate(
-                raw_rows,
-                ("engine", "market", "board", "moex_secid", "trade_date"),
-            ),
-        )
-    else:
-        write_delta_table_rows(
-            table_path=raw_schedule_path,
-            rows=raw_rows,
-            columns=raw_columns,
-        )
-    if has_delta_log(canonical_session_intervals_path):
-        replace_scope_rows = interval_rows or interval_replace_scope_rows or []
-        replace_delta_table_rows(
-            table_path=canonical_session_intervals_path,
-            rows=interval_rows,
-            columns=interval_columns,
-            predicate=_or_predicate(replace_scope_rows, ("instrument_id", "session_date")),
-        )
-    else:
-        write_delta_table_rows(
-            table_path=canonical_session_intervals_path,
-            rows=interval_rows,
-            columns=interval_columns,
-        )
+    # All calendar evidence is validated before the first native Delta commit.
+    # Per-table transactions retain existing pending/publication recovery semantics.
+    for path, rows, name, keys in (
+        (raw_schedule_path, raw_rows, "raw_moex_session_schedule", raw_keys),
+        (
+            canonical_session_intervals_path,
+            interval_rows,
+            "canonical_session_intervals",
+            ("instrument_id", "session_date"),
+        ),
+        (
+            canonical_closed_session_dates_path,
+            closed_rows,
+            "canonical_closed_session_dates",
+            ("instrument_id", "session_date"),
+        ),
+    ):
+        columns = manifest[name]["columns"]
+        if has_delta_log(path):
+            replace_delta_table_rows(
+                table_path=path,
+                rows=rows,
+                columns=columns,
+                predicate=_or_predicate(replace_scope_rows, keys),
+            )
+        else:
+            write_delta_table_rows(table_path=path, rows=rows, columns=columns)
 
 
 def materialize_reconstructed_session_schedule_for_changed_windows(
@@ -943,6 +990,7 @@ def materialize_reconstructed_session_schedule_for_changed_windows(
     mappings: Iterable[MappingRecord],
     raw_schedule_path: Path,
     canonical_session_intervals_path: Path,
+    canonical_closed_session_dates_path: Path | None = None,
     raw_table_path: Path | None = None,
     rule_catalog_path: Path = DEFAULT_PUBLIC_RULE_CATALOG_PATH,
     allow_candle_inference: bool = True,
@@ -957,6 +1005,14 @@ def materialize_reconstructed_session_schedule_for_changed_windows(
         }
 
     catalog = _load_rule_catalog(rule_catalog_path)
+    mappings = tuple(mappings)
+    canonical_closed_session_dates_path = (
+        canonical_closed_session_dates_path
+        or canonical_session_intervals_path.with_name("canonical_closed_session_dates.delta")
+    )
+    replace_scope_rows = _calendar_replace_scope_rows(
+        changed_windows=changed_windows, mappings=mappings
+    )
     date_from, date_till = _changed_window_dates(changed_windows)
     affected_scope = _scope_from_changed_windows(
         changed_windows=changed_windows,
@@ -970,6 +1026,13 @@ def materialize_reconstructed_session_schedule_for_changed_windows(
         date_till=date_till,
         fetched_at_utc=fetched_at_utc,
     )
+    requested_dates = {(r["moex_secid"], r["trade_date"]) for r in replace_scope_rows}
+    outside_dates = {
+        (scope["moex_secid"], day.isoformat())
+        for scope in affected_scope
+        for day in _iter_dates(date_from, date_till)
+    } - requested_dates
+    raw_rows = _scope_calendar_raw_rows(raw_rows, replace_scope_rows)
     inferred_rows = 0
     if allow_candle_inference and raw_table_path is not None:
         inferred = _raw_rows_from_candle_inference(
@@ -977,7 +1040,7 @@ def materialize_reconstructed_session_schedule_for_changed_windows(
             affected_scope=affected_scope,
             date_from=date_from,
             date_till=date_till,
-            covered_scope_dates=_scope_dates_covered_by_raw_rows(raw_rows),
+            covered_scope_dates=_scope_dates_covered_by_raw_rows(raw_rows) | outside_dates,
             fetched_at_utc=fetched_at_utc,
         )
         inferred_rows = len(inferred)
@@ -989,6 +1052,7 @@ def materialize_reconstructed_session_schedule_for_changed_windows(
         date_till=date_till,
         covered_scope_dates=covered_scope_dates,
     )
+    missing_weekdays = [key for key in missing_weekdays if key in requested_dates]
     if missing_weekdays:
         sample = ", ".join(
             f"{secid}:{session_date}" for secid, session_date in missing_weekdays[:10]
@@ -999,6 +1063,7 @@ def materialize_reconstructed_session_schedule_for_changed_windows(
             f"add public rule coverage or enable candle inference for {sample}{suffix}"
         )
 
+    raw_rows = _scope_calendar_raw_rows(raw_rows, replace_scope_rows)
     instrument_by_moex_secid = {
         scope["moex_secid"]: scope["instrument_id"] for scope in affected_scope
     }
@@ -1012,14 +1077,16 @@ def materialize_reconstructed_session_schedule_for_changed_windows(
             "rule catalog coverage and candle inference are empty"
         )
 
+    closed_rows = normalize_raw_closed_session_dates(
+        raw_rows,
+        instrument_by_moex_secid=instrument_by_moex_secid,
+    )
     _write_session_schedule_tables(
         raw_rows=raw_rows,
         interval_rows=interval_rows,
-        interval_replace_scope_rows=_interval_replace_scope_rows(
-            affected_scope=affected_scope,
-            date_from=date_from,
-            date_till=date_till,
-        ),
+        closed_rows=closed_rows,
+        replace_scope_rows=replace_scope_rows,
+        canonical_closed_session_dates_path=canonical_closed_session_dates_path,
         raw_schedule_path=raw_schedule_path,
         canonical_session_intervals_path=canonical_session_intervals_path,
     )
@@ -1058,6 +1125,8 @@ def materialize_reconstructed_session_schedule_for_changed_windows(
         "closed_calendar_rows": closed_calendar_rows,
         "candle_inferred_rows": inferred_rows,
         "canonical_session_interval_rows": len(interval_rows),
+        "canonical_closed_session_dates_path": canonical_closed_session_dates_path.as_posix(),
+        "canonical_closed_session_date_rows": len(closed_rows),
     }
 
 
@@ -1068,6 +1137,7 @@ def materialize_official_session_schedule_for_changed_windows(
     mappings: Iterable[MappingRecord],
     raw_schedule_path: Path,
     canonical_session_intervals_path: Path,
+    canonical_closed_session_dates_path: Path | None = None,
     fetched_at_utc: str | None = None,
 ) -> dict[str, object]:
     if not changed_windows:
@@ -1076,6 +1146,14 @@ def materialize_official_session_schedule_for_changed_windows(
             "raw_schedule_rows": 0,
             "canonical_session_interval_rows": 0,
         }
+    mappings = tuple(mappings)
+    canonical_closed_session_dates_path = (
+        canonical_closed_session_dates_path
+        or canonical_session_intervals_path.with_name("canonical_closed_session_dates.delta")
+    )
+    replace_scope_rows = _calendar_replace_scope_rows(
+        changed_windows=changed_windows, mappings=mappings
+    )
     date_from, date_till = _changed_window_dates(changed_windows)
     affected_scope = _scope_from_changed_windows(
         changed_windows=changed_windows,
@@ -1091,6 +1169,7 @@ def materialize_official_session_schedule_for_changed_windows(
         affected_scope=affected_scope,
         fetched_at_utc=fetched_at_utc,
     )
+    raw_rows = _scope_calendar_raw_rows(raw_rows, replace_scope_rows)
     instrument_by_moex_secid = {
         scope["moex_secid"]: scope["instrument_id"] for scope in affected_scope
     }
@@ -1101,9 +1180,16 @@ def materialize_official_session_schedule_for_changed_windows(
     if not interval_rows:
         raise ValueError("official MOEX futures session schedule produced no canonical intervals")
 
+    closed_rows = normalize_raw_closed_session_dates(
+        raw_rows,
+        instrument_by_moex_secid=instrument_by_moex_secid,
+    )
     _write_session_schedule_tables(
         raw_rows=raw_rows,
         interval_rows=interval_rows,
+        closed_rows=closed_rows,
+        replace_scope_rows=replace_scope_rows,
+        canonical_closed_session_dates_path=canonical_closed_session_dates_path,
         raw_schedule_path=raw_schedule_path,
         canonical_session_intervals_path=canonical_session_intervals_path,
     )
@@ -1119,4 +1205,6 @@ def materialize_official_session_schedule_for_changed_windows(
         "canonical_session_intervals_path": canonical_session_intervals_path.as_posix(),
         "raw_schedule_rows": len(raw_rows),
         "canonical_session_interval_rows": len(interval_rows),
+        "canonical_closed_session_dates_path": canonical_closed_session_dates_path.as_posix(),
+        "canonical_closed_session_date_rows": len(closed_rows),
     }
