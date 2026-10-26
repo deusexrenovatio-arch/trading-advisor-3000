@@ -755,7 +755,10 @@ def test_missing_standard_is_not_accepted_by_triggered_gate(gate_repository, nam
     assert "architecture" in result.stdout
 
 
-def test_print_binding_exposes_standard_pin_and_current_ids(gate_repository):
+def test_print_binding_exposes_standard_pin_and_current_ids(gate_repository, monkeypatch):
+    # This fixture requests only a standard binding, without any enclosing PR review.
+    monkeypatch.delenv("AI_SHELL_ARCHITECTURE_REVIEW_SOURCE", raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
     repo, _, _ = gate_repository
     result = subprocess.run(
         [
