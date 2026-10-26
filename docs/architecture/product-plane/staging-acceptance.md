@@ -57,6 +57,16 @@ reservations. Delta owns input/output versions and accepted publication. Spark,
 native indicator producers and existing public Research consumers keep their work.
 Python adapts admission, candidate identity and evidence; it adds no compute route.
 
+The session-schedule owner persists open intervals and explicit closed dates from
+the same validated raw evidence. Both projections replace only that evidenced
+instrument/date scope; provenance and conflicts are checked before writes.
+Baseline budgets and pins the effective closed-date input before Spark, and records
+the actual owned projection version in scoped dependency evidence. Explicit read
+overrides retain their own immutable input pin; canonical-root publication keeps
+the owned table authority. Existing table identities, layouts, published keys and
+required-table membership remain unchanged. Only explicit validated closed-date
+records qualify as closure evidence; missing candles supply no such authority.
+
 Branch and acceptance use the production product_plane_definitions entrypoint.
 Each has independent HOME, port, data root and bounded CPU/RAM/scratch. Code is
 read-only. Quota storage is durable outside disposable stage output. A protected

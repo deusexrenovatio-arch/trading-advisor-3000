@@ -8,6 +8,7 @@ import urllib.error
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -107,7 +108,7 @@ def test_launch_staging_graphql_registry_url_tracks_configured_host_port(
 
 
 @pytest.fixture
-def guarded_launch(tmp_path, monkeypatch):
+def guarded_launch(monkeypatch):
     module = _load_script_module()
     monkeypatch.delenv("TA3000_MOEX_RUNTIME_INSTANCES_REGISTRY", raising=False)
     registry = module.load_moex_runtime_instances_registry(repo_root=REPO_ROOT)
@@ -149,12 +150,15 @@ def guarded_launch(tmp_path, monkeypatch):
             }
         }
     }
-    path = tmp_path / "protected-plan.json"
-    path.write_text(json.dumps(plan), encoding="utf-8")
-    monkeypatch.setenv("TA3000_STAGING_PLAN", str(path))
-    monkeypatch.delenv("TA3000_STAGING_PORT", raising=False)
-    monkeypatch.delenv("TA3000_DAGSTER_PORT", raising=False)
-    return module, registry, instance, plan, path
+    with TemporaryDirectory(prefix="ta3000-protected-plan-") as protected:
+        path = Path(protected) / "protected-plan.json"
+        if path.resolve().is_relative_to(REPO_ROOT.resolve()):
+            raise RuntimeError("protected fixture requires OS temporary storage outside checkout")
+        path.write_text(json.dumps(plan), encoding="utf-8")
+        monkeypatch.setenv("TA3000_STAGING_PLAN", str(path))
+        monkeypatch.delenv("TA3000_STAGING_PORT", raising=False)
+        monkeypatch.delenv("TA3000_DAGSTER_PORT", raising=False)
+        yield module, registry, instance, plan, path
 
 
 def test_guarded_launch_requires_plan_and_exact_registered_endpoint(guarded_launch, monkeypatch):
