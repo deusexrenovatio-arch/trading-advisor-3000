@@ -690,15 +690,19 @@ def admitted_compute(*, output, sources=(), input_roots=(), windows=None):
                 operation=operation or (value or {}).get("operation", "daily"),
                 windows=(value or {}).get("effective_windows"),
             )
+            from itertools import chain
+
             from trading_advisor_3000.product_plane.common.staging_source_scope import (
                 require_staging_source_bytes,
             )
 
-            from itertools import chain
-
             staging_inputs = chain(
                 (options[key] for key in sources if options.get(key) is not None),
-                (Path(options[key]) / f"{name}.delta" for key, names in input_roots for name in names),
+                (
+                    Path(options[key]) / f"{name}.delta"
+                    for key, names in input_roots
+                    for name in names
+                ),
             )
             require_staging_source_bytes(output_path=out, input_paths=staging_inputs)
             dataset = str(

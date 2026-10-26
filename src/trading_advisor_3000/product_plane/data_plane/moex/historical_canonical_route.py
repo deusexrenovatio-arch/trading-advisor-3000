@@ -1330,7 +1330,8 @@ def _run_spark_canonicalization(
             check=False,
             timeout=SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS,
             env=protected_subprocess_env(
-                os.environ.copy(), native_entry="run_moex_canonicalization_spark_delta_job",
+                os.environ.copy(),
+                native_entry="run_moex_canonicalization_spark_delta_job",
                 output_path=spark_output_dir,
             ),
         )
@@ -1434,7 +1435,8 @@ def _run_spark_canonical_publish(
             check=False,
             timeout=SPARK_PUBLISH_SUBPROCESS_TIMEOUT_SECONDS,
             env=protected_subprocess_env(
-                os.environ.copy(), native_entry="run_moex_canonical_publish_spark_delta_job",
+                os.environ.copy(),
+                native_entry="run_moex_canonical_publish_spark_delta_job",
                 output_path=spark_dir,
             ),
         )

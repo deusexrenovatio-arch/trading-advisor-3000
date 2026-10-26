@@ -1806,11 +1806,14 @@ def run_moex_data_rebuild_profile(op_config: dict[str, object]) -> dict[str, obj
     from trading_advisor_3000.product_plane.common.staging_execution import require_staging_compute
 
     protected_output = (
-        op_config.get("canonical_output_dir") or op_config.get("canonical_bars_path")
-        or op_config.get("output_dir") or _route_artifact_root()
+        op_config.get("canonical_output_dir")
+        or op_config.get("canonical_bars_path")
+        or op_config.get("output_dir")
+        or _route_artifact_root()
     )
     require_staging_compute(
-        stage="run_moex_data_rebuild_profile", output_path=Path(str(protected_output)),
+        stage="run_moex_data_rebuild_profile",
+        output_path=Path(str(protected_output)),
         operation="rebuild",
     )
     profile = resolve_moex_data_rebuild_profile(

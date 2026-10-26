@@ -49,4 +49,3 @@ def test_baseline_counts_default_support_inputs_before_extraction(protected, mon
     )
     with pytest.raises(StagingExecutionError, match="source bytes"):
         baseline_update.run_moex_baseline_update(**args)
-

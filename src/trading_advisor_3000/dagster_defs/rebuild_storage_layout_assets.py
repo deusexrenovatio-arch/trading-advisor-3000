@@ -6,7 +6,6 @@ from dagster import Field as DagsterField
 from dagster import job, op
 
 from trading_advisor_3000.product_plane.common.staging_execution import staging_asset
-
 from trading_advisor_3000.spark_jobs.rebuild_storage_layout_job import (
     run_rebuild_storage_layout_spark_job,
 )
