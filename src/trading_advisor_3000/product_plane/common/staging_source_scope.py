@@ -142,7 +142,23 @@ def require_staging_source_bytes(*, output_path, input_paths, input_values=()):
 
     from .data_snapshots import _file_path, open_read_table, snapshot_table_reference
 
-    cap, total, seen = plan["scope"]["max_source_bytes"], 0, set()
+    fixture = bool(plan.get("source", {}).get("fixture"))
+    if fixture:
+        from .staging_test_fixture import (
+            LOGICAL_ROOT,
+            MAX_BYTES,
+            MAX_FILES,
+            MAX_ROWS,
+            validate_branch_fixture,
+        )
+
+        validate_branch_fixture(plan)
+    cap = (
+        min(plan["scope"]["max_source_bytes"], MAX_BYTES)
+        if fixture
+        else plan["scope"]["max_source_bytes"]
+    )
+    total, seen, fixture_rows = 0, set(), {}
     for supplied in input_paths:
         if supplied is None:
             continue
@@ -150,6 +166,13 @@ def require_staging_source_bytes(*, output_path, input_paths, input_values=()):
         if version is not None and (type(version) is not int or version < 0):
             raise StagingExecutionError("source byte cap requires a valid pinned input version")
         path = Path(path).resolve()
+        if fixture and not any(
+            path.is_relative_to(Path(root).resolve())
+            for root in (LOGICAL_ROOT, plan["data_root"], "/workspace/configs")
+        ):
+            raise StagingExecutionError(
+                "fixture input escapes the protected miniature/config/output roots"
+            )
         if (path / "_delta_log").is_dir():
             reference = snapshot_table_reference(path)
             if (
@@ -164,6 +187,26 @@ def require_staging_source_bytes(*, output_path, input_paths, input_values=()):
                 open_read_table(path) if version is None else DeltaTable(str(path), version=version)
             )
             actions = table.get_add_actions()
+            if fixture:
+                try:
+                    counts = actions.column("num_records").to_pylist()
+                    uris = table.file_uris()
+                    if len(counts) != len(uris) or any(
+                        type(count) is not int or count < 0 for count in counts
+                    ):
+                        raise ValueError("unknown Delta input row count")
+                    from pyarrow.parquet import ParquetFile
+
+                    actual = {uri: ParquetFile(_file_path(uri)).metadata.num_rows for uri in uris}
+                    if sum(actual.values()) != sum(counts):
+                        raise ValueError("Delta statistics differ from physical Parquet rows")
+                    fixture_rows.update(actual)
+                except (ValueError, KeyError, TypeError) as exc:
+                    raise StagingExecutionError(
+                        "fixture requires bounded native input row statistics"
+                    ) from exc
+                if sum(fixture_rows.values()) > MAX_ROWS or len(fixture_rows) > MAX_FILES:
+                    raise StagingExecutionError("native fixture input row/file cap exceeded")
             expected_total = sum(int(size) for size in actions.column("size_bytes").to_pylist())
             entries = [
                 (str(_file_path(uri)), _file_path(uri).stat().st_size) for uri in table.file_uris()
@@ -181,6 +224,8 @@ def require_staging_source_bytes(*, output_path, input_paths, input_values=()):
             if name not in seen:
                 total += int(size)
                 seen.add(name)
+            if fixture and len(seen) > MAX_FILES:
+                raise StagingExecutionError("native fixture input file cap exceeded")
             if total > cap:
                 raise StagingExecutionError("native staging source bytes exceed protected cap")
     encoder = json.JSONEncoder(default=parameter_value, allow_nan=False)

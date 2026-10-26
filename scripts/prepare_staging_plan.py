@@ -8,14 +8,17 @@ the protected host validates it before installing plan.json and its root marker.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import inspect
 import json
 import sys
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
+from math import ceil
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE_STEPS = (
@@ -176,9 +179,163 @@ def plan_windows(args):
     return windows
 
 
+def native_research_run_config(assets, fixture, root, run_id):
+    """Capture the existing Research recipe; admission reads fixture metadata only."""
+    from trading_advisor_3000.product_plane.research import admission
+
+    windows = [
+        dict(
+            instrument_id=instrument,
+            timeframe=timeframe,
+            start_ts=fixture["start_utc"],
+            end_ts=fixture["end_utc"],
+        )
+        for instrument in fixture["instrument_ids"]
+        for timeframe in fixture["timeframes"]
+    ]
+    config = assets._build_moex_cf_catch_up_run_config(
+        _admission_probe=True,
+        canonical_output_dir=Path(fixture["canonical_dir"]),
+        dataset_version=fixture["dataset_version"],
+        campaign_run_id=run_id,
+        data_snapshot_manifest_path=fixture["data_manifest_path"],
+        data_snapshot_raw_output_dir=fixture["raw_dir"],
+        windows=windows,
+    )["ops"]["continuous_front_bars"]["config"]
+    materialized, results = assets._resolve_research_output_dirs(
+        materialized_output_dir=root / "research/gold/current",
+        results_output_dir=root / "research/runs/data-prep",
+    )
+    config.update(
+        registry_root=assets.research_registry_root(materialized_root=materialized).as_posix(),
+        materialized_output_dir=materialized.as_posix(),
+        results_output_dir=results.as_posix(),
+        canonical_contract_economics_path=(
+            Path(fixture["canonical_dir"]) / "canonical_contract_economics.delta"
+        ).as_posix(),
+        volume_profile_raw_1m_table_path=(
+            Path(fixture["raw_dir"]) / "raw_moex_history.delta"
+        ).as_posix(),
+        # The native builder derives the explicit fixture domain from these windows;
+        # a cold rebuild admits that domain instead of daily refresh windows.
+        changed_windows=[],
+    )
+    config = admission.configure_admission(config, operation="rebuild")
+    return assets._research_data_prep_run_config_from_research_config(config)
+
+
+def research_branch_plan(args, clock_assets, root, instant, limits, windows):
+    from trading_advisor_3000.dagster_defs import research_assets as assets
+    from trading_advisor_3000.product_plane.common.staging_test_fixture import (
+        MAX_BYTES,
+        verify_fixture,
+    )
+    from trading_advisor_3000.product_plane.research.io import ResearchSliceRequest
+
+    if not Path(assets.__file__).resolve().is_relative_to((args.deployed_root / "src").resolve()):
+        raise ValueError("Native Research configuration was imported from another artifact")
+    manifest = args.fixture_manifest.resolve()
+    if manifest.name != "manifest.json" or manifest.is_relative_to(root):
+        raise ValueError("Research fixture manifest must be outside writable staging data")
+    fixture_sha = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    fixture = verify_fixture(manifest.parent, fixture_sha)
+    source_cap = min(args.max_source_bytes, MAX_BYTES)
+    if (
+        sum(path.stat().st_size for path in manifest.parent.rglob("*") if path.is_file())
+        > source_cap
+    ):
+        raise ValueError("Prepared fixture exceeds the declared source byte cap")
+    consumer = json.loads(args.consumer.read_text("utf-8"))
+    request = ResearchSliceRequest(**consumer)
+    if (
+        not request.instrument_ids
+        or set(request.instrument_ids) != set(fixture["instrument_ids"])
+        or request.timeframe not in fixture["timeframes"]
+        or not request.price_columns
+        or request.dataset_version != fixture["dataset_version"]
+        or getattr(request, "warmup_bars", 0) > fixture["warmup_bars"]
+    ):
+        raise ValueError("Consumer must select an explicit compatible fixture slice")
+    candidate = json.loads(args.candidate.read_text("utf-8"))
+    if candidate.get("schema_version") != "staging_candidate.v1":
+        raise ValueError("Use the immutable build_staging_candidate output")
+    run_id = str(uuid4())
+    run_config = native_research_run_config(assets, fixture, root, run_id)
+    config = next(iter(run_config["ops"].values()))["config"]
+    if request.indicator_set_version != config["indicator_set_version"] or (
+        "derived_indicator_set_version" in config
+        and request.derived_indicator_set_version != config["derived_indicator_set_version"]
+    ):
+        raise ValueError("Consumer feature version differs from the native fixture recipe")
+    from trading_advisor_3000.product_plane.research.data_snapshots import (
+        _registry,
+        snapshot_registry,
+    )
+
+    if _registry(config) != snapshot_registry(
+        Path(config["materialized_output_dir"]), request.dataset_version, request.contour_id
+    ):
+        raise ValueError("Consumer contour differs from the native Research recipe")
+    schedule = native_schedule_metadata(clock_assets, instant, run_config)
+    schedule["manual_run_id"] = run_id
+    schedule["trigger"] = "manual_fixture"
+    schedule["preparation"] = (
+        "metadata-only manual fixture; not a scheduled tick, execution or acceptance"
+    )
+    start = datetime.fromisoformat(fixture["start_utc"].replace("Z", "+00:00"))
+    end = datetime.fromisoformat(fixture["end_utc"].replace("Z", "+00:00"))
+    plan = dict(
+        schema_version="staging_plan.v1",
+        task_id=args.task_id,
+        stage="branch",
+        attempt_kind="small",
+        candidate=candidate["candidate"],
+        data_root=str(root),
+        quota_home=str(args.quota_home),
+        deadline_utc=args.deadline,
+        max_runtime_seconds=args.max_runtime_seconds,
+        limits=limits,
+        root_job="research_data_prep_job",
+        jobs={"research_data_prep_job": dict(upstream_job=None, max_runs=1)},
+        native_steps={**dict.fromkeys(RESEARCH_STEPS, 1), "materialize_research_dataset": 2},
+        scope=dict(
+            instrument_ids=fixture["instrument_ids"],
+            timeframes=fixture["timeframes"],
+            start_utc=fixture["start_utc"],
+            end_utc=fixture["end_utc"],
+            max_changed_window_days=max(1, ceil((end - start).total_seconds() / 86400)),
+            max_source_bytes=source_cap,
+            full_history=False,
+        ),
+        require_scheduled=False,
+        consumer=consumer,
+        required_scenarios=[],
+        verifier_revision=args.verifier_revision,
+        source=dict(
+            fixture=dict(
+                manifest_path="/staging-control/fixture/manifest.json", manifest_sha256=fixture_sha
+            ),
+            data_manifest_path=fixture["data_manifest_path"],
+            snapshot_id=fixture["data_snapshot_id"],
+            manifest_sha256=fixture["data_manifest_sha256"],
+            canonical_dir=fixture["canonical_dir"],
+            raw_dir=fixture["raw_dir"],
+            branch_output_dir=config["materialized_output_dir"],
+            native_schedule=schedule,
+        ),
+    )
+    plan.update(windows)
+    return contracts().validate_document("plan", plan)
+
+
 def prepare(args):
     windows = plan_windows(args)
     limits = initial_limits(args.stage, getattr(args, "small_attempts", 0))
+    target = getattr(args, "branch_target", "baseline")
+    if target == "research" and (
+        args.stage != "branch" or not getattr(args, "fixture_manifest", None)
+    ):
+        raise ValueError("Research target requires branch stage and --fixture-manifest")
     sys.path.insert(0, str(args.deployed_root / "src"))
     from trading_advisor_3000.dagster_defs import moex_historical_assets as assets
     from trading_advisor_3000.product_plane.common.data_snapshots import (
@@ -194,9 +351,15 @@ def prepare(args):
     root = args.data_root.resolve()
     if assets._route_artifact_root().resolve() != root:
         raise ValueError("Native configured data root differs from the requested staging root")
+    if target == "research":
+        if getattr(args, "scheduled_at", "next") != "next":
+            raise ValueError("Manual Research fixture does not accept an explicit --scheduled-at")
+        return research_branch_plan(args, assets, root, datetime.now(UTC), limits, windows)
     instant = scheduled_instant(assets, args.scheduled_at, stage=args.stage)
     if instant >= datetime.fromisoformat(args.deadline.replace("Z", "+00:00")):
         raise ValueError("Proposed schedule must occur before the protected deadline")
+    if not args.research_manifest:
+        raise ValueError("Baseline and acceptance require --research-manifest")
     run_config = native_root_run_config(assets, instant, args.stage, args.deployed_root)
     config = run_config["ops"]["moex_baseline_update"]["config"]
     parameters, cutoff = capture_parameters(assets, config)
@@ -287,7 +450,7 @@ def prepare(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("candidate", "research-manifest", "consumer", "data-root"):
+    for name in ("candidate", "consumer", "data-root"):
         parser.add_argument("--" + name, type=Path, required=True)
     for name in ("task-id", "deadline", "verifier-revision"):
         parser.add_argument("--" + name, required=True)
@@ -295,6 +458,9 @@ def main():
     for name in ("max-runtime-seconds", "max-source-bytes"):
         parser.add_argument("--" + name, type=int, required=True)
     parser.add_argument("--stage", choices=("branch", "acceptance"), default="acceptance")
+    parser.add_argument("--branch-target", choices=("baseline", "research"), default="baseline")
+    parser.add_argument("--research-manifest", type=Path)
+    parser.add_argument("--fixture-manifest", type=Path)
     parser.add_argument("--small-attempts", type=int, choices=(0, 1, 2), default=0)
     parser.add_argument("--deployed-root", type=Path, default=Path("/workspace"))
     parser.add_argument("--quota-home", type=Path, default=Path("/staging-quota"))

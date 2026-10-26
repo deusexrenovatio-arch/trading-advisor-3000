@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import run_staging_control as control  # noqa: E402
 
 
-@pytest.mark.parametrize("mode", ["observe", "reattest"])
+@pytest.mark.parametrize("mode", ["observe", "reattest", "branch"])
 def test_collector_is_a_separate_capped_read_only_container(tmp_path, monkeypatch, mode):
     calls = []
 

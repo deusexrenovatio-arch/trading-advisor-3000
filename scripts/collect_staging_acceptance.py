@@ -128,6 +128,17 @@ def candidate_consumer(
     if hit or rows < 1:
         raise ValueError("Normal candidate consumer returned no fresh rows")
     requested = (*request.price_columns, *request.indicator_columns, *request.derived_columns)
+    if plan.get("source", {}).get("fixture") and (
+        len(frames) != len(request.instrument_ids)
+        or any(
+            column not in item.frame or not item.frame[column].notna().any()
+            for item in frames
+            for column in requested
+        )
+    ):
+        raise ValueError(
+            "Short fixture consumer lacks populated coverage for every instrument/column"
+        )
     for column in requested:
         if not any(column in item.frame and item.frame[column].notna().any() for item in frames):
             raise ValueError(f"Consumer did not read requested populated column: {column}")
@@ -162,6 +173,18 @@ def preflight(plan_path: Path, deployed_root: Path, execution_manifest: Path) ->
     code = verify_deployed_files(deployed_root, json.loads(execution_manifest.read_text("utf-8")))
     if code != plan["candidate"]["executable_sha256"]:
         raise ValueError("Actual mounted executable differs from candidate")
+    if plan.get("source", {}).get("fixture"):
+        from trading_advisor_3000.product_plane.common.staging_test_fixture import (
+            validate_branch_fixture,
+        )
+
+        fixture = validate_branch_fixture(plan)
+        return {
+            "status": "PREFLIGHT_PASS",
+            "proof_kind": "synthetic_fixture_inputs_only",
+            "fixture_sha256": fixture["manifest_sha256"],
+            "native_consumer": "CHECKED_AFTER_MATERIALIZATION",
+        }
     source_path = Path(plan.get("source", {}).get("research_manifest_path", ""))
     source = load_snapshot(source_path)
     if any(plan["source"].get(key) != source[key] for key in ("snapshot_id", "manifest_sha256")):
@@ -394,7 +417,20 @@ def observe_reattest(
     }
 
 
-def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> dict:
+def require_branch_native_claims(claims):
+    required = (
+        "run_continuous_front_spark_job",
+        "run_research_bar_views_spark_job",
+        "materialize_indicator_frames",
+        "materialize_derived_indicator_frames",
+    )
+    if any(claims.get(name) != 1 for name in required):
+        raise ValueError("Short Research proof requires actual CF/L0/L1/L2 native claims")
+
+
+def observe(
+    plan_path: Path, deployed_root: Path, execution_manifest: Path, *, branch=False
+) -> dict:
     from dagster import DagsterEventType, DagsterInstance, RunsFilter
 
     from trading_advisor_3000.product_plane.common.data_snapshots import (
@@ -409,21 +445,36 @@ def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> d
     plan = load_plan(plan_path)
     if plan.get("required_scenarios"):
         raise ValueError("Scenario-specific proof is not implemented; no acceptance can be issued")
-    if (
+    fixture = None
+    if branch:
+        from trading_advisor_3000.product_plane.common.staging_test_fixture import (
+            validate_branch_fixture,
+        )
+
+        fixture = validate_branch_fixture(plan)
+    elif (
         plan["stage"] != "acceptance"
         or not plan["require_scheduled"]
         or plan.get("mode", "candidate") != "candidate"
     ):
         raise ValueError("Acceptance requires the actual scheduled staging route")
+    jobs = (plan["root_job"],) if branch else JOBS
+    required_stages = STAGES[1:] if branch else STAGES
     code = verify_deployed_files(deployed_root, json.loads(execution_manifest.read_text("utf-8")))
     if code != plan["candidate"]["executable_sha256"]:
         raise ValueError("Actual mounted executable differs from candidate")
     now = datetime.now(UTC)
     if now >= datetime.fromisoformat(plan["deadline_utc"].replace("Z", "+00:00")):
         raise ValueError("Protected task deadline expired")
-    source_path = Path(plan.get("source", {}).get("research_manifest_path", ""))
+    source_path = Path(
+        fixture["data_manifest_path"]
+        if branch
+        else plan.get("source", {}).get("research_manifest_path", "")
+    )
     source = load_snapshot(source_path)
-    if any(plan["source"].get(key) != source[key] for key in ("snapshot_id", "manifest_sha256")):
+    if not branch and any(
+        plan["source"].get(key) != source[key] for key in ("snapshot_id", "manifest_sha256")
+    ):
         raise ValueError("Source snapshot differs from protected seed identity")
     for reference in source["tables"].values():
         open_pinned_table(reference)
@@ -436,7 +487,12 @@ def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> d
     research = current_snapshot(registry)
     if research is None or research["snapshot_id"] == source["snapshot_id"]:
         raise ValueError("PENDING: candidate has not published a new Research snapshot")
-    data = current_snapshot(data_root / "canonical/moex/baseline-4y-current/.data_snapshots")
+    data_registry = (
+        Path(fixture["canonical_dir"]) / ".data_snapshots"
+        if branch
+        else data_root / "canonical/moex/baseline-4y-current/.data_snapshots"
+    )
+    data = current_snapshot(data_registry)
     if (
         data is None
         or research["parents"] != [data["snapshot_id"]]
@@ -450,7 +506,7 @@ def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> d
     for reference in research["tables"].values():
         open_pinned_table(reference)
     mutations = observed_mutations(source, research)
-    if not any(
+    if not branch and not any(
         item["table"] in {"raw_moex_history", "canonical_bars", "canonical_contract_economics"}
         for item in mutations
     ):
@@ -463,13 +519,13 @@ def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> d
         DagsterInstance.from_config(str(home)) as instance,
     ):
         runs = instance.get_runs(
-            filters=RunsFilter(job_name=JOBS[0], tags={"ta3000/staging_plan_sha256": digest(plan)}),
+            filters=RunsFilter(job_name=jobs[0], tags={"ta3000/staging_plan_sha256": digest(plan)}),
             limit=3,
         )
         if len(runs) != 1:
             raise ValueError("Expected one bounded root run for the protected acceptance plan")
         upstream, changed, root = None, 0, runs[0]
-        for name in JOBS:
+        for name in jobs:
             if upstream:
                 matches = instance.get_runs(
                     filters=RunsFilter(
@@ -511,15 +567,18 @@ def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> d
             upstream = run
         if research["run_id"] != upstream.run_id:
             raise ValueError("Published Research was not produced by the recorded candidate chain")
-        tick = _reference_tick(plan, instance, root)
-        tick_proof = dict(
-            name="moex_baseline_daily_update_schedule",
-            status="SUCCESS",
-            run_id=root.run_id,
-            tick_id=str(tick.tick_id),
-            timestamp=tick.timestamp,
-        )
-    if changed < 1 or not set(STAGES).issubset(stages):
+        if branch:
+            tick_proof = None
+        else:
+            tick = _reference_tick(plan, instance, root)
+            tick_proof = dict(
+                name="moex_baseline_daily_update_schedule",
+                status="SUCCESS",
+                run_id=root.run_id,
+                tick_id=str(tick.tick_id),
+                timestamp=tick.timestamp,
+            )
+    if (not branch and changed < 1) or not set(required_stages).issubset(stages):
         raise ValueError("Nonempty execution of every required production stage is missing")
     path = registry / "manifests" / f"{research['snapshot_id']}.json"
     from trading_advisor_3000.product_plane.common.staging_execution import _key, _quota
@@ -560,6 +619,8 @@ def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> d
             )
         if not any(claims.values()):
             raise ValueError("No durable native computation claims exist")
+        if branch:
+            require_branch_native_claims(claims)
         budget = {
             "status": "PASS",
             "plan_sha256": digest(plan),
@@ -578,6 +639,7 @@ def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> d
             str(plan_path),
             "--manifest",
             str(path),
+            *(["--verify-compute-contract"] if branch else []),
         ],
         cwd=deployed_root,
         capture_output=True,
@@ -595,12 +657,39 @@ def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> d
         for current, before in (
             (current_snapshot(registry), research),
             (
-                current_snapshot(data_root / "canonical/moex/baseline-4y-current/.data_snapshots"),
+                current_snapshot(data_registry),
                 data,
             ),
         )
     ):
         raise ValueError("Published snapshot changed during independent consumer proof")
+    if branch:
+        return {
+            "schema_version": "staging_branch_report.v1",
+            "status": "PASS",
+            "stage": "branch",
+            "proof_kind": "bounded_synthetic_fixture",
+            "candidate": plan["candidate"],
+            "plan_sha256": digest(plan),
+            "fixture_sha256": fixture["manifest_sha256"],
+            "source": {
+                "snapshot_id": source["snapshot_id"],
+                "manifest_sha256": source["manifest_sha256"],
+            },
+            "outputs": {
+                "snapshot_id": research["snapshot_id"],
+                "manifest_sha256": research["manifest_sha256"],
+            },
+            "runs": bindings,
+            "consumer": consumer,
+            "qc": {"status": "PASS", "checks": research["quality_checks"]},
+            "coverage": {
+                "required_stages": list(required_stages),
+                "executed_stages": sorted(stages),
+            },
+            "budget": budget,
+            "metadata_observation": home_observation,
+        }
     return validate_document(
         "receipt",
         {
@@ -653,7 +742,8 @@ def observe(plan_path: Path, deployed_root: Path, execution_manifest: Path) -> d
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "mode", choices=("observe", "consumer", "preflight", "reference-cycle", "reattest")
+        "mode",
+        choices=("observe", "branch", "consumer", "preflight", "reference-cycle", "reattest"),
     )
     parser.add_argument("--root-run-id")
     parser.add_argument("--verify-compute-contract", action="store_true")
@@ -682,8 +772,10 @@ def main() -> int:
             value = observe_reattest(
                 args.plan, args.original_receipt, args.deployed_root, args.execution_manifest
             )
-        elif args.mode == "observe":
-            value = observe(args.plan, args.deployed_root, args.execution_manifest)
+        elif args.mode in {"observe", "branch"}:
+            value = observe(
+                args.plan, args.deployed_root, args.execution_manifest, branch=args.mode == "branch"
+            )
         else:
             raise ValueError("Use the protected host supervisor to verify runtime and sign")
         if args.output:

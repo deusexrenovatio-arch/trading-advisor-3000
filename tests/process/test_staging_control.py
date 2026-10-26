@@ -316,7 +316,10 @@ def resource_service(memory_gib, *, scratch_gib=2, heap="3g"):
         "mem_limit": memory_gib * GIB,
         "memswap_limit": memory_gib * GIB,
         "cpus": 2,
-        "environment": {"TA3000_SPARK_DRIVER_MEMORY": heap},
+        "environment": {
+            "TA3000_SPARK_DRIVER_MEMORY": heap,
+            "DAGSTER_MULTIPROCESS_EXECUTOR_MAX_CONCURRENT": "1",
+        },
         "tmpfs": [f"/tmp:size={scratch_gib * GIB},mode=1777,exec,nosuid,nodev"],
     }
 
@@ -408,3 +411,15 @@ def test_missing_execution_window_blocks_before_runtime_or_compute(tmp_path, mon
     monkeypatch.setattr(control, "inspect_container", lambda *a: pytest.fail("runtime inspection"))
     with pytest.raises(ValueError, match="execution window"):
         control.prepare(args)
+
+
+@pytest.mark.parametrize("concurrency", [None, "0", "2"])
+def test_resources_reject_unbounded_native_step_concurrency(concurrency):
+    service = resource_service(9)
+    service["environment"]["DAGSTER_MULTIPROCESS_EXECUTOR_MAX_CONCURRENT"] = concurrency
+    with pytest.raises(ValueError, match="one native Dagster step"):
+        control.validate_resources(
+            {"services": {"webserver": service}},
+            {"MemTotal": 16 * GIB, "NCPU": 2},
+            "branch",
+        )

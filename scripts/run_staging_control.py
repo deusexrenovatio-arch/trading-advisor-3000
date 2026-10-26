@@ -667,6 +667,27 @@ def source_preflight(plan, paths, values, *, historical_observation=False):
     if values.get(PREFIX + "DATASET_VERSION") != consumer["dataset_version"]:
         raise ValueError("Runtime dataset differs from the protected consumer")
     source = plan.get("source", {})
+    if source.get("fixture"):
+        from trading_advisor_3000.product_plane.common.staging_test_fixture import (
+            validate_branch_fixture,
+        )
+
+        if historical_observation:
+            raise ValueError("Synthetic fixture proof cannot reattest candidate acceptance")
+        fixture = validate_branch_fixture(plan, fixture_root=paths["CONTROL_ROOT"] / "fixture")
+        if (
+            consumer["dataset_version"] != fixture["dataset_version"]
+            or set(consumer["instrument_ids"]) != set(fixture["instrument_ids"])
+            or set(plan["scope"]["instrument_ids"]) != set(fixture["instrument_ids"])
+            or set(plan["scope"]["timeframes"]) != set(fixture["timeframes"])
+        ):
+            raise ValueError("Consumer/scope must cover the declared miniature fixture domain")
+        if any(path.name != ".ta3000-staging.json" for path in paths["DATA_ROOT"].iterdir()):
+            raise ValueError(
+                "Fixture run requires fresh isolated outputs; retained attempts stay spent"
+            )
+        _verifier_preflight(plan)
+        return fixture
     if not re.fullmatch(r"[0-9a-f]{32}", source.get("snapshot_id", "")) or not re.fullmatch(
         r"[0-9a-f]{64}", source.get("manifest_sha256", "")
     ):
@@ -804,6 +825,16 @@ def prepare(args, *, historical_observation=False):
     source_document = source_preflight(
         plan, paths, values, historical_observation=historical_observation
     )
+    if plan.get("source", {}).get("fixture") and getattr(args, "output", None):
+        if (
+            args.output.exists()
+            or not args.output.parent.is_dir()
+            or any(
+                args.output.resolve().is_relative_to(paths[key])
+                for key in ("DATA_ROOT", "CONTROL_ROOT", "QUOTA_ROOT")
+            )
+        ):
+            raise ValueError("Branch report requires a new host-only output path")
     production = inspect_container("ta3000-dagster-webserver")
     for mount in production["Mounts"]:
         if (
@@ -925,6 +956,8 @@ def validate_resources(config, hardware, stage):
         if int(service.get("memswap_limit", 0)) != memory:
             raise ValueError("Staging memory and swap caps must match; extra swap is forbidden")
         environment = service.get("environment", {})
+        if environment.get("DAGSTER_MULTIPROCESS_EXECUTOR_MAX_CONCURRENT") != "1":
+            raise ValueError("Staging requires one native Dagster step at a time")
         heap = _spark_memory_bytes(environment.get("TA3000_SPARK_DRIVER_MEMORY"))
         scratch = service.get("tmpfs", [])
         match = (
@@ -983,6 +1016,7 @@ def validate_config(config, paths, plan):
         "common/staging_execution.py",
         "common/staging_contracts.py",
         "common/staging_source_scope.py",
+        "common/staging_test_fixture.py",
         "common/staging_route_proof.py",
         "contracts/schemas/staging_acceptance.v1.json",
     ):
@@ -1233,6 +1267,58 @@ def observed_result(prepared, web, mode, root_run_id=None):
     return json.loads(result.stdout)
 
 
+def launch_branch_fixture(prepared, web):
+    """Single manual native submission; a transport failure is terminal, never retried."""
+    from launch_moex_baseline_staging_run import _launch_mutation, _post_graphql
+
+    plan = prepared["plan"]
+    if (
+        plan["stage"] != "branch"
+        or plan["root_job"] != "research_data_prep_job"
+        or not plan.get("source", {}).get("fixture")
+        or plan["require_scheduled"]
+    ):
+        raise ValueError("Automatic fixture launch requires the manual Research branch target")
+    native = plan["source"]["native_schedule"]
+    run_id = str(native.get("manual_run_id") or "")
+    if not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", run_id):
+        raise ValueError("Protected Research recipe requires its fixed manual run ID")
+    result = _post_graphql(
+        url=runtime_url(prepared, web),
+        query=_launch_mutation(),
+        timeout_sec=30,
+        variables={
+            "executionParams": {
+                "selector": {
+                    "repositoryLocationName": (
+                        "trading_advisor_3000.dagster_defs:product_plane_definitions"
+                    ),
+                    "repositoryName": "__repository__",
+                    "jobName": plan["root_job"],
+                },
+                "runConfigData": native["run_config"],
+                "executionMetadata": {
+                    "runId": run_id,
+                    "tags": [
+                        {"key": "ta3000/staging_plan_sha256", "value": digest(plan)},
+                        {
+                            "key": "ta3000/candidate_head_sha",
+                            "value": plan["candidate"]["head_sha"],
+                        },
+                    ],
+                },
+            }
+        },
+    )
+    launched = result.get("data", {}).get("launchRun", {})
+    if (
+        result.get("errors")
+        or launched.get("__typename") != "LaunchRunSuccess"
+        or launched.get("run", {}).get("runId") != run_id
+    ):
+        raise ValueError("Native fixture launch failed; no automatic retry")
+
+
 def active_bindings(runs):
     return sorted((item["runId"], item["status"], item["pipelineName"]) for item in runs)
 
@@ -1250,6 +1336,7 @@ def supervise(args, prepared):
     completed_path = state / (project + "-reference-cycles.json")
     completed = {}
     authorization = None
+    branch_submitted = False
     try:
         session_stream.write(json.dumps({"pid": os.getpid(), "plan_sha256": digest(plan)}))
         session_stream.flush()
@@ -1400,6 +1487,14 @@ def supervise(args, prepared):
                         pass
                 if lease is not None:
                     renew_candidate_permit(prepared, lease, root)
+                    if (
+                        plan["stage"] == "branch"
+                        and plan.get("source", {}).get("fixture")
+                        and root is None
+                        and not branch_submitted
+                    ):
+                        branch_submitted = True
+                        launch_branch_fixture(prepared, web)
             elif lease is not None and not actual:
                 release_heavy(prepared, lease)
                 lease = None
@@ -1466,6 +1561,14 @@ def supervise(args, prepared):
                     )
                     daemon_state(prepared, True)
                     continue
+                if plan["stage"] == "branch" and plan.get("source", {}).get("fixture"):
+                    payload = observed_result(prepared, web, "branch")
+                    if payload.get("status") != "PASS" or payload.get("stage") != "branch":
+                        raise ValueError("Short Research graph/consumer proof failed")
+                    if args.output is not None:
+                        with args.output.open("x", encoding="utf-8") as output:
+                            json.dump(payload, output, sort_keys=True)
+                    print(json.dumps(payload, sort_keys=True), flush=True)
                 if plan["stage"] == "acceptance":
                     payload = observed_result(prepared, web, "observe")
                     after = graphql_runs(url, plan_digest=digest(plan))

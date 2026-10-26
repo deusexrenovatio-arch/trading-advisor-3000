@@ -4,17 +4,16 @@ Change surface: mixed. Contract: [staging acceptance](docs/architecture/product-
 
 ```mermaid
 flowchart LR
-  L[PR: fast CI] --> C{Changed product route?}
-  C -->|No| M[Main]
-  C -->|Yes| F[Frozen batch + preflight]
-  F --> E{Applicable original proof?}
-  E -->|Yes| R[Read-only reattestation]
-  E -->|No| A[One native acceptance graph]
-  R --> M
+  D[Branch development] --> T[Fast tests]
+  T --> B[Optional: up to 2 bounded native runs]
+  T --> C[Frozen integration batch]
+  B --> C
+  C --> E{Applicable original proof?}
+  E -->|Yes| R[Fresh read-only reattestation]
+  E -->|No| A[Preflight and one real scheduled acceptance]
+  R --> M[Protected main admission]
   A --> M
-  M --> P[Same artifact: compatibility + production]
-  R -->|Failure| S[STOP]
-  A -->|Failure| S
+  M --> P[Compatibility and same-artifact promotion]
 ```
 
 ## Prepare once
@@ -78,13 +77,48 @@ read-only observer or supervisor. An observer failure stops; no compute fallback
 Ordinary non-product PRs use fast CI; native branch perf is optional. Do not
 manually repeat this ladder for every branch or for a SHA-only change.
 
+## Short branch Research checks
+
+Prepare synthetic inputs once, without running indicators or Research:
+
+```text
+python scripts/prepare_staging_fixture.py --path <control>/fixture
+```
+
+Keep its returned manifest SHA. The immutable fixture is read-only through the
+existing control mount: two instruments, four TFs, 512 bars/group, 27032 total
+input rows; raw 1m covers only the last eight synthetic sessions. Fixed hard caps:
+32768 input rows, 16 MiB, 256 files. It is test data and cannot establish main
+acceptance. Never substitute a shorter live baseline window for these bounds.
+
+In the normal metadata image prepare a branch plan with `--branch-target research`,
+`--small-attempts 2` and `--fixture-manifest /staging-control/fixture/manifest.json`,
+plus the existing candidate, explicit consumer, resource/window and output settings.
+The consumer selects both fixture instruments, its required populated columns and
+compatible warmup. Unsupported source/schema/coverage blocks before computation.
+
+Run `run_staging_control.py --stage branch` with this plan/env/manifest. It submits
+exactly one existing Research job: native CF/L0/L1/L2/QC/publication, followed by
+fresh normal consumer readback and compute-contract verification. Each whole graph
+spends one small slot; a failed launch/job is not retried. Native Dagster steps
+run one at a time using its existing executor setting. Repeat development on a
+new empty output root with the same task/quota, keeping earlier outputs/evidence.
+Changing the plan/run ID/SHA does not reset spent attempts.
+
+Use `--output <new-host-report.json>` to retain the plain branch report. This report
+is deliberately not a signed acceptance receipt. Cold materialization is permitted
+only inside this verified miniature; ordinary historical rebuild remains forbidden.
+Data retains `--branch-target baseline`; runtime/API use their focused existing
+checks. Full real-source genuine-cron acceptance remains a separate one-per-batch
+requirement. Source/unit tests alone do not prove this cold native job ran.
+
 ## Optional branch perf and native acceptance
 
 Run the protected host supervisor with `--stage branch|acceptance`, `--env-file`,
 `--plan` and `--execution-manifest`. `--prepare-only` checks configuration; its
 output explicitly does not claim signer or native-consumer proof.
 
-Branch uses the native direct coordinator without a daemon. After host preflight,
+Baseline branch uses the native direct coordinator without a daemon. After host preflight,
 launch through `scripts/launch_moex_baseline_staging_run.py` and the registered
 guarded branch instance. The launcher uses the captured native RunConfig. For
 baseline/candidate perf comparisons, use separate roots restored from identical

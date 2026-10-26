@@ -885,6 +885,19 @@ def _runtime_cap(plan, reservation, instance, run_id):
 
 def _check_operation(plan, operation):
     if operation == "rebuild":
+        if (
+            plan.get("stage") == "branch"
+            and plan["attempt_kind"] == "small"
+            and plan.get("root_job") == "research_data_prep_job"
+            and plan.get("source", {}).get("fixture")
+        ):
+            from .staging_test_fixture import validate_branch_fixture
+
+            try:
+                validate_branch_fixture(plan)
+            except (ValueError, OSError, KeyError, TypeError) as exc:
+                raise StagingExecutionError(f"bounded test fixture rejected: {exc}") from exc
+            return
         if plan["attempt_kind"] != "rebuild" or plan["limits"]["rebuild"] < 1:
             raise StagingExecutionError("full rebuild not authorized by protected plan")
     elif operation != "daily" or plan["attempt_kind"] == "rebuild":
@@ -1172,6 +1185,24 @@ def staging_asset(function=None, *, operation="daily"):
             "evidence_root",
         )
         paths = [Path(config[key]) for key in keys if config.get(key)]
+        bound = _plan(paths[0] if paths else None)
+        if bound is not None and bound.get("source", {}).get("fixture"):
+            from .staging_test_fixture import validate_branch_fixture
+
+            fixture = validate_branch_fixture(bound)
+            readonly = {
+                "canonical_output_dir": Path(fixture["canonical_dir"]),
+                "canonical_bars_path": Path(fixture["canonical_dir"]) / "canonical_bars.delta",
+                "raw_table_path": Path(fixture["raw_dir"]) / "raw_moex_history.delta",
+            }
+            paths = [
+                Path(config[key])
+                for key in keys
+                if config.get(key)
+                and (key not in readonly or Path(config[key]).resolve() != readonly[key].resolve())
+            ]
+            if not paths:
+                paths = [Path(bound["data_root"])]
         if not paths and os.environ.get(PLAN_ENV):
             plan = load_plan(Path(os.environ[PLAN_ENV]))
             paths = [Path(plan["data_root"])]

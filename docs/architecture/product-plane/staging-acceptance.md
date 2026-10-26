@@ -70,6 +70,35 @@ this command. Existing quotas guard repeated invocations. Setup and incident
 repair are agent work; ordinary integrations use this fixed machine route.
 Implementation and real-route activation remain separate evidence.
 
+## Short branch validation on prepared test inputs
+
+Branch development has separate bounded small attempts, not only baseline perf.
+Data retains its existing baseline target; Research uses the existing
+research_data_prep_job and production CF/L0/L1/L2/QC/publication functions on a
+prepared synthetic miniature. Runtime/API changes retain their focused existing
+runtime checks. Coverage is explicit; unsupported targets or columns are BLOCKED.
+No branch result, fixture checkpoint or mocked test can admit main.
+
+The Research fixture contains two instruments, four declared timeframes and 512
+bars per group. A versioned manifest binds every input Delta version, schema,
+row/file count and file hash. Hard preparation limits: 32768 total input rows,
+16 MiB total bytes, 256 files; missing/extra/changed inputs or insufficient warmup
+block before native work. Inputs live under the read-only protected control mount;
+outputs are new isolated tables. No production mount, live acquisition or large
+seed fallback is available. Existing native-call, RAM, deadline and output-growth
+limits still apply. The native Dagster multiprocess executor uses its existing
+DAGSTER_MULTIPROCESS_EXECUTOR_MAX_CONCURRENT=1 setting in staging; no new job or
+executor is introduced. Prepare inputs once and reuse their immutable identity.
+
+Cold materialization of this bounded synthetic Research fixture may use the
+native operation=rebuild only for stage=branch, attempt_kind=small and the exact
+research_data_prep_job with a verified protected fixture binding. One whole graph
+spends one small slot. This exception never authorizes ordinary Data/Research
+full-history rebuilds; those retain rebuild=0. It adds no mathematical owner.
+The ordinary full real-base/genuine-cron acceptance stays mandatory before main.
+Preparation, source tests and actual guarded native execution are separate proof;
+no real native attempt or quota extension is granted by this implementation.
+
 ## Native owners and isolation
 
 Dagster owns schedules, jobs, sensors, run metadata, retries and persistent quota

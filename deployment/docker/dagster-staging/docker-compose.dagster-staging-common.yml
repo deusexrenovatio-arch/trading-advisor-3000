@@ -9,6 +9,7 @@ x-staging: &staging
     - /tmp:size=${TA3000_STAGING_SCRATCH_BYTES:?set the scratch byte cap},mode=1777,exec,nosuid,nodev
   environment: &environment
     DAGSTER_HOME: /opt/dagster/dagster_home
+    DAGSTER_MULTIPROCESS_EXECUTOR_MAX_CONCURRENT: "1"
     PYTHONPATH: /workspace/src
     TA3000_STAGING_PLAN: /staging-control/plan.json
     TA3000_RESEARCH_DATA_PREP_DATASET_VERSION: ${TA3000_STAGING_DATASET_VERSION:?set the pinned consumer dataset version}
@@ -28,6 +29,7 @@ x-staging: &staging
     - ${TA3000_STAGING_VERIFIER_WORKTREE:?set the protected verifier worktree}/src/trading_advisor_3000/product_plane/common/staging_execution.py:/workspace/src/trading_advisor_3000/product_plane/common/staging_execution.py:ro
     - ${TA3000_STAGING_VERIFIER_WORKTREE:?set the protected verifier worktree}/src/trading_advisor_3000/product_plane/common/staging_contracts.py:/workspace/src/trading_advisor_3000/product_plane/common/staging_contracts.py:ro
     - ${TA3000_STAGING_VERIFIER_WORKTREE:?set the protected verifier worktree}/src/trading_advisor_3000/product_plane/common/staging_source_scope.py:/workspace/src/trading_advisor_3000/product_plane/common/staging_source_scope.py:ro
+    - ${TA3000_STAGING_VERIFIER_WORKTREE:?set the protected verifier worktree}/src/trading_advisor_3000/product_plane/common/staging_test_fixture.py:/workspace/src/trading_advisor_3000/product_plane/common/staging_test_fixture.py:ro
     - ${TA3000_STAGING_VERIFIER_WORKTREE:?set the protected verifier worktree}/src/trading_advisor_3000/product_plane/common/staging_route_proof.py:/workspace/src/trading_advisor_3000/product_plane/common/staging_route_proof.py:ro
     - ${TA3000_STAGING_VERIFIER_WORKTREE:?set the protected verifier worktree}/src/trading_advisor_3000/product_plane/contracts/schemas/staging_acceptance.v1.json:/workspace/src/trading_advisor_3000/product_plane/contracts/schemas/staging_acceptance.v1.json:ro
     - ${TA3000_STAGING_CONTROL_ROOT:?set the protected control directory}:/staging-control:ro
