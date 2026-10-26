@@ -1282,7 +1282,7 @@ def validate_config(config, paths, plan):
         if (
             not isinstance(scratch, list)
             or len(scratch) != 1
-            or not re.fullmatch(r"/tmp:size=[1-9][0-9]*,mode=1777", scratch[0])
+            or not re.fullmatch(r"/tmp:size=[1-9][0-9]*,mode=1777,exec,nosuid,nodev", scratch[0])
         ):
             raise ValueError("Scratch must be one byte-bounded /tmp tmpfs")
         seen = set()
