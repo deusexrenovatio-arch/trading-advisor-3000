@@ -22,6 +22,7 @@ _EXTERNAL_ROOTS = frozenset(
     {
         "bisect",
         "collections",
+        "contextvars",
         "dataclasses",
         "datetime",
         "enum",

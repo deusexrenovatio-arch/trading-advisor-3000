@@ -24,6 +24,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     read_delta_table_arrow,
     read_delta_table_rows,
 )
+from trading_advisor_3000.product_plane.research.admission import admitted_compute, pair_admitted
 from trading_advisor_3000.product_plane.research.bar_usage_policy import (
     EVENT_UPDATE_ZERO,
     INDICATOR_USAGE_POLICY_ID,
@@ -2115,6 +2116,17 @@ def build_indicator_frames(
     return rows
 
 
+@admitted_compute(
+    output="indicator_output_dir",
+    sources=("volume_profile_raw_1m_table_path",),
+    input_roots=(
+        (
+            "dataset_output_dir",
+            ("research_datasets", "research_bar_views", "continuous_front_adjustment_ladder"),
+        ),
+    ),
+    windows="changed_windows",
+)
 @native_compute_scope
 def materialize_indicator_frames(
     *,
@@ -2255,8 +2267,10 @@ def _materialize_indicator_frames_unlocked(
     )
 
     def _partition_in_requested_scope(partition: IndicatorFramePartitionKey) -> bool:
-        return (not scoped_timeframes or partition.timeframe in scoped_timeframes) and (
-            not scoped_instruments or partition.instrument_id in scoped_instruments
+        return (
+            pair_admitted(partition.instrument_id, partition.timeframe)
+            and (not scoped_timeframes or partition.timeframe in scoped_timeframes)
+            and (not scoped_instruments or partition.instrument_id in scoped_instruments)
         )
 
     table_exists = (
@@ -2400,6 +2414,11 @@ def _materialize_indicator_frames_unlocked(
         dataset_instrument_ids=dataset_instrument_ids,
         active_timeframes=active_timeframes,
     )
+    partition_counts = {
+        key: count
+        for key, count in partition_counts.items()
+        if pair_admitted(key.instrument_id, key.timeframe)
+    }
     source_table_commit_ts = _latest_delta_commit_timestamp(
         dataset_output_dir / "research_bar_views.delta"
     )

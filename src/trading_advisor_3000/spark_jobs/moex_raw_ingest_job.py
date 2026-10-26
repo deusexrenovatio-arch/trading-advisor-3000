@@ -453,6 +453,34 @@ def _collect_tail_append_watermarks(
     return watermark_by_key
 
 
+def _raw_change_scope(table_path, before, *, changed):
+    from deltalake import DeltaTable as NativeDeltaTable
+
+    from trading_advisor_3000.product_plane.common.data_snapshots import capture_table
+
+    try:
+        after = capture_table(table_path)
+        first = before["delta_version"] if before else -1
+        count = after["delta_version"] - first
+        history = NativeDeltaTable(str(table_path)).history(limit=count) if 0 < count <= 128 else []
+        mutations = [item for item in history if item["operation"] != "OPTIMIZE"]
+        proven = (
+            count == len(history)
+            and count >= 0
+            and (not before or before["table_id"] == after["table_id"])
+            and len(mutations) == int(changed or before is None)
+            and (not mutations or mutations[0]["version"] == first + 1)
+        )
+        return {
+            "version": 1,
+            "proven": proven,
+            "input_reference": before,
+            "output_reference": after,
+        }
+    except Exception:
+        return {"version": 1, "proven": False, "input_reference": before}
+
+
 def run_moex_raw_ingest_spark_delta_job(
     *,
     table_path: Path,
@@ -476,6 +504,9 @@ def run_moex_raw_ingest_spark_delta_job(
 
     _ensure_spark_delta_runtime_available()
     spark_session_factory = spark_session_factory or _create_spark_session
+    from trading_advisor_3000.product_plane.common.data_snapshots import capture_table
+
+    before = capture_table(table_path) if has_delta_log(table_path) else None
     spark = spark_session_factory("ta3000-moex-raw-ingest-delta-native", spark_master)
     _, window, functions, _ = _load_spark_modules()
     try:
@@ -560,6 +591,7 @@ def run_moex_raw_ingest_spark_delta_job(
                         "processed_at_utc": _to_iso_utc(datetime.now(tz=UTC)),
                     },
                 )
+            report["native_change_scope"] = _raw_change_scope(table_path, before, changed=False)
             return report
 
         ranked_source = source_df.withColumn(
@@ -629,7 +661,11 @@ def run_moex_raw_ingest_spark_delta_job(
             replacement_source_df = append_source_df
             target_missing_rows = 0
         elif table_exists and not tail_append_only:
-            raw_existing = spark.read.format("delta").load(str(table_path))
+            raw_existing = (
+                spark.read.format("delta")
+                .option("versionAsOf", before["delta_version"])
+                .load(str(table_path))
+            )
             baseline_scoped = _filtered_raw_by_scopes(
                 raw_existing,
                 scope_windows_df,
@@ -812,6 +848,9 @@ def run_moex_raw_ingest_spark_delta_job(
                     "processed_at_utc": _to_iso_utc(datetime.now(tz=UTC)),
                 },
             )
+        report["native_change_scope"] = _raw_change_scope(
+            table_path, before, changed=incremental_rows > 0
+        )
         return report
     except Exception as exc:
         _append_json_event(

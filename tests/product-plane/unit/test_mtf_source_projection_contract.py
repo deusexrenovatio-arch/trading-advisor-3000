@@ -61,6 +61,7 @@ def test_mixed_source_projection_contract_fails_before_spark(tmp_path: Path, has
     _source_metadata(tmp_path / "derived", hashes)
     with pytest.raises(ValueError, match="mixed source projection contracts"):
         job.run_research_derived_source_frames_spark_job(
+            operation="rebuild",
             bar_views_path=bars,
             indicator_frames_path=indicators,
             output_dir=tmp_path / "derived",
@@ -161,6 +162,7 @@ def test_declared_column_missing_fails_with_existing_source_before_spark(tmp_pat
     _source_metadata(tmp_path / "derived", ("old",))
     with pytest.raises(ValueError, match="requires source indicator columns: adx_14"):
         job.run_research_derived_source_frames_spark_job(
+            operation="rebuild",
             bar_views_path=bars,
             indicator_frames_path=indicators,
             output_dir=tmp_path / "derived",
@@ -223,6 +225,7 @@ def test_hash_check_respects_window_pair_inside_declared_instruments(
     )
     with pytest.raises(RuntimeError, match="scoped Spark reached"):
         job.run_research_derived_source_frames_spark_job(
+            operation="rebuild",
             bar_views_path=bars,
             indicator_frames_path=indicators,
             output_dir=tmp_path / "derived",

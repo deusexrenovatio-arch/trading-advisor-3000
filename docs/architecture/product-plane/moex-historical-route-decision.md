@@ -46,23 +46,31 @@ This means:
 | Canonical storage mutation | Spark canonical refresh only | Keeps canonical ownership obvious and fail-closed. |
 
 ## Storage Decision
-- Authoritative data root stays:
-  - `D:/TA3000-data/trading-advisor-3000-nightly`
-- Authoritative raw root stays:
-  - `D:/TA3000-data/trading-advisor-3000-nightly/raw/moex/baseline-4y-current`
-- Authoritative canonical root stays:
-  - `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current`
-- Authoritative stable data paths stay:
-  - `D:/TA3000-data/trading-advisor-3000-nightly/raw/moex/baseline-4y-current/raw_moex_history.delta`
-  - `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current/canonical_bars.delta`
-  - `D:/TA3000-data/trading-advisor-3000-nightly/canonical/moex/baseline-4y-current/canonical_bar_provenance.delta`
+- Runtime-instance roots and stable table paths are owned by the
+  [MOEX runtime registry](deployment/runtime-instances/moex-runtime-instances.v1.yaml).
+  Select the instance before resolving its `paths`; product and disposable
+  verification instances have separate roots and mutation policies.
+- The product host-root default is `instances.moex_product_staging.docker.host_root_default`.
+  Its `host_root_env` names the launch override. The
+  [product Compose bind](deployment/docker/dagster-staging/docker-compose.dagster-product-main-bind.yml)
+  applies that binding to the registered container paths.
+- Accepted reads bind to the selected root's exact snapshot/table references,
+  not to whichever rerun folder was created last. Source defaults and prose
+  paths alone do not establish the active mount or accepted data.
 - Raw Delta physical layout is partitioned only by derived `ts_close_year`.
 - The raw layout migration is a one-time Spark rewrite with explicit stage/report/promote steps; it must not remain as an alternate active raw route after promotion.
-- Derived storage stays reserved under:
-  - `D:/TA3000-data/trading-advisor-3000-nightly/derived/moex`
-- Downstream readers must bind to the stable raw/canonical baseline paths, not to whichever rerun folder happened to be created last.
 - Storage layout truth source:
   - `docs/runbooks/app/moex-baseline-storage-runbook.md`
+
+### Historical root provenance
+
+The earlier route used `D:/TA3000-data/trading-advisor-3000-nightly`, with
+`raw/moex/baseline-4y-current`, `canonical/moex/baseline-4y-current` and reserved
+`derived/moex` subpaths. Those dated paths explain historical reports; they do
+not override the current registry/environment binding. Runtime selection and
+promotion follow the
+[production runbook](docs/runbooks/app/ta3000-production-nightly.md), with
+accepted manifest and physical readback evidence for the selected instance.
 
 ## Existing Entry Point Decision
 
@@ -108,3 +116,29 @@ To avoid accidental launches of the wrong contour:
 - the manual full-route script must stay blocked by default,
 - proof contours must remain explicitly labeled as proof-only,
 - no runbook may present manual-only or proof-only entrypoints as the normal overnight path.
+
+
+## Daily calendar closure evidence
+
+The existing session-schedule producer owns raw schedule, open intervals and
+explicit closed dates as one logical family. Use the existing closed-date schema
+and source-provenance normalizer; do not infer closure from missing data. Validate
+provenance, complete coverage and open/closed disjointness before any write.
+
+Generate, infer and replace only the exact source/instrument/date cells derived
+from each changed window. All three Delta replacements use that complete scope,
+including mixed or empty outputs. Open-to-closed removes old intervals;
+closed-to-open removes old closure evidence. Preserve outside-scope dates and
+instruments; a global instrument/date Cartesian product is not bounded proof.
+
+The selected closed-date path, including an explicit override, is the same in
+the writer, producer report, Data snapshot, windowed references and Spark input.
+It defaults to the existing sibling canonical_closed_session_dates.delta.
+Unknown coverage, conflicting evidence or missing selected Delta input blocks
+admission. Existing Spark closed-only-source-span checks remain authoritative.
+
+Each table retains its own Delta transaction; this is not cross-table atomicity.
+On partial failure, return no PASS, keep pending scope and retain the accepted
+publication. Retrying the same source/scope must converge without retaining
+opposite calendar evidence. No manual production rebuild is part of this fix;
+scheduled runtime publication remains separate acceptance evidence.

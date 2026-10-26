@@ -366,7 +366,7 @@ def test_exact_old_native_l1_receipt_preserves_values_without_recompute(
     monkeypatch.setattr(m, "_build_partition_rows", compute)
     monkeypatch.setattr(bridge, "reviewed_current_source", lambda: True)
     with bridge._verified_migration_scope(bridge.NATIVE_LEGACY_SOURCE):
-        report = m.materialize_indicator_frames(**l1)
+        report = m.materialize_indicator_frames(operation="rebuild", **l1)
     assert report["hash_migrated_partition_count"] == (3 if change == "changed_input" else 4)
     actual = fixture.reload_indicator_frames(
         indicator_output_dir=l1["indicator_output_dir"],
@@ -383,7 +383,9 @@ def test_exact_old_native_l1_receipt_preserves_values_without_recompute(
             if key[:2] != ("BR", "15m"):
                 assert values[key] == value
     monkeypatch.setattr(m, "_build_partition_rows", builder)
-    assert m.materialize_indicator_frames(**l1)["refreshed_partition_count"] == 0
+    assert (
+        m.materialize_indicator_frames(operation="rebuild", **l1)["refreshed_partition_count"] == 0
+    )
 
 
 def test_old_native_producer_is_immutable_historical_code():

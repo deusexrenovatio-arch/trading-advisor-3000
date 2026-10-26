@@ -17,6 +17,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     read_delta_table_arrow,
 )
+from trading_advisor_3000.product_plane.research.admission import admitted_compute
 from trading_advisor_3000.product_plane.research.datasets import (
     research_dataset_store_contract,
 )
@@ -445,6 +446,12 @@ def _select_source_frame(
     return selected
 
 
+@admitted_compute(
+    output="output_dir",
+    sources=("bar_views_path", "indicator_frames_path"),
+    input_roots=(),
+    windows="refresh_windows",
+)
 def run_research_derived_source_frames_spark_job(
     *,
     bar_views_path: Path,

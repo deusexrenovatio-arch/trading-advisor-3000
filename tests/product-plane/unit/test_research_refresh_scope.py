@@ -29,7 +29,7 @@ def chain(tmp_path):
         nonlocal current
         tables = {"canonical_bars": snapshots.capture_table(source), **(extra or {})}
         scope = {
-            "version": 1,
+            "version": 2,
             "full_refresh": False,
             "windows": list(windows),
             "effective_intervals": list(intervals),
@@ -140,7 +140,7 @@ def test_incomplete_stats_in_one_owned_file_force_full(chain):
             stats["maxValues"].pop("ts")
             action["add"]["stats"] = json.dumps(stats)
     log.write_text("\n".join(json.dumps(action) for action in actions) + "\n")
-    assert resolve(data("missing-one-file-stat", [_window()]))["force_full_refresh"] is True
+    assert resolve(data("missing-one-file-stat", [_window()]))["force_full_refresh"] is False
 
 
 @pytest.mark.parametrize("name", ["raw_daily_open_interest", "raw_moex_history"])
@@ -159,7 +159,7 @@ def test_unscoped_dependency_change_forces_full_despite_raw_scope(chain, name):
             covered=False,
         )
     )
-    assert scope["force_full_refresh"] is True
+    assert scope["force_full_refresh"] is False
     assert scope["reason"] == f"unbounded_dependency:{name}"
 
 
@@ -169,7 +169,7 @@ def test_missing_ancestry_and_unmapped_or_ambiguous_economics_are_full(chain):
     latest = data("latest")
     saved = intermediate.read_text()
     intermediate.unlink()
-    assert resolve(latest)["force_full_refresh"] is True
+    assert resolve(latest)["force_full_refresh"] is False
     intermediate.write_text(saved)
     interval = {
         "instrument_id": "FUT_BR",
@@ -180,7 +180,7 @@ def test_missing_ancestry_and_unmapped_or_ambiguous_economics_are_full(chain):
         resolve(data("ambiguous", [_window(), _window(instrument="FUT_BR")], [interval]))[
             "force_full_refresh"
         ]
-        is True
+        is False
     )
 
 
@@ -218,7 +218,7 @@ def test_data_publisher_keeps_parent_and_checks_per_table_scope_versions(tmp_pat
             "status": "PASS",
             "sidecar_refresh": {
                 "dependency_scope": {
-                    "version": 1,
+                    "version": 2,
                     "full_refresh": False,
                     "windows": [],
                     "output_delta_versions": {"canonical_bars": reference},
@@ -263,7 +263,7 @@ def test_data_publisher_keeps_parent_and_checks_per_table_scope_versions(tmp_pat
 def test_bound_legacy_data_and_removed_dependency_never_become_noop(chain):
     data, resolve, source, _, _ = chain
     result = resolve(data("bound-legacy-raw-noop", legacy=True))
-    assert result["force_full_refresh"] is True
+    assert result["force_full_refresh"] is False
     assert result["reason"] == "legacy_bound_data_scope"
     dependency = source.parent / "canonical_closed_dates.delta"
     write_deltalake(str(dependency), pa.table({"id": [1]}))
@@ -271,7 +271,7 @@ def test_bound_legacy_data_and_removed_dependency_never_become_noop(chain):
         "dependency-present", extra={"canonical_closed_dates": snapshots.capture_table(dependency)}
     )
     result = resolve(data("dependency-removed"))
-    assert result["force_full_refresh"] is True
+    assert result["force_full_refresh"] is False
     assert result["reason"] == "unbounded_dependency:canonical_closed_dates"
 
 
@@ -293,7 +293,7 @@ def test_changed_research_semantics_force_full_on_data_noop(chain, key, value):
         timeframes=("15m", "1d"),
         configuration={key: value},
     )
-    assert result["force_full_refresh"] is True
+    assert result["force_full_refresh"] is False
     assert result["reason"] == "research_semantics_changed"
 
 
@@ -333,7 +333,7 @@ def test_external_volume_profile_version_is_checked_before_noop(chain):
     assert resolve_refresh_scope(**options)["force_full_refresh"] is False
     write_deltalake(str(vp), pa.table({"id": [2]}), mode="append")
     result = resolve_refresh_scope(**options)
-    assert result["force_full_refresh"] is True
+    assert result["force_full_refresh"] is False
     assert result["reason"] == "unbounded_external_volume_profile"
 
 
@@ -364,3 +364,89 @@ def test_daily_only_change_reaches_weekly_usage_dependency(chain):
     )
     assert result["force_full_refresh"] is False
     assert {window["timeframe"] for window in result["windows"]} == {"1d", "1w"}
+
+
+def test_daily_unknown_scope_is_observably_blocked_not_full_or_noop(chain):
+    data, resolve, _, _, _ = chain
+    result = resolve(data("legacy-admission", legacy=True))
+    assert result["outcome"] == "BLOCKED"
+    assert result["reason"] == "legacy_bound_data_scope"
+    assert result["force_full_refresh"] is False
+    assert result["windows"] == []
+
+
+def test_daily_no_changes_has_explicit_noop_outcome(chain):
+    data, resolve, _, _, _ = chain
+    assert resolve(data("proven-noop"))["outcome"] == "NOOP"
+
+
+def test_daily_proven_change_has_explicit_scoped_outcome(chain):
+    data, resolve, _, _, _ = chain
+    result = resolve(data("proven-change", [_window()]))
+    assert result["outcome"] == "SCOPED"
+    assert result["windows"]
+
+
+def test_direct_l1_missing_admission_rejected_before_writer_lock(tmp_path, monkeypatch):
+    from trading_advisor_3000.product_plane.research.indicators import materialize as owner
+
+    def forbidden(**kwargs):
+        pytest.fail("missing admission reached the writer lock")
+
+    monkeypatch.setattr(owner, "_acquire_indicator_frame_materialization_lock", forbidden)
+    with pytest.raises(ValueError, match="admission"):
+        owner.materialize_indicator_frames(
+            dataset_output_dir=tmp_path,
+            indicator_output_dir=tmp_path,
+            dataset_version="daily",
+            indicator_set_version="indicators-v1",
+            changed_windows=None,
+            force_recompute=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "identities,expected", [(["FUT_BR"], "SCOPED"), (["FUT_BR", "BR"], "BLOCKED")]
+)
+def test_economics_only_scope_uses_actual_pinned_instrument_identity(chain, identities, expected):
+    data, resolve, source, _, _ = chain
+    write_deltalake(
+        str(source),
+        pa.table(
+            {
+                "ts": [datetime(2026, 1, 10, tzinfo=UTC)] * len(identities),
+                "instrument_id": identities,
+                "value": [1] * len(identities),
+            }
+        ),
+        mode="overwrite",
+        schema_mode="overwrite",
+    )
+    scope = resolve(
+        data(
+            "economics-only",
+            intervals=[{"instrument_id": "BR", "effective_from_ts": "2026-01-05T00:00:00Z"}],
+        )
+    )
+    assert scope["outcome"] == expected
+    if expected == "SCOPED":
+        assert {w["instrument_id"] for w in scope["windows"]} == {"FUT_BR"}
+    else:
+        assert scope["reason"] == "unproven_economics_identity"
+
+
+def test_legacy_v1_producer_scope_cannot_authorize_daily(chain):
+    data, resolve, _, _, _ = chain
+    path = data("old-v1", [_window()])
+    payload = json.loads(path.read_text())
+    payload["parameters"]["downstream_scope"]["version"] = 1
+    payload.pop("manifest_sha256")
+    payload["manifest_sha256"] = snapshots._hash(payload)
+    path.write_text(json.dumps(payload))
+    # The current pointer binds the manifest digest and must be republished.
+    root = path.parent.parent
+    pointer = json.loads((root / "published_current.json").read_text())
+    pointer["manifest_sha256"] = payload["manifest_sha256"]
+    (root / "published_current.json").write_text(json.dumps(pointer))
+    scope = resolve(path)
+    assert scope["outcome"] == "BLOCKED" and scope["reason"] == "legacy_bound_data_scope"

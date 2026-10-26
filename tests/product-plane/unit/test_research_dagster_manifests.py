@@ -67,7 +67,9 @@ from trading_advisor_3000.product_plane.research.strategies.families import (
 )
 
 
-def _full_research_config(tmp_path: Path, **overrides: object) -> dict[str, object]:
+def _full_research_config(
+    tmp_path: Path, *, admitted: bool = True, **overrides: object
+) -> dict[str, object]:
     config = research_assets._research_run_config(  # type: ignore[attr-defined]
         canonical_output_dir=tmp_path / "canonical",
         registry_root=tmp_path / "registry",
@@ -82,7 +84,9 @@ def _full_research_config(tmp_path: Path, **overrides: object) -> dict[str, obje
         derived_indicator_profile_version="core_v1",
     )
     config.update(overrides)
-    return config
+    from trading_advisor_3000.product_plane.research.admission import configure_admission
+
+    return configure_admission(config, operation="rebuild") if admitted else config
 
 
 def _search_spec_payload() -> dict[str, object]:
@@ -310,6 +314,7 @@ def test_research_campaign_run_config_carries_context_without_data_prep_upstream
 def test_research_campaign_job_config_mapping_expands_context_config(tmp_path: Path) -> None:
     mapped = research_assets._research_campaign_job_config_fn(  # type: ignore[attr-defined]
         {
+            "operation": "rebuild",
             "campaign_config": _campaign_payload(tmp_path, target_stage="data_prep"),
             "repo_root": Path(__file__).resolve().parents[3].as_posix(),
         },
@@ -555,6 +560,9 @@ def test_research_dataset_asset_persists_absolute_volume_profile_raw_path(
         },
     )
 
+    from trading_advisor_3000.product_plane.research.admission import configure_admission
+
+    config = configure_admission(config, operation="rebuild")
     payload = research_assets.research_datasets(build_op_context(op_config=config))
 
     assert Path(str(payload["volume_profile_raw_1m_table_path"])).is_absolute()
@@ -828,9 +836,7 @@ def test_reused_dagster_derived_asset_validates_existing_indicator_identity(
     assert captured["derived_indicator_set_version"] == "derived-v1"
 
 
-def test_dagster_derived_asset_passes_changed_windows_to_materializer(
-    tmp_path, monkeypatch
-) -> None:
+def test_dagster_derived_asset_rejects_unbound_changed_windows(tmp_path, monkeypatch) -> None:
     captured: dict[str, object] = {}
     _stub_existing_research_context(monkeypatch, tmp_path)
     changed_windows = [
@@ -856,20 +862,20 @@ def test_dagster_derived_asset_passes_changed_windows_to_materializer(
         lambda **_: {"table_name": "research_derived_indicator_frames", "row_count": 1},
     )
 
-    research_assets.research_derived_indicator_frames(
-        build_op_context(
-            op_config=_full_research_config(
-                tmp_path,
-                series_mode="continuous_front",
-                timeframes=["15m"],
-                dataset_instrument_ids=["BR"],
-                changed_windows=changed_windows,
+    with pytest.raises(ValueError, match="refresh admission (required|schema invalid)"):
+        research_assets.research_derived_indicator_frames(
+            build_op_context(
+                op_config=_full_research_config(
+                    tmp_path,
+                    admitted=False,
+                    series_mode="continuous_front",
+                    timeframes=["15m"],
+                    dataset_instrument_ids=["BR"],
+                    changed_windows=changed_windows,
+                )
             )
         )
-    )
-
-    assert captured["contour_id"] == "pit_active_front"
-    assert captured["refresh_windows"] == tuple(changed_windows)
+    assert not captured
 
 
 def test_existing_research_dataset_context_preserves_changed_windows(tmp_path, monkeypatch) -> None:
@@ -890,6 +896,7 @@ def test_existing_research_dataset_context_preserves_changed_windows(tmp_path, m
     context = research_assets._existing_research_dataset_context(  # type: ignore[attr-defined]
         _full_research_config(
             tmp_path,
+            admitted=False,
             series_mode="continuous_front",
             timeframes=["15m"],
             dataset_instrument_ids=["BR"],
@@ -1328,7 +1335,8 @@ def test_materialize_research_assets_reports_rows_with_requested_timeframe_scope
         lambda **_: SimpleNamespace(success=True),
     )
 
-    report = research_assets._materialize_research_assets(  # type: ignore[attr-defined]
+    report = research_assets._materialize_research_assets(
+        operation="rebuild",  # type: ignore[attr-defined]
         canonical_output_dir=tmp_path / "canonical",
         materialized_output_dir=materialized_dir,
         results_output_dir=tmp_path / "results",
@@ -1410,6 +1418,7 @@ def test_research_dataset_materialization_replaces_delta_version_without_existin
         code_version="test",
     )
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=manifest,
         output_dir=tmp_path,
         bar_view_count=1,
@@ -1425,6 +1434,7 @@ def test_research_dataset_materialization_replaces_delta_version_without_existin
         dataset_materialize_module, "read_filtered_delta_table_rows", _forbidden_existing_reload
     )
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(**{**manifest.__dict__, "bars_hash": "NEW"}),
         output_dir=tmp_path,
         bar_view_count=2,
@@ -1475,6 +1485,7 @@ def test_research_dataset_materialization_migrates_legacy_manifest_schema(tmp_pa
     )
 
     materialize_research_dataset(
+        operation="rebuild",
         manifest_seed=ResearchDatasetManifest(
             dataset_version="dataset-v1",
             contour_id="native_tradable",
@@ -1663,8 +1674,6 @@ def test_research_contract_lineage_is_consistent_across_dataset_indicator_and_de
         "distance_to_ema_20_atr",
         "donchian_position_20",
         "divergence_price_rsi_14_score",
-        "mtf_1h_to_15m_ema_20",
-        "mtf_1h_to_15m_ema_50",
     } <= derived_columns
     assert {
         "volatility_regime_code",

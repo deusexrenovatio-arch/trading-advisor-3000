@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pyarrow as pa
 import pytest
 from dagster import DagsterInstance
+from deltalake import write_deltalake
 
 import trading_advisor_3000.dagster_defs.moex_historical_assets as moex_historical_assets
 import trading_advisor_3000.dagster_defs.research_assets as research_assets
@@ -653,8 +655,11 @@ def test_scoped_indicator_rebuild_preserves_unrequested_partitions(
     )
     (tmp_path / "indicators" / "research_indicator_frames.delta" / "_delta_log").mkdir(parents=True)
 
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
     class _Profile:
-        version = "core_v1"
+        version: str = "core_v1"
 
         def expected_output_columns(self) -> tuple[str, ...]:
             return ("rsi_14",)
@@ -713,6 +718,7 @@ def test_scoped_indicator_rebuild_preserves_unrequested_partitions(
     )
 
     report = indicator_materialize.materialize_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=tmp_path / "datasets",
         indicator_output_dir=tmp_path / "indicators",
         dataset_version="run-data-layer",
@@ -746,9 +752,12 @@ def test_scoped_derived_rebuild_preserves_unrequested_partitions_and_passes_spar
         parents=True
     )
 
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
     class _Profile:
-        version = "core_v1"
-        output_columns = ("derived_signal",)
+        version: str = "core_v1"
+        output_columns: tuple[str, ...] = ("derived_signal",)
 
     captured: dict[str, object] = {}
 
@@ -824,7 +833,11 @@ def test_scoped_derived_rebuild_preserves_unrequested_partitions_and_passes_spar
         _fake_write,
     )
 
+    write_deltalake(
+        str(tmp_path / "indicators/research_indicator_frames.delta"), pa.table({"fixture": [1]})
+    )
     report = derived_materialize.materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=tmp_path / "datasets",
         indicator_output_dir=tmp_path / "indicators",
         derived_indicator_output_dir=tmp_path / "derived",

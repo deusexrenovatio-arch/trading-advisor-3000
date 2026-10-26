@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pyarrow as pa
+from deltalake import write_deltalake
 
 from trading_advisor_3000.product_plane.research.derived_indicators import materialize as owner
 
@@ -27,7 +29,9 @@ def test_cf_materialization_releases_finished_source_families(monkeypatch, tmp_p
     ]
     indicator_dir = tmp_path / "indicators"
     derived_dir = tmp_path / "derived"
-    (indicator_dir / "research_indicator_frames.delta" / "_delta_log").mkdir(parents=True)
+    write_deltalake(
+        str(indicator_dir / "research_indicator_frames.delta"), pa.table({"fixture": [1]})
+    )
     (derived_dir / "research_derived_indicator_frames.delta" / "_delta_log").mkdir(parents=True)
     frames: list[tuple[str, weakref.ReferenceType[pd.DataFrame]]] = []
     observations: list[tuple[str, tuple[str, ...]]] = []
@@ -115,6 +119,7 @@ def test_cf_materialization_releases_finished_source_families(monkeypatch, tmp_p
     monkeypatch.setattr(owner, "write_derived_indicator_frame_batches", write_batches)
 
     report = owner.materialize_derived_indicator_frames(
+        operation="rebuild",
         dataset_output_dir=tmp_path / "datasets",
         indicator_output_dir=indicator_dir,
         derived_indicator_output_dir=derived_dir,

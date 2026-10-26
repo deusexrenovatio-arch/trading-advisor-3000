@@ -73,9 +73,14 @@ def resolve_refresh_scope(
         data["manifest_sha256"],
     ):
         raise ValueError("Refresh scope Data parent is not accepted current")
-    full = {"refresh_scope_version": 1, "force_full_refresh": True, "windows": []}
-    if data["parameters"].get("downstream_scope", {}).get("version") != 1:
-        return {**full, "reason": "legacy_bound_data_scope"}
+    blocked = {
+        "refresh_scope_version": 1,
+        "force_full_refresh": False,
+        "outcome": "BLOCKED",
+        "windows": [],
+    }
+    if data["parameters"].get("downstream_scope", {}).get("version") != 2:
+        return {**blocked, "reason": "legacy_bound_data_scope"}
     research = current_snapshot(
         snapshot_registry(materialized_output_dir, dataset_version, "pit_active_front")
     )
@@ -85,22 +90,18 @@ def resolve_refresh_scope(
         or len(research["parents"]) != 1
         or set(research["parameters"].get("timeframes", [])) != set(timeframes)
     ):
-        return {**full, "reason": "missing_or_legacy_research_scope"}
+        return {**blocked, "reason": "missing_or_legacy_research_scope"}
     compatibility = {}
     if configuration is not None:
-        ignored = {
-            "changed_windows",
-            "refresh_scope_version",
-            "force_full_refresh",
-            "data_snapshot_manifest_path",
-            "hash_compatibility",
-        }
+        from .hash_compatibility import SCOPE_PARAMETER_KEYS
+
+        ignored = SCOPE_PARAMETER_KEYS
         if any(
             research["parameters"].get(key) != value
             for key, value in _parameters(configuration).items()
             if key not in ignored
         ):
-            return {**full, "reason": "research_semantics_changed"}
+            return {**blocked, "reason": "research_semantics_changed"}
         provenance_changed = (
             research["parameters"].get("runtime_provenance") != runtime_provenance()
         )
@@ -114,21 +115,26 @@ def resolve_refresh_scope(
             try:
                 parent = load_snapshot(root / "manifests" / f"{research['parents'][0]}.json")
             except (FileNotFoundError, SnapshotUnavailableError):
-                return {**full, "reason": "data_ancestry_unavailable"}
-            receipt = compatibility_receipt(
-                research, runtime_provenance(), semantic_compute_contract(configuration)
-            )
+                return {**blocked, "reason": "data_ancestry_unavailable"}
+            from .semantic_fingerprint import ContractError
+
+            try:
+                receipt = compatibility_receipt(
+                    research, runtime_provenance(), semantic_compute_contract(configuration)
+                )
+            except ContractError as error:
+                return {**blocked, "reason": f"research_contract_incompatible:{error}"}
             if (
                 receipt is None
                 or not REQUIRED_QUALITY.issubset(research["quality_checks"])
                 or any(research["quality_checks"][key] != "PASS" for key in REQUIRED_QUALITY)
             ):
-                return {**full, "reason": "research_semantics_changed"}
+                return {**blocked, "reason": "research_semantics_changed"}
             try:
                 if any(
                     research["tables"].get(name) != ref for name, ref in parent["tables"].items()
                 ):
-                    return {**full, "reason": "accepted_data_inputs_mismatch"}
+                    return {**blocked, "reason": "accepted_data_inputs_mismatch"}
                 for reference in parent["tables"].values():
                     open_pinned_table(reference)
                 assert_tables_unchanged(
@@ -139,13 +145,20 @@ def resolve_refresh_scope(
                     }
                 )
             except (ValueError, OSError, SnapshotUnavailableError):
-                return {**full, "reason": "accepted_research_outputs_changed"}
+                return {**blocked, "reason": "accepted_research_outputs_changed"}
             if provenance_changed:
                 compatibility = {"hash_compatibility": receipt}
     volume_profile_name = Path(
         str((configuration or {}).get("volume_profile_raw_1m_table_path", "raw_moex_history.delta"))
     ).stem
     volume_profile_path = str((configuration or {}).get("volume_profile_raw_1m_table_path") or "")
+    if (
+        volume_profile_path
+        and volume_profile_name in data["tables"]
+        and Path(volume_profile_path).resolve()
+        != Path(data["tables"][volume_profile_name]["table_path"]).resolve()
+    ):
+        return {**blocked, "reason": "unbounded_external_volume_profile"}
     if volume_profile_path and volume_profile_name not in data["tables"]:
         current_vp = capture_table(Path(volume_profile_path))
         accepted_vp = research["tables"].get(volume_profile_name)
@@ -155,13 +168,13 @@ def resolve_refresh_scope(
             or Path(str(current_vp["table_path"])).resolve()
             != Path(str(accepted_vp["table_path"])).resolve()
         ):
-            return {**full, "reason": "unbounded_external_volume_profile"}
+            return {**blocked, "reason": "unbounded_external_volume_profile"}
     if any(
         not (match := re.fullmatch(r"(\d+)([mhdw])", timeframe))
         or int(match[1]) * {"m": 60, "h": 3600, "d": 86400, "w": 604800}[match[2]] > 604800
         for timeframe in timeframes
     ):
-        return {**full, "reason": "unproven_bar_period"}
+        return {**blocked, "reason": "unproven_bar_period"}
     scopes, seen, cursor = [], set(), data
     anchor = research["parents"][0]
     try:
@@ -170,14 +183,24 @@ def resolve_refresh_scope(
                 raise ValueError("Data snapshot ancestry cycle")
             seen.add(cursor["snapshot_id"])
             scope = cursor["parameters"].get("downstream_scope", {})
-            if scope.get("version") != 1 or scope.get("full_refresh"):
-                return {**full, "reason": "unbounded_data_scope"}
+            if scope.get("version") != 2 or scope.get("full_refresh"):
+                return {**blocked, "reason": "unbounded_data_scope"}
             if len(cursor["parents"]) != 1:
-                return {**full, "reason": "missing_data_ancestry"}
-            parent = load_snapshot(root / "manifests" / f"{cursor['parents'][0]}.json")
+                return {**blocked, "reason": "missing_data_ancestry"}
+            if "recovery" in scope:
+                from trading_advisor_3000.product_plane.common.data_snapshots import (
+                    validate_recovery_bridge,
+                )
+
+                try:
+                    parent = validate_recovery_bridge(cursor, root=root, research=research)
+                except (ValueError, OSError, SnapshotUnavailableError) as error:
+                    return {**blocked, "reason": f"invalid_scope_recovery:{error}"}
+            else:
+                parent = load_snapshot(root / "manifests" / f"{cursor['parents'][0]}.json")
             if compatibility:
                 if set(cursor["tables"]) != set(parent["tables"]):
-                    return {**full, "reason": "data_table_set_changed"}
+                    return {**blocked, "reason": "data_table_set_changed"}
                 for name, reference in cursor["tables"].items():
                     previous = parent["tables"][name]
                     if any(
@@ -190,7 +213,7 @@ def resolve_refresh_scope(
                             "partition_columns",
                         )
                     ):
-                        return {**full, "reason": f"data_contract_changed:{name}"}
+                        return {**blocked, "reason": f"data_contract_changed:{name}"}
                     open_pinned_table(reference)
                     open_pinned_table(previous)
             for name in cursor["tables"].keys() | parent["tables"].keys():
@@ -207,18 +230,21 @@ def resolve_refresh_scope(
                     if actual is None or _identity(
                         scope.get("covered_tables", {}).get(name)
                     ) != _identity(actual):
-                        return {**full, "reason": f"unbounded_dependency:{name}"}
+                        return {**blocked, "reason": f"unbounded_dependency:{name}"}
             scopes.append(scope)
             cursor = parent
     except (FileNotFoundError, SnapshotUnavailableError):
-        return {**full, "reason": "data_ancestry_unavailable"}
+        return {**blocked, "reason": "data_ancestry_unavailable"}
     windows = [dict(window) for scope in scopes for window in scope.get("windows", [])]
+    original_windows = [dict(window) for window in windows]
     intervals = [item for scope in scopes for item in scope.get("effective_intervals", [])]
     if not windows and not intervals:
         return {
             "refresh_scope_version": 1,
             "force_full_refresh": False,
             "windows": [],
+            "outcome": "NOOP",
+            "original_windows": original_windows,
             **compatibility,
         }
     references = [
@@ -232,20 +258,47 @@ def resolve_refresh_scope(
         tails = [value for reference in references if (value := _tail(reference)) is not None]
         tails.extend(_stamp(window["end_ts"]) for window in windows)
         if not tails:
-            return {**full, "reason": "temporal_tail_unavailable"}
+            return {**blocked, "reason": "temporal_tail_unavailable"}
         end = max(tails)
     except (FileNotFoundError, SnapshotUnavailableError):
-        return {**full, "reason": "incomplete_temporal_tail"}
+        return {**blocked, "reason": "incomplete_temporal_tail"}
     aliases: dict[str, set[str]] = {}
     for window in windows:
         actual = str(window["instrument_id"])
         normalized = actual.removeprefix("FUT_").removesuffix("@MOEX")
         aliases.setdefault(normalized, set()).add(actual)
+    # Economics-only changes have no raw window from which to infer aliases.
+    # Project actual identities from the pinned canonical producer, in bounded
+    # Arrow batches; neither a spelling guess nor a global compute request.
+    missing = {
+        str(item["instrument_id"]).removeprefix("FUT_").removesuffix("@MOEX") for item in intervals
+    } - aliases.keys()
+    if missing:
+        reference = data["tables"].get("canonical_bars")
+        if reference is not None:
+            table = open_pinned_table(reference)
+            if "instrument_id" in {field.name for field in table.schema().fields}:
+                import pyarrow.dataset as ds
+
+                spellings = [
+                    value
+                    for name in missing
+                    for value in (name, "FUT_" + name, name + "@MOEX", "FUT_" + name + "@MOEX")
+                ]
+                scanner = table.to_pyarrow_dataset().scanner(
+                    columns=["instrument_id"],
+                    filter=ds.field("instrument_id").isin(spellings),
+                    batch_size=8192,
+                )
+                for batch in scanner.to_batches():
+                    for actual in set(batch.column(0).to_pylist()):
+                        normalized = str(actual).removeprefix("FUT_").removesuffix("@MOEX")
+                        aliases.setdefault(normalized, set()).add(str(actual))
     for interval in intervals:
         normalized = str(interval["instrument_id"]).removeprefix("FUT_").removesuffix("@MOEX")
         candidates = aliases.get(normalized, set())
         if len(candidates) != 1:
-            return {**full, "reason": "unproven_economics_identity"}
+            return {**blocked, "reason": "unproven_economics_identity"}
         for timeframe in timeframes:
             windows.append(
                 {
@@ -268,6 +321,8 @@ def resolve_refresh_scope(
     return {
         "refresh_scope_version": 1,
         "force_full_refresh": False,
+        "outcome": "SCOPED",
+        "original_windows": original_windows,
         **compatibility,
         "windows": [
             {

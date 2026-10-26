@@ -262,6 +262,7 @@ def native_materializer(tmp_path, monkeypatch):
                 compact=False,
             )
         return m.materialize_derived_indicator_frames(
+            operation="rebuild",
             dataset_output_dir=tmp_path,
             indicator_output_dir=tmp_path,
             derived_indicator_output_dir=tmp_path,

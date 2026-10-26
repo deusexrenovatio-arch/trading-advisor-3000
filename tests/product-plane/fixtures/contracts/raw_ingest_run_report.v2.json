@@ -1,4 +1,5 @@
 {
+  "native_change_scope": {"version": 1, "proven": false, "input_reference": null, "output_reference": null},
   "contract_version": "raw_ingest_run_report.v2",
   "run_id": "phase01-pass1",
   "generated_at_utc": "2026-04-01T10:25:00Z",

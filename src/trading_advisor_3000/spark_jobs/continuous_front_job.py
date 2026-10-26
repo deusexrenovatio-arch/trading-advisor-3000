@@ -11,6 +11,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_columns,
     has_delta_log,
 )
+from trading_advisor_3000.product_plane.research.admission import admitted_compute
 from trading_advisor_3000.product_plane.research.continuous_front import (
     CONTINUOUS_FRONT_TABLES,
     continuous_front_store_contract,
@@ -1407,6 +1408,17 @@ def _qc_rows_from_spark(qc_dataframe) -> list[dict[str, object]]:
     return rows
 
 
+@admitted_compute(
+    output="output_dir",
+    sources=(
+        "canonical_bars_path",
+        "canonical_session_calendar_path",
+        "canonical_roll_map_path",
+        "canonical_contract_economics_path",
+    ),
+    input_roots=(),
+    windows="refresh_windows",
+)
 def run_continuous_front_spark_job(
     *,
     canonical_bars_path: Path,

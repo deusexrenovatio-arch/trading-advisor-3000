@@ -2,6 +2,7 @@ name: pr-ci
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
 
 concurrency:
   group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
@@ -61,6 +62,13 @@ jobs:
           if [[ -n "${{ steps.pr-matrix.outputs.install_extras }}" ]]; then
             python -m pip install -e ".[${{ steps.pr-matrix.outputs.install_extras }}]"
           fi
+
+      - name: Setup Java for Spark
+        if: contains(steps.pr-matrix.outputs.install_extras, 'data-proof')
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: PR Gate
         shell: bash

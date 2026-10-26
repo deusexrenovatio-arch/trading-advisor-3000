@@ -40,17 +40,30 @@ def _angle_slope(current: float, previous: float, *, length: int) -> float:
     return math.degrees(math.atan((current - previous) / float(length)))
 
 
-def test_derived_native_contract_tracks_ladder_and_usage_policy(monkeypatch) -> None:
+def test_derived_native_contract_tracks_ladder_and_numeric_identity(monkeypatch) -> None:
     from trading_advisor_3000.product_plane.research.derived_indicators import materialize
 
-    ladder = ({"roll_seq": 1, "offset": 2.0}, {"roll_seq": 2, "offset": 3.0})
+    ladder = tuple(
+        {
+            "instrument_id": "BR",
+            "timeframe": "15m",
+            "roll_sequence": i,
+            "effective_ts": f"2026-01-0{i}T10:00:00Z",
+            "additive_gap": float(i + 1),
+        }
+        for i in (1, 2)
+    )
     original = materialize._derived_compute_contract_hash(ladder)
     assert materialize._derived_compute_contract_hash(tuple(reversed(ladder))) == original
     assert (
-        materialize._derived_compute_contract_hash((dict(ladder[0], offset=2.1), ladder[1]))
+        materialize._derived_compute_contract_hash((dict(ladder[0], additive_gap=2.1), ladder[1]))
         != original
     )
-    monkeypatch.setattr(materialize, "INDICATOR_USAGE_POLICY_ID", "native-policy-change")
+    from trading_advisor_3000.product_plane.research import compute_contract
+
+    identity = compute_contract.numerical_identity()
+    changed = {**identity, "kernels": {**identity["kernels"], "l2": "changed-native-kernel"}}
+    monkeypatch.setattr(compute_contract, "numerical_identity", lambda: changed)
     assert materialize._derived_compute_contract_hash(ladder) != original
 
 

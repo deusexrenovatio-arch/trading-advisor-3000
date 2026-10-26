@@ -45,6 +45,12 @@ The following contracts are versioned and test-covered, but they are not part of
 - `continuous_front_qc_report.v1`
 - `research_campaign.v1`
 - `research_run_summary.v1`
+- `data_scope_recovery.v1`: exact native Data segment proof, retained historical prefix,
+  immutable bridge publication; [operational boundary](../../runbooks/app/data-research-snapshot-publication.md#explicit-scope-recovery).
+- `research_refresh_admission.v1`: explicit daily/rebuild operation; native input and parent pins;
+  NOOP/SCOPED/BLOCKED; original/effective windows and declared domain. One JSON schema,
+  fixture and contract test. Existing Dagster config/checkpoints and Research manifest
+  parameters carry it; [operational boundary](../../runbooks/app/indicator-refresh.md#daily-admission-boundary).
 
 ## DB Mapping Baseline
 - `runtime_signal.v1` maps to `signal.active_signals`

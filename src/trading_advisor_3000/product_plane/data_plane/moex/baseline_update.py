@@ -204,12 +204,14 @@ def _write_pending_changed_windows(
     reason: str,
 ) -> None:
     normalized = normalize_changed_windows(changed_windows)
-    if not normalized:
+    existing = _read_json_object(path) if path.exists() else {}
+    if not normalized and not existing.get("support_changed_keys"):
         path.unlink(missing_ok=True)
         return
     _write_json(
         path,
         {
+            **existing,
             "status": "PENDING",
             "run_id": run_id,
             "reason": reason,
@@ -429,6 +431,7 @@ def _materialize_baseline_session_schedule(
     run_id: str,
     raw_table_path: Path,
     canonical_session_intervals_path: Path,
+    canonical_closed_session_dates_path: Path,
     mappings: Sequence[object],
     changed_windows: list[dict[str, object]],
 ) -> dict[str, object]:
@@ -441,6 +444,7 @@ def _materialize_baseline_session_schedule(
             raw_table_path=raw_table_path,
             raw_schedule_path=raw_schedule_path,
             canonical_session_intervals_path=canonical_session_intervals_path,
+            canonical_closed_session_dates_path=canonical_closed_session_dates_path,
             rule_catalog_path=DEFAULT_PUBLIC_RULE_CATALOG_PATH,
             allow_candle_inference=True,
         )
@@ -901,6 +905,7 @@ def refresh_moex_contract_economics(
     daily_open_interest_path: Path | None = None,
     previous_economics_reference: Mapping[str, object] | None = None,
     canonical_bars_path: Path | None = None,
+    pending_scope_path: Path | None = None,
 ) -> dict[str, object]:
     del changed_windows
 
@@ -958,6 +963,7 @@ def refresh_moex_contract_economics(
             raw_contract_specs_path=raw_economics_root / "raw_moex_contract_securities.delta",
             prepared_path=sources["raw_contract_specs_path"],
             daily_open_interest_path=daily_open_interest_path,
+            pending_scope_path=pending_scope_path,
             trade_dates=trade_dates,
             base_rules=options["additional_contract_parameter_regimes"],
             base_evidence=options["contract_parameter_evidence"],
@@ -1319,6 +1325,10 @@ def run_moex_baseline_update(
         canonical_session_intervals_path
         or (canonical_bars_path.parent / CANONICAL_BASELINE_SESSION_INTERVALS_FILENAME)
     ).resolve()
+    canonical_closed_session_dates_path = (
+        canonical_closed_session_dates_path
+        or canonical_session_intervals_path.with_name("canonical_closed_session_dates.delta")
+    ).resolve()
     canonical_roll_map_path = (
         canonical_roll_map_path or (canonical_bars_path.parent / "canonical_roll_map.delta")
     ).resolve()
@@ -1351,6 +1361,44 @@ def run_moex_baseline_update(
         allow_run_id_retry=allow_run_id_retry,
     )
     pending_changed_windows_path = evidence_dir.resolve() / PENDING_CHANGED_WINDOWS_FILENAME
+
+    # An unpublished prior native commit cannot be certified by this run's
+    # later dirty windows. Keep Data publication possible, but mark its ancestry
+    # unbounded for Research unless the existing support write-ahead proves it.
+    starting_drift = []
+    support_start = (
+        _read_json_object(pending_changed_windows_path)
+        if pending_changed_windows_path.exists()
+        else {}
+    )
+    for name, reference in (previous_data or {}).get("tables", {}).items():
+        try:
+            actual = capture_table(Path(reference["table_path"]))
+            if all(
+                actual[key] == reference[key] for key in ("table_path", "table_id", "delta_version")
+            ):
+                continue
+        except (ValueError, OSError, RuntimeError):
+            actual = {}
+        original, final = (
+            support_start.get("support_input_reference") or {},
+            support_start.get("support_output_reference") or {},
+        )
+        if (
+            not support_start.get("support_scope_unproven")
+            and support_start.get("support_changed_keys")
+            and all(
+                original.get(key) == reference.get(key)
+                for key in ("table_path", "table_id", "delta_version")
+            )
+            and actual
+            and all(
+                final.get(key) == actual.get(key)
+                for key in ("table_path", "table_id", "delta_version")
+            )
+        ):
+            continue
+        starting_drift.append(name)
 
     universe = load_universe(universe_path)
     mappings = load_mapping_registry(mapping_registry_path)
@@ -1549,6 +1597,7 @@ def run_moex_baseline_update(
             run_id=run_id,
             raw_table_path=raw_table_path,
             canonical_session_intervals_path=canonical_session_intervals_path,
+            canonical_closed_session_dates_path=canonical_closed_session_dates_path,
             mappings=mappings,
             changed_windows=merged_changed_windows,
         )
@@ -1584,6 +1633,7 @@ def run_moex_baseline_update(
                     .get("tables", {})
                     .get("canonical_contract_economics"),
                     canonical_bars_path=canonical_bars_path,
+                    pending_scope_path=pending_changed_windows_path,
                 )
             except EconomicsSourceUnavailable as exc:
                 economics_report = reuse_published_economics_after_source_unavailable(
@@ -1617,6 +1667,75 @@ def run_moex_baseline_update(
             "formula_margin_dominates_rows": 0,
             "affected_downstream_partitions": [],
         }
+
+    # OI changes must enter canonical before its raw-NOOP branch. Write-ahead
+    # keys survive an economics/canonical failure in the existing pending file.
+    support_pending = (
+        _read_json_object(pending_changed_windows_path)
+        if pending_changed_windows_path.exists()
+        else {}
+    )
+    support_keys = support_pending.get("support_changed_keys", [])
+    current_oi = (
+        dict(economics_report.get("native_history_renewal") or {}).get("tables", {}).get("oi", {})
+    )
+    support_keys = list(
+        {
+            _sha256_json(key): key for key in [*support_keys, *current_oi.get("changed_keys", [])]
+        }.values()
+    )
+    support_windows = []
+    if support_keys:
+        from zoneinfo import ZoneInfo
+
+        from .foundation import (
+            SOURCE_INTERVAL_BY_TARGET_TIMEFRAME,
+            SOURCE_TIMEFRAME_LABEL_BY_INTERVAL,
+        )
+
+        for key in support_keys:
+            start = (
+                datetime.fromisoformat(key["trade_date"])
+                .replace(tzinfo=ZoneInfo("Europe/Moscow"))
+                .astimezone(UTC)
+            )
+            for interval in sorted(set(SOURCE_INTERVAL_BY_TARGET_TIMEFRAME.values())):
+                support_windows.append(
+                    dict(
+                        internal_id=key["internal_id"],
+                        moex_secid=key["moex_secid"],
+                        source_timeframe=SOURCE_TIMEFRAME_LABEL_BY_INTERVAL[interval],
+                        source_interval=interval,
+                        window_start_utc=_utc_iso(start),
+                        window_end_utc=_utc_iso(
+                            start + timedelta(days=1) - timedelta(microseconds=1)
+                        ),
+                        incremental_rows=1,
+                    )
+                )
+        merged_changed_windows = _merge_changed_windows(
+            pending=merged_changed_windows, current=support_windows
+        )
+        canonical_raw_report = _baseline_raw_report_for_canonical(
+            raw_report=raw_report, merged_changed_windows=merged_changed_windows
+        )
+        canonical_raw_report["dependency_scope_origin"] = "raw_and_daily_oi_old_new_keys"
+        _write_json(canonical_input_report_path, canonical_raw_report)
+        _write_pending_changed_windows(
+            path=pending_changed_windows_path,
+            run_id=run_id,
+            changed_windows=merged_changed_windows,
+            reason="support_scope_pending_canonical",
+        )
+        session_schedule_report = _materialize_baseline_session_schedule(
+            run_dir=run_dir,
+            run_id=run_id,
+            raw_table_path=raw_table_path,
+            canonical_session_intervals_path=canonical_session_intervals_path,
+            canonical_closed_session_dates_path=canonical_closed_session_dates_path,
+            mappings=mappings,
+            changed_windows=merged_changed_windows,
+        )
 
     snapshot_inputs = capture_data_inputs(
         [
@@ -1664,7 +1783,7 @@ def run_moex_baseline_update(
             "mutation_applied": False,
             "skipped_reason": "no_raw_or_pending_changed_windows",
         }
-        pending_changed_windows_path.unlink(missing_ok=True)
+        # Pending work is retired only after accepted Data publication.
     else:
         stop_canonical_heartbeat = _start_canonical_refresh_heartbeat(
             heartbeat_path=run_dir / CANONICAL_REFRESH_HEARTBEAT_FILENAME,
@@ -1722,9 +1841,7 @@ def run_moex_baseline_update(
                 },
             )
 
-        if str(canonical_report.get("publish_decision", "")).strip() == "publish":
-            pending_changed_windows_path.unlink(missing_ok=True)
-        else:
+        if str(canonical_report.get("publish_decision", "")).strip() != "publish":
             _write_pending_changed_windows(
                 path=pending_changed_windows_path,
                 run_id=run_id,
@@ -1788,6 +1905,7 @@ def run_moex_baseline_update(
         "session_schedule_required": True,
         "raw_session_schedule_path": str(session_schedule_report.get("raw_schedule_path", "")),
         "canonical_session_intervals_path": canonical_session_intervals_path.as_posix(),
+        "canonical_closed_session_dates_path": canonical_closed_session_dates_path.as_posix(),
         "canonical_session_calendar_path": canonical_session_calendar_path.as_posix(),
         "canonical_roll_map_path": canonical_roll_map_path.as_posix(),
         "raw_economics_root": raw_economics_root.as_posix(),
@@ -1797,16 +1915,31 @@ def run_moex_baseline_update(
         "deduplicated_rows": raw_report.get("deduplicated_rows", 0),
         "stale_rows": raw_report.get("stale_rows", 0),
         "pending_changed_windows_in": len(pending_changed_windows),
+        "raw_ingest_scope": raw_report.get("native_change_scope", {}),
+        "unproven_starting_references": starting_drift,
+        "oi_support_scope": {
+            "version": 1,
+            "changed_keys": support_keys,
+            "windows": support_windows,
+            "input_reference": support_pending.get("support_input_reference"),
+            "scope_proven": not support_pending.get("support_scope_unproven", False),
+            "output_reference": support_pending.get("support_output_reference") or current_oi,
+        },
         "current_changed_windows": len(current_changed_windows),
         "effective_changed_windows": len(merged_changed_windows),
         "cf_catch_up": cf_catch_up_report,
         "windowed_input_references": {
             path.stem: snapshot_inputs[path.stem]
-            for path in (raw_table_path, canonical_session_intervals_path)
+            for path in (
+                raw_table_path,
+                canonical_session_intervals_path,
+                canonical_closed_session_dates_path,
+            )
             if path.stem in snapshot_inputs and merged_changed_windows
         },
         "economics_refresh": economics_report,
         "canonical_report": {
+            "publish_protocol": canonical_report.get("publish_protocol", {}),
             "status": canonical_report.get("status"),
             "publish_decision": canonical_report.get("publish_decision"),
             "scoped_source_rows": canonical_report.get("scoped_source_rows"),
@@ -1862,6 +1995,7 @@ def run_moex_baseline_update(
                 expected_current_id=expected_snapshot_id,
                 provenance=snapshot_provenance,
             )
+            pending_changed_windows_path.unlink(missing_ok=True)
         except Exception as exc:
             report["status"] = "BLOCKED"
             report["publish_decision"] = "blocked"

@@ -236,6 +236,7 @@ def test_spark_l0_job_requires_execution_economics_when_production_flag_is_set(
 ) -> None:
     with pytest.raises(RuntimeError, match="canonical_contract_economics_path is required"):
         spark_l0_job.run_research_bar_views_spark_job(
+            operation="rebuild",
             canonical_bars_path=tmp_path / "canonical_bars.delta",
             canonical_bar_provenance_path=tmp_path / "canonical_bar_provenance.delta",
             canonical_session_intervals_path=tmp_path / "canonical_session_intervals.delta",
@@ -510,6 +511,7 @@ def test_spark_l0_windowed_noop_rejects_layout_before_computation(tmp_path, monk
     monkeypatch.setattr(spark_l0_job, "_l0_persistence_windows", unexpected)
     with pytest.raises(ValueError, match="isolated layout migration"):
         spark_l0_job.run_research_bar_views_spark_job(
+            operation="rebuild",
             canonical_bars_path=tmp_path / "bars.delta",
             canonical_bar_provenance_path=tmp_path / "provenance.delta",
             canonical_session_intervals_path=tmp_path / "intervals.delta",

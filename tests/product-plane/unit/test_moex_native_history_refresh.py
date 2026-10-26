@@ -254,3 +254,62 @@ def test_current_crosscheck_rejects_missing_fixing_time():
             refresh._fx_records(rows),
             dated_fx_rows=rows,
         )
+
+
+def test_oi_write_ahead_retains_old_and_new_keys_across_failed_commit(tmp_path, monkeypatch):
+    import json
+
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    path = tmp_path / "raw_daily_oi.delta"
+    pending = tmp_path / "pending-changed-windows.json"
+    row = {
+        "source_id": refresh.HISTORY_SOURCE,
+        "board": "RFUD",
+        "moex_secid": "BRF7",
+        "trade_date": "2026-10-09",
+        "internal_id": "FUT_BR",
+        "open_interest": 5,
+    }
+    columns = {key: "string" for key in row}
+    columns.update(trade_date="date", open_interest="long")
+    first = refresh.write_changed_support_rows(path, [row], columns=columns)
+    changed = {**row, "internal_id": "BR", "open_interest": 6}
+    writer = refresh.write_delta_table_rows
+
+    def fail(**kwargs):
+        evidence = json.loads(pending.read_text())
+        assert {key["internal_id"] for key in evidence["support_changed_keys"]} == {"BR", "FUT_BR"}
+        raise RuntimeError("worker died before commit")
+
+    monkeypatch.setattr(refresh, "write_delta_table_rows", fail)
+    with pytest.raises(RuntimeError, match="worker died"):
+        refresh.write_changed_support_rows(
+            path, [changed], columns=columns, pending_scope_path=pending
+        )
+    monkeypatch.setattr(refresh, "write_delta_table_rows", writer)
+    result = refresh.write_changed_support_rows(
+        path, [changed], columns=columns, pending_scope_path=pending
+    )
+    evidence = json.loads(pending.read_text())
+    assert evidence["support_input_reference"]["delta_version"] == first["delta_version"]
+    assert evidence["support_output_reference"]["delta_version"] == result["delta_version"]
+    assert not evidence.get("support_scope_unproven")
+    assert {key["internal_id"] for key in result["changed_keys"]} == {"BR", "FUT_BR"}
+
+
+def test_raw_producer_chain_rejects_interleaved_unknown_commit(tmp_path):
+    import pyarrow as pa
+    from deltalake import write_deltalake
+
+    from trading_advisor_3000.product_plane.common.data_snapshots import capture_table
+    from trading_advisor_3000.spark_jobs.moex_raw_ingest_job import _raw_change_scope
+
+    path = tmp_path / "raw_moex_history.delta"
+    write_deltalake(str(path), pa.table({"value": [0]}))
+    before = capture_table(path)
+    write_deltalake(str(path), pa.table({"value": [1]}), mode="overwrite")
+    assert _raw_change_scope(path, before, changed=True)["proven"]
+    write_deltalake(str(path), pa.table({"value": [2]}), mode="overwrite")
+    assert not _raw_change_scope(path, before, changed=True)["proven"]
+    assert not _raw_change_scope(path, before, changed=False)["proven"]

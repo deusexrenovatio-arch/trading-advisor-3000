@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -11,19 +13,39 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from gate_common import CommandSpec, scope_validate_command  # noqa: E402
+from validate_architecture_review import scope_digest  # noqa: E402
 
 
 def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["AI_SHELL_BORING_SKIP_FAST_TESTS"] = "1"
-    return subprocess.run(
-        command,
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+    # Existing smoke cases reuse accepted delivery decisions.
+    with tempfile.TemporaryDirectory() as directory:
+        source = Path(directory) / "task-body.md"
+        if "--changed-files" in command:
+            index = command.index("--changed-files") + 1
+            paths = []
+            while index < len(command) and not command[index].startswith("--"):
+                paths.append(command[index])
+                index += 1
+            value = {
+                "impact": "none",
+                "author": "gate-smoke-author",
+                "reason": "Exercise accepted delivery behavior without a new decision",
+                "scope_digest": scope_digest(ROOT, paths),
+            }
+            source.write_text(
+                "```architecture-review\n" + json.dumps(value) + "\n```\n", encoding="utf-8"
+            )
+            env["AI_SHELL_ARCHITECTURE_REVIEW_SOURCE"] = str(source)
+        return subprocess.run(
+            command,
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
 
 
 def test_loop_gate_contract_surface_smoke() -> None:

@@ -102,6 +102,9 @@ def test_native_from_failure_reuses_l1_and_transfers_verified_checkpoint(tmp_pat
         "code_version": "fixture",
         "data_snapshot_enabled": changed != "disabled",
     }
+    from trading_advisor_3000.product_plane.research.admission import configure_admission
+
+    config = configure_admission(config, operation="rebuild")
     run_config = {"ops": {name: {"config": config} for name in ("checkpoint_l1", "checkpoint_r2")}}
     (tmp_path / "instance").mkdir()
     with DagsterInstance.local_temp(str(tmp_path / "instance")) as instance:
