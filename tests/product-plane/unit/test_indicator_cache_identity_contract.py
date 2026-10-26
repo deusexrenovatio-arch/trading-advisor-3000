@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import hashlib
-import json
+import copy
 import shutil
-from dataclasses import asdict, replace
+from dataclasses import replace
 
 import pyarrow as pa
 import pytest
@@ -59,26 +58,22 @@ def _source(path):
     return table
 
 
-def test_numerical_compute_contract_keeps_accepted_cache_version_one():
+def test_numerical_compute_contract_binds_kernel_dependencies_and_not_description(monkeypatch):
+    from trading_advisor_3000.product_plane.research import compute_contract
+
     profile = _sma2_profile()
-    definition = asdict(profile)
-    definition.pop("description")
-    expected = {
-        "profile": definition,
-        "library": owner.ta.__version__,
-        "pandas": owner.pd.__version__,
-        "numpy": owner.np.__version__,
-        "talib_available": bool(owner.ta.Imports.get("talib")),
-        "talib_version": owner.distribution_version("TA-Lib")
-        if owner.ta.Imports.get("talib")
-        else None,
-        "policy": owner.INDICATOR_USAGE_POLICY_ID,
-        "cache_version": 1,
-    }
+    original = owner._indicator_compute_contract_hash(profile)
     assert (
-        owner._indicator_compute_contract_hash(profile)
-        == hashlib.sha256(json.dumps(expected, sort_keys=True, default=str).encode()).hexdigest()
+        owner._indicator_compute_contract_hash(replace(profile, description="provenance only"))
+        == original
     )
+    identity = compute_contract.numerical_identity()
+    for section, key in (("kernels", "l1"), ("dependencies", "pandas")):
+        changed = copy.deepcopy(identity)
+        changed[section][key] = "unreviewed-source-or-dependency"
+        with monkeypatch.context() as patch:
+            patch.setattr(compute_contract, "numerical_identity", lambda: changed)
+            assert owner._indicator_compute_contract_hash(profile) != original
 
 
 def test_vp_identity_reuses_relocation_and_append_but_rejects_replacement_and_schema(tmp_path):
