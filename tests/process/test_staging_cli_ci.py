@@ -14,7 +14,9 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import run_staging_control as cli
 from staging_support import LEGACY_TASK, initialize_budget
-from validate_staging_acceptance import JOBS, check_staging_acceptance, validate_result
+from validate_pr_evidence import check_pr_evidence, validate_result
+
+JOBS = ("branch_job",)
 
 
 @pytest.fixture
@@ -158,18 +160,19 @@ def test_ready_poll_only_catches_connection_failure(monkeypatch):
 
 
 def test_pr_gate_git_failure_is_not_empty_scope(monkeypatch):
-    import validate_staging_acceptance as gate
+    import validate_pr_evidence as gate
 
     monkeypatch.setattr(
         gate, "git", lambda *a: (_ for _ in ()).throw(subprocess.CalledProcessError(1, "git"))
     )
-    assert check_staging_acceptance([], base_ref="missing", head_ref="head") == 2
+    assert check_pr_evidence([], base_ref="missing", head_ref="head") == 2
 
 
 def test_receipt_from_prior_ci_attempt_rejected():
     # Rejected before route inspection; rerunning a CI gate cannot resurrect an old artifact.
     value = dict(
         version=1,
+        evidence_level="native",
         stage="acceptance",
         status="PASS",
         base_sha="a",
@@ -209,19 +212,35 @@ def test_ci_consumes_only_current_successful_native_job(tmp_path):
     jobs = yaml.safe_load(path.read_text())["jobs"]
     native, lane = jobs["native-acceptance"], jobs["pr-lane"]
     assert "ta3000-staging" in native["runs-on"]
-    assert "needs.staging-scope.result == 'success'" in native["if"]
+    assert "needs.code-checks.result == 'success'" in native["if"]
+    assert "needs.code-checks.outputs.evidence_level == 'native'" in native["if"]
+    assert (
+        jobs["pr-lane"]["steps"][0]["env"]["EVIDENCE_LEVEL"]
+        == "${{ needs.code-checks.outputs.evidence_level }}"
+    )
     assert any(
         "scripts/run_boring_checks.py" in step.get("run", "")
-        for step in jobs["staging-scope"]["steps"]
+        for step in jobs["code-checks"]["steps"]
     )
-    cheap = next(
-        step["run"]
-        for step in jobs["staging-scope"]["steps"]
-        if "scripts/run_boring_checks.py" in step.get("run", "")
+    install = next(
+        s
+        for s in jobs["code-checks"]["steps"]
+        if s.get("name") == "Install code-check dependencies"
     )
-    assert '"dagster>=1.8,<2"' in cheap
+    assert '"dagster>=1.8,<2"' in install["run"]
+    selector = next(s for s in jobs["code-checks"]["steps"] if s.get("id") == "scope")
+    assert jobs["code-checks"]["steps"].index(install) < jobs["code-checks"]["steps"].index(
+        selector
+    )
+    producer_test = next(
+        s
+        for s in jobs["code-checks"]["steps"]
+        if s.get("name") == "Check the configured native producer contract"
+    )
+    assert producer_test["if"] == "steps.scope.outputs.evidence_level == 'native'"
+    assert "test_staging_acceptance.py" in producer_test["run"]
     assert native["concurrency"]["cancel-in-progress"] is False
-    assert set(lane["needs"]) == {"staging-scope", "native-acceptance"}
+    assert set(lane["needs"]) == {"code-checks", "native-acceptance"}
     guard = lane["steps"][0]
     assert guard["env"]["NATIVE_RESULT"] == "${{ needs.native-acceptance.result }}"
     # Execute the real guard for every terminal job conclusion; no Actions/network/runtime.
@@ -234,19 +253,19 @@ def test_ci_consumes_only_current_successful_native_job(tmp_path):
     script = tmp_path / "guard.sh"
     script.write_text("set -e\n" + guard["run"])
     for required, result, expected in [
-        ("true", "success", 0),
-        ("false", "skipped", 0),
-        ("true", "skipped", 1),
-        ("true", "failure", 1),
-        ("true", "cancelled", 1),
-        ("true", "", 1),
+        ("native", "success", 0),
+        ("code", "skipped", 0),
+        ("native", "skipped", 1),
+        ("native", "failure", 1),
+        ("native", "cancelled", 1),
+        ("native", "", 1),
     ]:
         actual = subprocess.run(
             [str(bash), str(script)],
             env={
                 **os.environ,
                 "SCOPE_RESULT": "success",
-                "REQUIRED": required,
+                "EVIDENCE_LEVEL": required,
                 "NATIVE_RESULT": result,
             },
             capture_output=True,
@@ -267,7 +286,7 @@ def test_ci_consumes_only_current_successful_native_job(tmp_path):
     launch = next(s for s in native["steps"] if "run" in s)
     assert "GITHUB_RUN_ATTEMPT -ne '1'" in launch["run"]
     gate = next(s for s in lane["steps"] if s.get("name") == "PR Gate")
-    assert "--staging-receipt artifacts/ci/native/staging-acceptance.json" in gate["run"]
+    assert "--evidence-receipt artifacts/ci/native/staging-acceptance.json" in gate["run"]
 
 
 def test_unconfirmed_cleanup_keeps_host_lock(tmp_path):

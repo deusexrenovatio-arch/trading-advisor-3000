@@ -7,7 +7,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from validate_staging_acceptance import STAGES
+from trading_advisor_3000.product_plane.common.staging_acceptance import (
+    STAGES,
+    validate_native_result,
+)
 
 
 def consumer(plan, manifest):
@@ -124,6 +127,7 @@ def observe(plan, instance):
             )
         },
         "version": 1,
+        "evidence_level": "short",
         "status": "PASS",
         "runs": runs,
         "executed_stages": sorted(stages),
@@ -176,7 +180,7 @@ def observe(plan, instance):
     )
     if current_snapshot(registry) != manifest or current_snapshot(data_registry) != data:
         raise ValueError("Publication changed during fresh consumer readback")
-    return value
+    return validate_native_result(value) if plan["stage"] == "acceptance" else value
 
 
 if __name__ == "__main__":

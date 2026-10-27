@@ -1,7 +1,29 @@
-# Staging acceptance before main
+# Admission evidence and bounded native acceptance
 
 Change surface: mixed. Impact: contract-change. Decision: accepted user scope,
 2026-10-27; implementation and native activation remain separately unproven.
+
+
+## Governance-shell owns admission
+
+Every PR uses the existing shell surface resolver and PR gate. The existing
+`configs/change_surface_mapping.yaml` declares the required evidence level on
+its contours; `compute_change_surface.py` resolves the strongest matched level.
+Code checks remain mandatory for every PR. Only affected Data/Research source,
+shared snapshot/execution contracts, product data configuration/deployment and
+dependency changes require native evidence. Documentation and test-only changes,
+shell configuration and API-only changes do not acquire a Data/Research requirement.
+Mixed changes retain native admission whenever any affected contour requires it.
+
+The shell validates a generic versioned result envelope: level, status, exact
+base/head/merge tree and CI run/attempt. It imports no product package and knows
+no product job, asset, QC or consumer names. The product-owned staging acceptance
+adapter validates actual native lineage, image/input pins, QC/publication and the
+fresh normal consumer before it emits that envelope. The existing CI job connects
+that adapter to the shell gate; it is not a second policy owner or a new registry.
+A branch/short result cannot satisfy native admission. Code-level routing never
+skips the ordinary PR/code gates. Runtime ownership, budget and draft exclusion
+below remain unchanged; code/source review is not native execution proof.
 
 ## Three responsibilities
 
@@ -10,11 +32,11 @@ Change surface: mixed. Impact: contract-change. Decision: accepted user scope,
    elapsed time and a stable task attempt limit bound the whole graph. Multiple
    explicitly budgeted short runs are allowed; no automatic retry or large seed
    fallback. Existing source, formula, Delta and public consumer owners remain.
-2. One automatic pre-main run tests the frozen integration tree in the existing
+2. For native-selected changes, one pre-main run tests the frozen integration tree in the existing
    working staging: native update -> native Research sensors/job -> QC -> Delta
    publication -> fresh normal consumer. A short fixture result never grants main.
-3. The existing PR/CI lane consumes the result artifact from its native staging
-   job, checks exact base/head/tree and complete route evidence, and blocks main
+3. The existing PR/CI lane consumes the configured producer result, checks its
+   generic level/status/base/head/tree envelope and blocks main
    on failure, missing/stale evidence or skipped execution. No separate merger.
 
 ## Keep versus remove

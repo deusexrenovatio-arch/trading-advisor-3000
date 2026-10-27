@@ -352,7 +352,7 @@ def gate_repository(repository):
         "run_pr_gate.py",
         "run_nightly_gate.py",
         "validate_architecture_review.py",
-        "validate_staging_acceptance.py",
+        "validate_pr_evidence.py",
     ):
         shutil.copy2(ROOT / "scripts" / name, scripts / name)
     (repository / "configs").mkdir()

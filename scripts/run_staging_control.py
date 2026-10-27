@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 
 from staging_support import CleanupUncertain, budget_remaining, reserve, worker_lock
-from validate_staging_acceptance import git, validate_result
+from validate_pr_evidence import git, validate_result
 from watch_task_status import observe
 
 ROOT = Path(__file__).resolve().parents[1]

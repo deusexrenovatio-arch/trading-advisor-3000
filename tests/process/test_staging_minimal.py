@@ -8,37 +8,21 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 from staging_support import LEGACY_TASK, initialize_budget, reserve, worker_lock
-from validate_staging_acceptance import JOBS, STAGES, validate_result
+from validate_pr_evidence import check_pr_evidence, validate_result
+
+JOBS = ("update", "features", "publish")
 
 
 def proof():
-    parent = None
-    runs = {}
-    for index, job in enumerate(JOBS):
-        run = f"native-{index}"
-        runs[job] = dict(run_id=run, status="SUCCESS", upstream_run_id=parent)
-        parent = run
     return dict(
         version=1,
         stage="acceptance",
+        evidence_level="native",
         status="PASS",
         base_sha="a" * 40,
         head_sha="b" * 40,
         tree_sha="c" * 40,
         ci_run_id="42",
-        image_digest="sha256:" + "d" * 64,
-        input_pins={"data": "native-data-before"},
-        runs=runs,
-        executed_stages=list(STAGES),
-        changed_windows=1,
-        qc={"native_qc": "PASS"},
-        snapshot_id="published-research",
-        consumer=dict(
-            entrypoint="research.io.load_backtest_frames",
-            rows=5,
-            snapshot_id="published-research",
-            cache_hit=False,
-        ),
     )
 
 
@@ -59,37 +43,12 @@ def test_complete_artifact_contract():
         ("head_sha", "old"),
         ("tree_sha", "old"),
         ("ci_run_id", "41"),
-        ("input_pins", {}),
-        ("executed_stages", []),
-        ("changed_windows", 0),
-        ("qc", {}),
+        ("evidence_level", "short"),
     ],
 )
 def test_missing_failed_short_or_stale_proof_blocks(key, value):
     result = proof()
     result[key] = value
-    with pytest.raises(ValueError):
-        validate(result)
-
-
-@pytest.mark.parametrize(
-    "mutation",
-    ["failed", "lineage", "duplicate", "consumer-cache", "consumer-empty", "consumer-other"],
-)
-def test_route_and_fresh_consumer_are_required(mutation):
-    result = proof()
-    if mutation == "failed":
-        result["runs"][JOBS[1]]["status"] = "FAILURE"
-    elif mutation == "lineage":
-        result["runs"][JOBS[1]]["upstream_run_id"] = "foreign"
-    elif mutation == "duplicate":
-        result["runs"][JOBS[2]]["run_id"] = result["runs"][JOBS[1]]["run_id"]
-    elif mutation == "consumer-cache":
-        result["consumer"]["cache_hit"] = True
-    elif mutation == "consumer-empty":
-        result["consumer"]["rows"] = 0
-    else:
-        result["consumer"]["snapshot_id"] = "foreign"
     with pytest.raises(ValueError):
         validate(result)
 
@@ -194,7 +153,7 @@ def test_pr_gate_stops_on_missing_or_failed_native_evidence(monkeypatch):
         ],
     )
     monkeypatch.setattr(gate, "check_architecture_review", lambda *a, **k: 0)
-    monkeypatch.setattr(gate, "check_staging_acceptance", lambda *a, **k: 2)
+    monkeypatch.setattr(gate, "check_pr_evidence", lambda *a, **k: 2)
     monkeypatch.setattr(gate, "_run_pr_checks", lambda *a: pytest.fail("admission bypass"))
     assert gate.main() == 2
 
@@ -230,3 +189,49 @@ def test_collector_reads_normal_baseline_effective_changed_windows():
     assert baseline_changed_windows(actual) == 2
     other = AssetMaterialization("moex_canonical_refresh", metadata={"changed_windows_count": 9})
     assert baseline_changed_windows(other) == 0
+
+
+def test_code_level_continues_ordinary_pr_checks(monkeypatch):
+    import run_pr_gate as gate
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_pr_gate.py",
+            "--changed-files",
+            "configs/change_surface_mapping.yaml",
+            "--snapshot-mode",
+            "changed-files",
+            "--profile",
+            "none",
+        ],
+    )
+    monkeypatch.setattr(gate, "check_architecture_review", lambda *a, **k: 0)
+    monkeypatch.setattr(gate, "_run_pr_checks", lambda *a: 77)
+    assert gate.main() == 77
+
+
+def test_native_level_stops_without_evidence():
+    assert check_pr_evidence(["src/trading_advisor_3000/product_plane/research/io.py"]) == 2
+
+
+def test_shell_result_contract_is_product_independent():
+    value = proof()
+    value["producer_payload"] = {"opaque": "validated by its producer"}
+    assert validate(value) is value
+
+
+def test_git_diff_cannot_be_replaced_with_caller_code_only_scope(monkeypatch):
+    import validate_pr_evidence as gate
+
+    monkeypatch.setattr(
+        gate, "git", lambda *a: "src/trading_advisor_3000/product_plane/research/io.py"
+    )
+    assert check_pr_evidence(["docs/README.md"], base_ref="base", head_ref="head") == 2
+
+
+@pytest.mark.parametrize("value", [None, [], "PASS"])
+def test_malformed_common_envelope_is_rejected(value):
+    with pytest.raises(ValueError):
+        validate(value)

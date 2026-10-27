@@ -104,7 +104,7 @@ def _is_docs_only(path_text: str, docs_config: dict[str, Any]) -> bool:
 def _resolve_command(raw: str) -> str:
     python_exec = sys.executable
     if " " in python_exec:
-        python_exec = f"\"{python_exec}\""
+        python_exec = f'"{python_exec}"'
     return raw.replace("{python}", python_exec)
 
 
@@ -132,17 +132,45 @@ def compute_surface(changed_files: list[str], *, mapping_path: Path) -> dict[str
     config = _load_yaml(mapping_path)
     surfaces_cfg = config.get("surfaces") or {}
     docs_cfg = config.get("docs_only") or {}
+    if (
+        not isinstance(docs_cfg, dict)
+        or not isinstance(docs_cfg.get("suffixes", []), list)
+        or any(not isinstance(s, str) or not s for s in docs_cfg.get("suffixes", []))
+    ):
+        raise ValueError("Invalid evidence documentation exclusions")
     priority = [str(item) for item in config.get("surface_priority") or []]
     surface_matches: dict[str, list[str]] = {}
     matched_markers: set[str] = set()
+    evidence_level = "code"
+    if not isinstance(surfaces_cfg, dict) or not surfaces_cfg:
+        raise ValueError("Evidence mapping requires surface definitions")
 
     for surface_name, surface_config in surfaces_cfg.items():
-        if not isinstance(surface_config, dict):
-            continue
+        if (
+            not isinstance(surface_config, dict)
+            or not isinstance(surface_config.get("prefixes"), list)
+            or any(not isinstance(p, str) or not p for p in surface_config.get("prefixes", []))
+        ):
+            raise ValueError("Invalid evidence surface mapping")
+        level = surface_config.get("evidence_level", "code")
+        excluded = surface_config.get("evidence_exclude_prefixes", [])
+        if (
+            not isinstance(level, str)
+            or level not in {"code", "native"}
+            or not isinstance(excluded, list)
+            or any(not isinstance(p, str) or not p for p in excluded)
+        ):
+            raise ValueError("Invalid evidence level or exclusions")
         matched = [path for path in changed_files if _match_surface(path, surface_config)]
         if matched:
             surface_matches[str(surface_name)] = matched
             matched_markers.update(_normalize(path) for path in matched)
+            if level == "native" and any(
+                not _normalize(path).startswith(tuple(excluded))
+                and not _normalize(path).endswith(tuple(docs_cfg.get("suffixes", [])))
+                for path in matched
+            ):
+                evidence_level = "native"
 
     docs_only = bool(changed_files) and all(_is_docs_only(path, docs_cfg) for path in changed_files)
     unmatched_files = [path for path in changed_files if _normalize(path) not in matched_markers]
@@ -159,7 +187,10 @@ def compute_surface(changed_files: list[str], *, mapping_path: Path) -> dict[str
         surfaces.append("docs-only")
         surface_matches["docs-only"] = list(changed_files)
     non_docs_surfaces = [name for name in surfaces if name != "docs-only"]
-    if len([name for name in non_docs_surfaces if name != "governance"]) > 1 and "mixed" not in surfaces:
+    if (
+        len([name for name in non_docs_surfaces if name != "governance"]) > 1
+        and "mixed" not in surfaces
+    ):
         surfaces.append("mixed")
 
     primary_surface = surfaces[0] if surfaces else ("docs-only" if docs_only else "governance")
@@ -172,6 +203,7 @@ def compute_surface(changed_files: list[str], *, mapping_path: Path) -> dict[str
         "surfaces": surfaces or ["governance"],
         "primary_surface": primary_surface,
         "docs_only": docs_only,
+        "evidence_level": evidence_level,
         "surface_details": surface_matches,
         "commands": {
             "loop": _commands_for_level(config, level="loop", surfaces=surfaces),
@@ -212,7 +244,9 @@ def main() -> int:
     if args.output:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        output_path.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
 
     if args.format == "text":
         print(f"primary_surface: {result['primary_surface']}")

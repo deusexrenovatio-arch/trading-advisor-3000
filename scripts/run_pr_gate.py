@@ -19,7 +19,7 @@ from gate_common import (
 )
 from gate_marker_contract import GateMarkerError, resolve_gate_markers
 from validate_architecture_review import check_architecture_review
-from validate_staging_acceptance import check_staging_acceptance
+from validate_pr_evidence import check_pr_evidence
 
 REMEDIATION_DOC = "docs/runbooks/governance-remediation.md"
 
@@ -87,7 +87,7 @@ def main() -> int:
     parser.add_argument("--summary-file", default=None)
     parser.add_argument("--no-reuse", action="store_true", help="Force fresh local fast checks.")
     parser.add_argument("--architecture-review-source", default=None)
-    parser.add_argument("--staging-receipt", default=None)
+    parser.add_argument("--evidence-receipt", default=None)
     args = parser.parse_args()
 
     try:
@@ -139,11 +139,15 @@ def main() -> int:
     )
     if review_code:
         return review_code
-    staging_code = check_staging_acceptance(
-        changed_files, base_ref=args.base_ref, head_ref=args.head_ref, receipt=args.staging_receipt
+    evidence_code = check_pr_evidence(
+        changed_files,
+        base_ref=args.base_ref,
+        head_ref=args.head_ref,
+        receipt=args.evidence_receipt,
+        mapping=args.mapping,
     )
-    if staging_code:
-        return staging_code
+    if evidence_code:
+        return evidence_code
     return _run_pr_checks(args, surface, changed_files, snapshot_mode, profile)
 
 
