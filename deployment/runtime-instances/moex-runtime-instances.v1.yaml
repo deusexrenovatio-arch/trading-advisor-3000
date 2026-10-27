@@ -30,7 +30,7 @@ instances:
       canonical_session_calendar: /ta3000-data/moex-historical/canonical/moex/baseline-4y-current/canonical_session_calendar.delta
       canonical_roll_map: /ta3000-data/moex-historical/canonical/moex/baseline-4y-current/canonical_roll_map.delta
       evidence_root: /ta3000-data/moex-historical/moex-baseline-update
-    launch_defaults: &moex_daily_defaults
+    launch_defaults:
       mapping_registry_path: /workspace/configs/moex_foundation/instrument_mapping_registry.v1.yaml
       universe_path: /workspace/configs/moex_foundation/universe/moex-futures-priority.v1.yaml
       timeframes: 1m,5m,15m,1h,4h,1d,1w
@@ -65,7 +65,7 @@ instances:
     lifecycle:
       create_on_demand: true
       ttl_days: 7
-    launch_defaults: &moex_small_defaults
+    launch_defaults:
       mapping_registry_path: /workspace/configs/moex_foundation/instrument_mapping_registry.v1.yaml
       universe_path: /workspace/configs/moex_foundation/universe/moex-futures-priority.v1.yaml
       timeframes: 1d
@@ -83,58 +83,3 @@ instances:
       product_runtime_write: false
       manual_launch_allowed: true
       require_seed: true
-
-  moex_branch_staging:
-    role: branch_verification_staging
-    status: active
-    description: On-demand branch verification on bounded fixed data under a protected task plan.
-    docker:
-      host_root_env: TA3000_STAGING_DATA_ROOT
-      preferred_container_data_root: /ta3000-data/moex-historical
-      compose_file: deployment/docker/dagster-staging/docker-compose.dagster-branch.yml
-    dagster:
-      graphql_url: http://127.0.0.1:3011/graphql
-      graphql_port_env: TA3000_STAGING_PORT
-      repository_location: trading_advisor_3000.dagster_defs:product_plane_definitions
-      repository: __repository__
-      job: moex_baseline_update_job
-      schedule: moex_baseline_daily_update_schedule
-    paths:
-      data_root: /ta3000-data/moex-historical
-      seed_from_instance: moex_product_staging
-    launch_defaults: *moex_small_defaults
-    lifecycle:
-      create_on_demand: true
-    mutation_policy:
-      product_runtime_write: false
-      manual_launch_allowed: true
-      require_seed: true
-      require_protected_plan: true
-
-  moex_acceptance_staging:
-    role: acceptance_verification_staging
-    status: active
-    description: Persistent pre-main acceptance of a frozen integrated candidate on the production route.
-    docker:
-      host_root_env: TA3000_STAGING_DATA_ROOT
-      preferred_container_data_root: /ta3000-data/moex-historical
-      compose_file: deployment/docker/dagster-staging/docker-compose.dagster-acceptance.yml
-    dagster:
-      graphql_url: http://127.0.0.1:3012/graphql
-      graphql_port_env: TA3000_STAGING_PORT
-      repository_location: trading_advisor_3000.dagster_defs:product_plane_definitions
-      repository: __repository__
-      job: moex_baseline_update_job
-      schedule: moex_baseline_daily_update_schedule
-    paths:
-      data_root: /ta3000-data/moex-historical
-      seed_from_instance: moex_product_staging
-    launch_defaults: *moex_daily_defaults
-    lifecycle:
-      create_on_demand: false
-      preserve_accepted_versions: true
-    mutation_policy:
-      product_runtime_write: false
-      manual_launch_allowed: true
-      require_seed: true
-      require_protected_plan: true

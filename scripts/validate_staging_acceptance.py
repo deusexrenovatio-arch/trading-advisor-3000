@@ -1,236 +1,131 @@
-"""Fail-closed pre-main admission using a receipt from a protected external collector."""
+"""Check this CI run's native staging artifact in the existing PR gate."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
-import sys
-from datetime import datetime, timezone
+import subprocess
 from pathlib import Path
 
-from build_staging_candidate import (
-    config_fingerprint,
-    executable_fingerprint,
-    git,
-    relevant,
-    resolve,
+JOBS = ("moex_baseline_update_job", "moex_cf_catch_up_job", "research_data_prep_job")
+STAGES = (
+    "moex_baseline_update",
+    "continuous_front_bars",
+    "research_datasets",
+    "research_indicator_frames",
+    "research_derived_indicator_frames",
+    "continuous_front_indicator_acceptance_report",
+    "research_data_snapshot",
 )
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
 
-from trading_advisor_3000.product_plane.common import staging_route_proof  # noqa: E402
-
-KEYRING = "configs/staging-acceptance-keys.v1.json"
-JOBS, STAGES = staging_route_proof.JOBS, staging_route_proof.STAGES
-check_route = staging_route_proof.check_route
-FENCE = re.compile(r"^```staging-acceptance[ \t]*\r?\n(.*?)^```[ \t]*$", re.M | re.S)
+def git(root, *args):
+    return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
 
 
-def requires_acceptance(paths: list[str]) -> bool:
-    for path in paths:
-        if path.startswith(("src/", "configs/", "deployment/")) and relevant(path):
-            return True
-        if path.startswith("scripts/") and Path(path).name.startswith(
-            (
-                "run_moex",
-                "run_research",
-                "run_historical",
-                "run_ta3000",
-                "run_staging",
-                "launch_moex",
-                "staging_",
-                "seed_staging",
-                "prepare_staging",
-                "initialize_staging",
-                "authorize_staging",
-                "extend_staging",
-                "reattest_staging",
-                "merge_staging",
-                "collect_staging",
-                "build_staging",
-                "validate_staging",
-                "proof_runtime_contract",
-            )
-        ):
-            return True
-        if relevant(path) and not path.startswith(("scripts/", "docs/")):
-            return True
-    return False
+def requires_acceptance(paths):
+    return any(
+        p.startswith(("src/", "configs/", "deployment/"))
+        and not p.endswith(".md")
+        or p in {"pyproject.toml", "uv.lock"}
+        or p.startswith("scripts/")
+        and any(x in p for x in ("moex", "research", "staging"))
+        for p in paths
+    )
 
 
-def load_envelope(receipt: Path | None, *, event_path: Path | None = None) -> dict:
-    if receipt is not None:
-        text = receipt.read_text(encoding="utf-8")
-    else:
-        if event_path is None:
-            raise ValueError("Missing signed staging acceptance receipt")
-        event = json.loads(event_path.read_text(encoding="utf-8"))
-        body = str(event.get("pull_request", {}).get("body") or "")
-        blocks = FENCE.findall(body)
-        if len(blocks) != 1:
-            raise ValueError("PR requires exactly one signed staging-acceptance block")
-        text = blocks[0]
-    if len(text.encode("utf-8")) > 262144:
-        raise ValueError("Staging receipt exceeds 256 KiB")
-    value = json.loads(text)
-    if not isinstance(value, dict):
-        raise ValueError("Staging receipt must be an object")
+def validate_result(value, *, base, head, tree, ci_run=None, ci_attempt=None):
+    if (
+        value.get("version") != 1
+        or value.get("stage") != "acceptance"
+        or value.get("status") != "PASS"
+    ):
+        raise ValueError("Full native acceptance is missing, failed or short-only")
+    expected = {"base_sha": base, "head_sha": head, "tree_sha": tree}
+    if any(value.get(k) != v for k, v in expected.items()):
+        raise ValueError("Stale base/head/tested tree")
+    if ci_run is not None and str(value.get("ci_run_id")) != str(ci_run):
+        raise ValueError("Artifact belongs to another CI workflow run")
+    if ci_attempt is not None and str(value.get("ci_attempt")) != str(ci_attempt):
+        raise ValueError("Artifact belongs to another CI attempt")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", value.get("image_digest", "")) or not value.get(
+        "input_pins"
+    ):
+        raise ValueError("Missing actual image/input pins")
+    upstream = None
+    ids = set()
+    for name in JOBS:
+        run = value.get("runs", {}).get(name, {})
+        if run.get("status") != "SUCCESS" or not run.get("run_id") or run["run_id"] in ids:
+            raise ValueError("Missing successful distinct native jobs")
+        if upstream and run.get("upstream_run_id") != upstream:
+            raise ValueError("Broken upstream lineage")
+        ids.add(run["run_id"])
+        upstream = run["run_id"]
+    if (
+        not set(STAGES).issubset(value.get("executed_stages", []))
+        or value.get("changed_windows", 0) < 1
+    ):
+        raise ValueError("Real nonempty route execution incomplete")
+    consumer = value.get("consumer", {})
+    if not value.get("qc") or any(v != "PASS" for v in value["qc"].values()):
+        raise ValueError("Native QC/publication incomplete")
+    if (
+        consumer.get("entrypoint") != "research.io.load_backtest_frames"
+        or consumer.get("cache_hit") is not False
+        or consumer.get("rows", 0) < 1
+        or consumer.get("snapshot_id") != value.get("snapshot_id")
+    ):
+        raise ValueError("Fresh normal consumer proof missing")
     return value
 
 
-def validate_acceptance(
-    root: Path, *, base_ref: str, head_ref: str, envelope: dict, now: datetime | None = None
-) -> dict:
-    from trading_advisor_3000.product_plane.common.staging_route_proof import (
-        verify_acceptance_route,
-    )
-
-    base, head = resolve(root, base_ref), resolve(root, head_ref)
-    # Key bytes come from the protected Git base, never from candidate files or PR URLs.
+def check_staging_acceptance(changed_files, *, base_ref=None, head_ref=None, receipt=None):
     try:
-        keyring = json.loads(git(root, "show", f"{base}:{KEYRING}"))
-        keys = keyring["keys"]
-        if not isinstance(keys, dict) or not keys:
-            raise ValueError("Empty protected keyring")
-    except (ValueError, KeyError, TypeError) as exc:
-        raise ValueError("Protected verifier/key bootstrap is pending") from exc
-    payload = verify_acceptance_route(envelope, keys, now=now or datetime.now(timezone.utc))
-    expected = {
-        "base_sha": base,
-        "head_sha": head,
-        "tree_sha": git(root, "rev-parse", f"{head}^{{tree}}"),
-        "executable_sha256": executable_fingerprint(root, head),
-        "config_sha256": config_fingerprint(root, head),
-    }
-    if any(payload["candidate"].get(key) != value for key, value in expected.items()):
-        raise ValueError("Stale main/candidate/tree/executable/configuration receipt")
-    git(root, "merge-base", "--is-ancestor", base, head)
-    verifier = resolve(root, payload["verifier_revision"])
-    git(root, "merge-base", "--is-ancestor", verifier, base)
-    if git(
-        root,
-        "diff",
-        "--name-only",
-        f"{verifier}..{base}",
-        "--",
-        "scripts/validate_staging_acceptance.py",
-        "scripts/build_staging_candidate.py",
-        "src/trading_advisor_3000/product_plane/common/staging_contracts.py",
-        "src/trading_advisor_3000/product_plane/common/staging_route_proof.py",
-        "src/trading_advisor_3000/product_plane/contracts/schemas/staging_acceptance.v1.json",
-        KEYRING,
-    ):
-        raise ValueError("Verifier or trust policy changed; fresh attestation required")
-    for branch_head in payload["candidate"].get("branch_heads", {}).values():
-        git(root, "merge-base", "--is-ancestor", resolve(root, branch_head), head)
-    return payload
+        return _check(changed_files, base_ref, head_ref, receipt)
+    except (ValueError, OSError, KeyError, TypeError, subprocess.CalledProcessError) as exc:
+        print(f"staging acceptance: BLOCKED ({exc})")
+        return 2
 
 
-def check_staging_acceptance(
-    changed_files: list[str],
-    *,
-    base_ref: str | None = None,
-    head_ref: str | None = None,
-    receipt: str | None = None,
-    repo_root: Path | None = None,
-    attestation_output: Path | None = None,
-) -> int:
-    root = repo_root or Path.cwd()
-    try:
-        if base_ref and head_ref:
-            # Independent collection catches moves/deletions even when caller scope is narrow.
-            changed_files = git(
-                root,
-                "diff",
-                "--name-only",
-                "--no-renames",
-                f"{resolve(root, base_ref)}..{resolve(root, head_ref)}",
-            ).splitlines()
-        if not requires_acceptance(changed_files):
-            if attestation_output is not None:
-                write_merge_attestation(root, base_ref, head_ref, None, attestation_output)
-            print("staging acceptance: NOT_REQUIRED (no executable product route change)")
-            return 0
-        if not base_ref or not head_ref:
-            raise ValueError("Product admission requires immutable base-ref and head-ref")
-        event = os.environ.get("GITHUB_EVENT_PATH")
-        envelope = load_envelope(
-            Path(receipt) if receipt else None, event_path=Path(event) if event else None
-        )
-        payload = validate_acceptance(
-            root,
-            base_ref=base_ref,
-            head_ref=head_ref,
-            envelope=envelope,
-        )
-        if attestation_output is not None:
-            write_merge_attestation(root, base_ref, head_ref, envelope, attestation_output)
-        print(f"staging acceptance: PASS (candidate={payload['candidate']['head_sha']})")
+def _check(changed_files, base_ref, head_ref, receipt):
+    if base_ref and head_ref:
+        changed_files = git(
+            Path.cwd(), "diff", "--name-only", f"{base_ref}..{head_ref}"
+        ).splitlines()
+    if not requires_acceptance(changed_files):
         return 0
-    except (ValueError, OSError, KeyError, TypeError) as exc:
-        print(f"staging acceptance: BLOCKED ({exc})")
-        return 2
-
-
-def write_merge_attestation(root, base_ref, head_ref, envelope, output: Path) -> None:
-    """The protected workflow publishes this witness only after every check succeeds."""
-    from trading_advisor_3000.product_plane.common.staging_contracts import digest
-
-    if not base_ref or not head_ref:
-        raise ValueError("Merge attestation requires immutable base and head")
-    event_path = os.environ.get("GITHUB_EVENT_PATH")
-    event = json.loads(Path(event_path).read_text(encoding="utf-8")) if event_path else {}
-    pr = event.get("pull_request", {})
-    value = {
-        "schema_version": "staging_merge_admission.v1",
-        "repository": event.get("repository", {}).get("full_name"),
-        "pull_number": pr.get("number"),
-        "run_id": os.environ.get("GITHUB_RUN_ID"),
-        "base_sha": resolve(root, base_ref),
-        "head_sha": resolve(root, head_ref),
-        "tree_sha": git(root, "rev-parse", f"{resolve(root, head_ref)}^{{tree}}"),
-        "verifier_revision": resolve(ROOT, "HEAD"),
-        "receipt_sha256": digest(envelope) if envelope is not None else None,
-        "pr_body_sha256": hashlib.sha256(str(pr.get("body") or "").encode()).hexdigest(),
-        "kind": "real-route" if envelope is not None else "no-product-route-change",
-    }
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", type=Path, default=Path.cwd())
-    parser.add_argument("--base-ref", required=True)
-    parser.add_argument("--head-ref", required=True)
-    parser.add_argument("--receipt")
-    parser.add_argument("--trusted-root", type=Path, default=ROOT)
-    parser.add_argument("--attestation-output", type=Path)
-    args = parser.parse_args()
-    try:
-        trusted = args.trusted_root.resolve()
-        if trusted != ROOT.resolve() or resolve(trusted, "HEAD") != resolve(
-            args.repo, args.base_ref
-        ):
-            raise ValueError("Verifier must execute from its protected base checkout")
-        if git(trusted, "status", "--porcelain", "--untracked-files=no"):
-            raise ValueError("Protected verifier checkout has changed")
-    except (ValueError, OSError) as exc:
-        print(f"staging acceptance: BLOCKED ({exc})")
-        return 2
-    return check_staging_acceptance(
-        [],
-        base_ref=args.base_ref,
-        head_ref=args.head_ref,
-        receipt=args.receipt,
-        repo_root=args.repo,
-        attestation_output=args.attestation_output,
+    if not base_ref or not head_ref or not receipt:
+        raise ValueError("Native staging result required for this build")
+    tree = git(Path.cwd(), "merge-tree", "--write-tree", base_ref, head_ref).splitlines()[0]
+    validate_result(
+        json.loads(Path(receipt).read_text()),
+        base=git(Path.cwd(), "rev-parse", base_ref),
+        head=git(Path.cwd(), "rev-parse", head_ref),
+        tree=tree,
+        ci_run=os.environ.get("GITHUB_RUN_ID"),
+        ci_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
     )
+    print("staging acceptance: PASS")
+    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--base-ref", required=True)
+    p.add_argument("--head-ref", required=True)
+    p.add_argument("--receipt")
+    p.add_argument("--emit-github-output")
+    a = p.parse_args()
+    if a.emit_github_output:
+        paths = git(Path.cwd(), "diff", "--name-only", f"{a.base_ref}..{a.head_ref}").splitlines()
+        with Path(a.emit_github_output).open("a", encoding="utf-8") as out:
+            out.write(f"required={str(requires_acceptance(paths)).lower()}\n")
+    else:
+        raise SystemExit(
+            check_staging_acceptance(
+                [], base_ref=a.base_ref, head_ref=a.head_ref, receipt=a.receipt
+            )
+        )

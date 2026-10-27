@@ -242,6 +242,25 @@ def prepare_fixture(path, logical_root=fixture_contract.LOGICAL_ROOT):
                 "manifest_sha256": native["manifest_sha256"],
             },
         )
+        coverage = fixture_contract.raw_coverage()
+        snapshots.atomic_json(
+            root / "raw-ingest-report.json",
+            {
+                "status": "PASS",
+                "synthetic_input_only": True,
+                "source_rows": len(rows["raw_moex_history"]),
+                "real_bindings": [f"{i}-6.26" for i in fixture_contract.INSTRUMENTS],
+                "changed_windows": [
+                    {
+                        "instrument_id": i,
+                        "timeframe": "1m",
+                        "start_ts": coverage["start_utc"],
+                        "end_ts": coverage["end_utc"],
+                    }
+                    for i in fixture_contract.INSTRUMENTS
+                ],
+            },
+        )
         manifest = {
             "schema_version": "staging_test_fixture.v1",
             "fixture_version": fixture_contract.FIXTURE_VERSION,

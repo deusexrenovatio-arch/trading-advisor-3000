@@ -27,7 +27,6 @@ from dagster import (
 )
 
 from trading_advisor_3000.product_plane.common.data_snapshots import SnapshotUnavailableError
-from trading_advisor_3000.product_plane.common.staging_execution import staging_asset
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
     delta_table_columns,
@@ -3095,7 +3094,6 @@ def continuous_front_indicator_acceptance_report(context) -> dict[str, object]:
         continuous_front_indicator_acceptance_report,
     ],
 )
-@staging_asset
 def research_data_snapshot(
     context, continuous_front_indicator_acceptance_report: dict[str, object]
 ) -> dict[str, object]:

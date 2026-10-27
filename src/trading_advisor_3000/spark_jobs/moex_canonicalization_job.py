@@ -1326,22 +1326,6 @@ def run_moex_canonicalization_spark_job(
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
-    from trading_advisor_3000.product_plane.common.staging_execution import require_staging_compute
-
-    require_staging_compute(stage="run_moex_canonicalization_spark_job", output_path=output_dir)
-    from trading_advisor_3000.product_plane.common.staging_source_scope import (
-        require_staging_source_bytes,
-    )
-
-    require_staging_source_bytes(
-        output_path=output_dir,
-        input_paths=[
-            normalized_source_path,
-            selected_source_intervals_path,
-            session_intervals_path,
-            closed_session_dates_path,
-        ],
-    )
     output_dir.mkdir(parents=True, exist_ok=True)
     bars_path = output_dir / "delta" / "canonical_bars.delta"
     provenance_path = output_dir / "delta" / "canonical_bar_provenance.delta"
@@ -1475,46 +1459,6 @@ def run_moex_canonicalization_spark_delta_job(
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
-    from trading_advisor_3000.product_plane.common.staging_execution import require_staging_compute
-
-    def effective_windows():
-        import json
-
-        from trading_advisor_3000.product_plane.common.staging_source_scope import (
-            require_staging_source_bytes,
-        )
-
-        require_staging_source_bytes(output_path=output_dir, input_paths=[changed_windows_path])
-        with changed_windows_path.open(encoding="utf-8") as source:
-            for line in source:
-                if line.strip():
-                    window = json.loads(line)
-                    if not isinstance(window, dict):
-                        raise ValueError("canonical changed window must be a JSON object")
-                    yield window
-
-    require_staging_compute(
-        stage="run_moex_canonicalization_spark_delta_job",
-        output_path=output_dir,
-        windows=effective_windows(),
-    )
-    from trading_advisor_3000.product_plane.common.staging_source_scope import (
-        require_staging_source_bytes,
-    )
-
-    require_staging_source_bytes(
-        output_path=output_dir,
-        input_paths=[
-            raw_table_path,
-            changed_windows_path,
-            selected_source_intervals_path,
-            session_intervals_path,
-            closed_session_dates_path,
-            (daily_open_interest_path, daily_open_interest_version)
-            if daily_open_interest_path is not None
-            else None,
-        ],
-    )
     if daily_open_interest_path is not None and (
         isinstance(daily_open_interest_version, bool)
         or not isinstance(daily_open_interest_version, int)

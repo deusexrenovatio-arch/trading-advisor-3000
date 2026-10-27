@@ -378,3 +378,60 @@ def test_end_date_policy_is_provider_and_timeframe_specific(
         "source_provider STRING, source_timeframe STRING, source_interval INT, ts_close TIMESTAMP",
     )
     assert source.select(job._source_session_end_date(F).alias("day")).first()["day"] == expected
+
+
+def test_real_daily_calendar_covers_weekly_canonical_consumer(spark, tmp_path):
+    from pyspark.sql import Window
+    from pyspark.sql import functions as F
+
+    from trading_advisor_3000.product_plane.data_plane.moex.session_schedule import (
+        materialize_reconstructed_session_schedule_for_changed_windows,
+    )
+
+    intervals = tmp_path / "daily_intervals.delta"
+    closed = tmp_path / "explicit_closed_override.delta"
+    produced = materialize_reconstructed_session_schedule_for_changed_windows(
+        changed_windows=[
+            {
+                "internal_id": "FUT_BR",
+                "source_timeframe": "1w",
+                "source_interval": 10080,
+                "moex_secid": "BRG0@MOEX",
+                "window_start_utc": "2026-10-18T21:00:00Z",
+                "window_end_utc": "2026-10-25T21:00:00Z",
+            }
+        ],
+        mappings=[],
+        raw_schedule_path=tmp_path / "raw_schedule.delta",
+        canonical_session_intervals_path=intervals,
+        canonical_closed_session_dates_path=closed,
+        fetched_at_utc="2026-10-25T23:00:00Z",
+    )
+    assert produced["canonical_closed_session_dates_path"] == closed.as_posix()
+    assert produced["closed_calendar_rows"] == 2
+    source, selected, _, _ = _inputs(spark, tmp_path)
+    source = source.withColumn("ts_open", F.to_timestamp(F.lit("2026-10-18T21:00:00Z"))).withColumn(
+        "ts_close", F.to_timestamp(F.lit("2026-10-25T21:00:00Z"))
+    )
+    try:
+        bars, provenance, report = job._build_session_bounded_outputs(
+            spark=spark,
+            source_df=source,
+            selected_df=selected,
+            session_intervals_path=intervals,
+            closed_session_dates_path=closed,
+            build_run_id="real-daily-calendar-regression",
+            built_at_utc="2026-10-25T23:00:00Z",
+            functions=F,
+            window=Window,
+        )
+        assert bars.count() == provenance.count() == 1
+        assert report["missing_official_coverage_rows"] == 0
+        assert report["closed_session_dates_used"] == 2
+        assert report["admitted_source_rows"] == 1
+        row = bars.first().asDict()
+        assert row["instrument_id"] == "FUT_BR"
+        assert row["contract_id"] == "BRG0@MOEX"
+        assert [row[key] for key in ("open", "high", "low", "close")] == [10, 12, 9, 11]
+    finally:
+        spark.catalog.clearCache()

@@ -116,3 +116,29 @@ To avoid accidental launches of the wrong contour:
 - the manual full-route script must stay blocked by default,
 - proof contours must remain explicitly labeled as proof-only,
 - no runbook may present manual-only or proof-only entrypoints as the normal overnight path.
+
+
+## Daily calendar closure evidence
+
+The existing session-schedule producer owns raw schedule, open intervals and
+explicit closed dates as one logical family. Use the existing closed-date schema
+and source-provenance normalizer; do not infer closure from missing data. Validate
+provenance, complete coverage and open/closed disjointness before any write.
+
+Generate, infer and replace only the exact source/instrument/date cells derived
+from each changed window. All three Delta replacements use that complete scope,
+including mixed or empty outputs. Open-to-closed removes old intervals;
+closed-to-open removes old closure evidence. Preserve outside-scope dates and
+instruments; a global instrument/date Cartesian product is not bounded proof.
+
+The selected closed-date path, including an explicit override, is the same in
+the writer, producer report, Data snapshot, windowed references and Spark input.
+It defaults to the existing sibling canonical_closed_session_dates.delta.
+Unknown coverage, conflicting evidence or missing selected Delta input blocks
+admission. Existing Spark closed-only-source-span checks remain authoritative.
+
+Each table retains its own Delta transaction; this is not cross-table atomicity.
+On partial failure, return no PASS, keep pending scope and retain the accepted
+publication. Retrying the same source/scope must converge without retaining
+opposite calendar evidence. No manual production rebuild is part of this fix;
+scheduled runtime publication remains separate acceptance evidence.

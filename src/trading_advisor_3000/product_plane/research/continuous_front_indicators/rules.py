@@ -334,10 +334,9 @@ def _group_for_indicator_output(spec: IndicatorSpec, output_column: str) -> str:
         "ultimate_oscillator",
         "tsi",
         "trix",
-        "kst",
     }:
         return "oscillator_on_p0"
-    if operation in {"natr", "roc", "ppo", "realized_volatility", "ulcer_index"}:
+    if operation in {"natr", "roc", "ppo", "kst", "realized_volatility", "ulcer_index"}:
         return "anchor_sensitive_roll_aware"
     if operation in {
         "obv",

@@ -1,182 +1,8 @@
-"""Prepare bounded control metadata; never execute producers or issue acceptance.
-
-Run in an isolated metadata container with the frozen candidate and seed read-only,
-without signing keys, owner credentials or Docker access. Print the proposed plan;
-the protected host validates it before installing plan.json and its root marker.
-"""
+"""Native staging recipe adapter. Preparation only; never starts a producer."""
 
 from __future__ import annotations
 
-import argparse
-import hashlib
-import importlib.util
-import inspect
-import json
-import sys
-from datetime import UTC, datetime, timedelta
-from functools import lru_cache
-from math import ceil
 from pathlib import Path
-from types import SimpleNamespace
-from uuid import uuid4
-
-ROOT = Path(__file__).resolve().parents[1]
-BASELINE_STEPS = (
-    "run_moex_baseline_update",
-    "run_moex_raw_ingest_spark_delta_job",
-    "run_moex_contract_economics_spark_job",
-    "run_moex_canonicalization_spark_delta_job",
-    "run_moex_canonical_publish_spark_delta_job",
-)
-RESEARCH_STEPS = (
-    "run_continuous_front_spark_job",
-    "run_research_bar_views_spark_job",
-    "materialize_indicator_frames",
-    "materialize_derived_indicator_frames",
-    "run_research_derived_source_frames_spark_job",
-    "run_continuous_front_indicator_pandas_job",
-    "run_continuous_front_indicator_sidecar_spark_job",
-)
-JOBS = ("moex_baseline_update_job", "moex_cf_catch_up_job", "research_data_prep_job")
-
-
-@lru_cache(maxsize=1)
-def contracts():
-    path = ROOT / "src/trading_advisor_3000/product_plane/common/staging_contracts.py"
-    spec = importlib.util.spec_from_file_location("protected_plan_contracts", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-class _Captured(BaseException):
-    pass
-
-
-def capture_parameters(assets, op_config):
-    """Stop at the native producer boundary, before its body or admission runs."""
-    from trading_advisor_3000.product_plane.common.staging_source_scope import parameter_value
-    from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import (
-        _baseline_update_timeframes,
-    )
-
-    original, captured = assets.run_moex_baseline_update, {}
-
-    def capture(**kwargs):
-        bound = inspect.signature(original).bind(**kwargs)
-        bound.apply_defaults()
-        captured.update(bound.arguments)
-        raise _Captured
-
-    assets.run_moex_baseline_update = capture
-    try:
-        function = inspect.unwrap(assets.moex_baseline_update.op.compute_fn.decorated_fn)
-        function(SimpleNamespace(op_config=op_config))
-        raise ValueError("Native asset did not reach the protected parameter capture")
-    except _Captured:
-        pass
-    finally:
-        assets.run_moex_baseline_update = original
-    cutoff = captured.pop("ingest_till_utc")
-    captured.pop("run_id")
-    captured["timeframes"] = _baseline_update_timeframes(captured["timeframes"])
-    return parameter_value(captured), cutoff
-
-
-def scheduled_instant(assets, value="next", *, stage="acceptance", now=None):
-    from dagster._utils.schedules import cron_string_iterator
-
-    now = now if now is not None else datetime.now(UTC)
-    if now.tzinfo is None or now.utcoffset() is None or stage not in {"branch", "acceptance"}:
-        raise ValueError("Preparation requires an aware clock and known stage")
-    next_instant = next(
-        tick
-        for tick in cron_string_iterator(
-            now.timestamp(),
-            assets.MOEX_BASELINE_DAILY_CRON,
-            assets.MOEX_HISTORICAL_EXECUTION_TIMEZONE,
-        )
-        if tick.timestamp() > now.timestamp()
-    )
-    if value == "next":
-        return next_instant
-    instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if instant.tzinfo is None:
-        raise ValueError("Preparation requires an aware native cron instant")
-    native = next(
-        cron_string_iterator(
-            instant.timestamp(),
-            assets.MOEX_BASELINE_DAILY_CRON,
-            assets.MOEX_HISTORICAL_EXECUTION_TIMEZONE,
-        )
-    )
-    if native.timestamp() != instant.timestamp():
-        raise ValueError("Selected time is not an actual native schedule instant")
-    if stage == "acceptance" and instant <= now:
-        raise ValueError("Acceptance preparation requires the next future native cron")
-    if instant > now and instant.timestamp() != next_instant.timestamp():
-        raise ValueError("A future proposal must name the next native cron instant")
-    return instant
-
-
-def native_schedule_metadata(assets, instant, run_config):
-    """Carry the complete Linux-native config without host path reconstruction."""
-    return dict(
-        cron=assets.MOEX_BASELINE_DAILY_CRON,
-        timezone=assets.MOEX_HISTORICAL_EXECUTION_TIMEZONE,
-        logical_scheduled_at_utc=instant.astimezone(UTC).isoformat(),
-        run_config=run_config,
-        preparation="metadata-only; not execution or acceptance",
-    )
-
-
-def native_root_run_config(assets, instant, stage, deployed_root):
-    daily = assets._build_baseline_daily_schedule_run_config(
-        SimpleNamespace(scheduled_execution_time=instant)
-    )
-    if stage != "branch":
-        return daily
-    from trading_advisor_3000.product_plane.data_plane.moex.runtime_instances import (
-        build_moex_baseline_run_config_for_instance,
-        load_moex_runtime_instances_registry,
-    )
-
-    instance = load_moex_runtime_instances_registry(repo_root=deployed_root).instance(
-        "moex_branch_staging"
-    )
-    clock = daily["ops"]["moex_baseline_update"]["config"]
-    branch = build_moex_baseline_run_config_for_instance(
-        instance, run_id=clock["run_id"], ingest_till_utc=clock["ingest_till_utc"]
-    )
-    # The native owner's closed-session cutoff and lag are one temporal contract.
-    # Applying the manual branch lag again would drop the just-closed daily candle.
-    branch["ops"]["moex_baseline_update"]["config"]["stability_lag_minutes"] = clock[
-        "stability_lag_minutes"
-    ]
-    return branch
-
-
-def initial_limits(stage, small_attempts=0):
-    if type(small_attempts) is not int or not 0 <= small_attempts <= 2:
-        raise ValueError("Optional small-attempt budget must be between zero and two")
-    if stage == "branch" and small_attempts == 0:
-        raise ValueError("Branch perf requires an explicit --small-attempts budget")
-    return dict(small=small_attempts, acceptance=1, rebuild=0)
-
-
-def plan_windows(args):
-    """Assemble CLI alternatives; shared contract owns syntax and ambiguity checks."""
-    windows = {}
-    start, end = getattr(args, "window_start", None), getattr(args, "window_end", None)
-    if start is not None or end is not None:
-        windows["execution_window"] = dict(start_utc=start, end_utc=end)
-    start, end = (
-        getattr(args, key, None) for key in ("daily_window_start_utc", "daily_window_end_utc")
-    )
-    if start is not None or end is not None:
-        windows["daily_execution_window_utc"] = dict(start=start, end=end)
-    contracts().execution_window_end(windows, datetime.now(UTC))
-    return windows
 
 
 def native_research_run_config(assets, fixture, root, run_id):
@@ -224,272 +50,102 @@ def native_research_run_config(assets, fixture, root, run_id):
     return assets._research_data_prep_run_config_from_research_config(config)
 
 
-def research_branch_plan(args, clock_assets, root, instant, limits, windows):
-    from trading_advisor_3000.dagster_defs import research_assets as assets
-    from trading_advisor_3000.product_plane.common.staging_test_fixture import (
-        MAX_BYTES,
-        verify_fixture,
-    )
-    from trading_advisor_3000.product_plane.research.io import ResearchSliceRequest
+def prepare(plan):
+    import shutil
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
 
-    if not Path(assets.__file__).resolve().is_relative_to((args.deployed_root / "src").resolve()):
-        raise ValueError("Native Research configuration was imported from another artifact")
-    manifest = args.fixture_manifest.resolve()
-    if manifest.name != "manifest.json" or manifest.is_relative_to(root):
-        raise ValueError("Research fixture manifest must be outside writable staging data")
-    fixture_sha = hashlib.sha256(manifest.read_bytes()).hexdigest()
-    fixture = verify_fixture(manifest.parent, fixture_sha)
-    source_cap = min(args.max_source_bytes, MAX_BYTES)
-    if (
-        sum(path.stat().st_size for path in manifest.parent.rglob("*") if path.is_file())
-        > source_cap
-    ):
-        raise ValueError("Prepared fixture exceeds the declared source byte cap")
-    consumer = json.loads(args.consumer.read_text("utf-8"))
-    request = ResearchSliceRequest(**consumer)
-    if (
-        not request.instrument_ids
-        or set(request.instrument_ids) != set(fixture["instrument_ids"])
-        or request.timeframe not in fixture["timeframes"]
-        or not request.price_columns
-        or request.dataset_version != fixture["dataset_version"]
-        or getattr(request, "warmup_bars", 0) > fixture["warmup_bars"]
-    ):
-        raise ValueError("Consumer must select an explicit compatible fixture slice")
-    candidate = json.loads(args.candidate.read_text("utf-8"))
-    if candidate.get("schema_version") != "staging_candidate.v1":
-        raise ValueError("Use the immutable build_staging_candidate output")
-    run_id = str(uuid4())
-    run_config = native_research_run_config(assets, fixture, root, run_id)
-    config = next(iter(run_config["ops"].values()))["config"]
-    if request.indicator_set_version != config["indicator_set_version"] or (
-        "derived_indicator_set_version" in config
-        and request.derived_indicator_set_version != config["derived_indicator_set_version"]
-    ):
-        raise ValueError("Consumer feature version differs from the native fixture recipe")
+    from trading_advisor_3000.dagster_defs import moex_historical_assets as data
+    from trading_advisor_3000.dagster_defs import research_assets as research
+    from trading_advisor_3000.product_plane.common.data_snapshots import current_snapshot
+    from trading_advisor_3000.product_plane.common.staging_test_fixture import verify_fixture
     from trading_advisor_3000.product_plane.research.data_snapshots import (
         _registry,
         snapshot_registry,
     )
-
-    if _registry(config) != snapshot_registry(
-        Path(config["materialized_output_dir"]), request.dataset_version, request.contour_id
-    ):
-        raise ValueError("Consumer contour differs from the native Research recipe")
-    schedule = native_schedule_metadata(clock_assets, instant, run_config)
-    schedule["manual_run_id"] = run_id
-    schedule["trigger"] = "manual_fixture"
-    schedule["preparation"] = (
-        "metadata-only manual fixture; not a scheduled tick, execution or acceptance"
-    )
-    start = datetime.fromisoformat(fixture["start_utc"].replace("Z", "+00:00"))
-    end = datetime.fromisoformat(fixture["end_utc"].replace("Z", "+00:00"))
-    plan = dict(
-        schema_version="staging_plan.v1",
-        task_id=args.task_id,
-        stage="branch",
-        attempt_kind="small",
-        candidate=candidate["candidate"],
-        data_root=str(root),
-        quota_home=str(args.quota_home),
-        deadline_utc=args.deadline,
-        max_runtime_seconds=args.max_runtime_seconds,
-        limits=limits,
-        root_job="research_data_prep_job",
-        jobs={"research_data_prep_job": dict(upstream_job=None, max_runs=1)},
-        native_steps={**dict.fromkeys(RESEARCH_STEPS, 1), "materialize_research_dataset": 2},
-        scope=dict(
-            instrument_ids=fixture["instrument_ids"],
-            timeframes=fixture["timeframes"],
-            start_utc=fixture["start_utc"],
-            end_utc=fixture["end_utc"],
-            max_changed_window_days=max(1, ceil((end - start).total_seconds() / 86400)),
-            max_source_bytes=source_cap,
-            full_history=False,
-        ),
-        require_scheduled=False,
-        consumer=consumer,
-        required_scenarios=[],
-        verifier_revision=args.verifier_revision,
-        source=dict(
-            fixture=dict(
-                manifest_path="/staging-control/fixture/manifest.json", manifest_sha256=fixture_sha
-            ),
-            data_manifest_path=fixture["data_manifest_path"],
-            snapshot_id=fixture["data_snapshot_id"],
-            manifest_sha256=fixture["data_manifest_sha256"],
-            canonical_dir=fixture["canonical_dir"],
-            raw_dir=fixture["raw_dir"],
-            branch_output_dir=config["materialized_output_dir"],
-            native_schedule=schedule,
-        ),
-    )
-    plan.update(windows)
-    return contracts().validate_document("plan", plan)
-
-
-def prepare(args):
-    windows = plan_windows(args)
-    limits = initial_limits(args.stage, getattr(args, "small_attempts", 0))
-    target = getattr(args, "branch_target", "baseline")
-    if target == "research" and (
-        args.stage != "branch" or not getattr(args, "fixture_manifest", None)
-    ):
-        raise ValueError("Research target requires branch stage and --fixture-manifest")
-    sys.path.insert(0, str(args.deployed_root / "src"))
-    from trading_advisor_3000.dagster_defs import moex_historical_assets as assets
-    from trading_advisor_3000.product_plane.common.data_snapshots import (
-        current_snapshot,
-        load_snapshot,
-    )
-    from trading_advisor_3000.product_plane.common.staging_seed import _frozen_accepted
-    from trading_advisor_3000.product_plane.data_plane.moex.foundation import load_universe
     from trading_advisor_3000.product_plane.research.io import ResearchSliceRequest
 
-    if not Path(assets.__file__).resolve().is_relative_to((args.deployed_root / "src").resolve()):
-        raise ValueError("Native configuration was imported from another artifact")
-    root = args.data_root.resolve()
-    if assets._route_artifact_root().resolve() != root:
-        raise ValueError("Native configured data root differs from the requested staging root")
-    if target == "research":
-        if getattr(args, "scheduled_at", "next") != "next":
-            raise ValueError("Manual Research fixture does not accept an explicit --scheduled-at")
-        return research_branch_plan(args, assets, root, datetime.now(UTC), limits, windows)
-    instant = scheduled_instant(assets, args.scheduled_at, stage=args.stage)
-    if instant >= datetime.fromisoformat(args.deadline.replace("Z", "+00:00")):
-        raise ValueError("Proposed schedule must occur before the protected deadline")
-    if not args.research_manifest:
-        raise ValueError("Baseline and acceptance require --research-manifest")
-    run_config = native_root_run_config(assets, instant, args.stage, args.deployed_root)
-    config = run_config["ops"]["moex_baseline_update"]["config"]
-    parameters, cutoff = capture_parameters(assets, config)
-    source_path = args.research_manifest.resolve()
-    if not source_path.is_relative_to(root):
-        raise ValueError("Source manifest must belong to the independent staging root")
-    source = load_snapshot(source_path)
-    data_registry = root / "canonical/moex/baseline-4y-current/.data_snapshots"
-    if len(source["parents"]) != 1:
-        raise ValueError("Research requires its exact immutable accepted Data parent")
-    data = load_snapshot(data_registry / "manifests" / f"{source['parents'][0]}.json")
-    current = current_snapshot(source_path.parent.parent)
-    if current is None or (
-        current["manifest_sha256"] != source["manifest_sha256"]
-        and not _frozen_accepted(root, source, data)
-    ):
-        raise ValueError("Source is not a current or protected observed accepted checkpoint")
-    for manifest in (source, data):
-        if datetime.fromisoformat(manifest["created_at_utc"].replace("Z", "+00:00")) > instant:
-            raise ValueError("Source checkpoint is newer than the declared native schedule instant")
-        if not manifest["quality_checks"] or any(
-            v not in {"PASS", "PASS-NOOP"} for v in manifest["quality_checks"].values()
-        ):
-            raise ValueError("Source checkpoints are not accepted")
-    consumer = json.loads(args.consumer.read_text("utf-8"))
-    request = ResearchSliceRequest(**consumer)
-    instruments = [
-        s.internal_id for s in load_universe(Path(parameters["universe_path"])) if s.is_active
-    ]
-    if (
-        not request.instrument_ids
-        or not set(request.instrument_ids).issubset(instruments)
-        or request.timeframe not in parameters["timeframes"]
-        or not request.price_columns
-        or request.dataset_version != source["dataset_version"]
-    ):
-        raise ValueError("Consumer must select an explicit compatible native slice")
-    candidate = json.loads(args.candidate.read_text("utf-8"))
-    if candidate.get("schema_version") != "staging_candidate.v1":
-        raise ValueError("Use the immutable build_staging_candidate output")
-    jobs = JOBS if args.stage == "acceptance" else JOBS[:1]
-    steps = dict.fromkeys(BASELINE_STEPS, 1)
-    if args.stage == "acceptance":
-        steps.update(dict.fromkeys(RESEARCH_STEPS, 1))
-        steps["materialize_research_dataset"] = 2
-    end = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
-    plan = dict(
-        schema_version="staging_plan.v1",
-        task_id=args.task_id,
-        stage=args.stage,
-        attempt_kind="acceptance" if args.stage == "acceptance" else "small",
-        candidate=candidate["candidate"],
-        data_root=str(root),
-        quota_home=str(args.quota_home),
-        deadline_utc=args.deadline,
-        max_runtime_seconds=args.max_runtime_seconds,
-        limits=limits,
-        root_job=JOBS[0],
-        jobs={
-            job: dict(upstream_job=jobs[i - 1] if i else None, max_runs=1)
-            for i, job in enumerate(jobs)
-        },
-        native_steps=steps,
-        scope=dict(
-            instrument_ids=instruments,
-            timeframes=parameters["timeframes"],
-            start_utc=(end - timedelta(days=parameters["max_changed_window_days"])).isoformat(),
-            end_utc=cutoff,
-            max_changed_window_days=parameters["max_changed_window_days"],
-            max_source_bytes=args.max_source_bytes,
-            full_history=False,
-        ),
-        require_scheduled=args.stage == "acceptance",
-        consumer=consumer,
-        required_scenarios=[],
-        verifier_revision=args.verifier_revision,
-        producer_parameters={"run_moex_baseline_update": parameters},
-        source=dict(
-            research_manifest_path=str(source_path),
-            snapshot_id=source["snapshot_id"],
-            manifest_sha256=source["manifest_sha256"],
-            native_schedule=native_schedule_metadata(assets, instant, run_config),
-        ),
-    )
-    plan.update(windows)
-    return contracts().validate_document("plan", plan)
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("candidate", "consumer", "data-root"):
-        parser.add_argument("--" + name, type=Path, required=True)
-    for name in ("task-id", "deadline", "verifier-revision"):
-        parser.add_argument("--" + name, required=True)
-    parser.add_argument("--scheduled-at", default="next")
-    for name in ("max-runtime-seconds", "max-source-bytes"):
-        parser.add_argument("--" + name, type=int, required=True)
-    parser.add_argument("--stage", choices=("branch", "acceptance"), default="acceptance")
-    parser.add_argument("--branch-target", choices=("baseline", "research"), default="baseline")
-    parser.add_argument("--research-manifest", type=Path)
-    parser.add_argument("--fixture-manifest", type=Path)
-    parser.add_argument("--small-attempts", type=int, choices=(0, 1, 2), default=0)
-    parser.add_argument("--deployed-root", type=Path, default=Path("/workspace"))
-    parser.add_argument("--quota-home", type=Path, default=Path("/staging-quota"))
-    parser.add_argument("--window-start")
-    parser.add_argument("--window-end")
-    parser.add_argument("--daily-window-start-utc")
-    parser.add_argument("--daily-window-end-utc")
-    parser.add_argument("--output", type=Path)
-    args = parser.parse_args()
-    try:
-        deadline = datetime.fromisoformat(args.deadline.replace("Z", "+00:00"))
-        if deadline.tzinfo is None or deadline <= datetime.now(UTC):
-            raise ValueError("Protected plan deadline must be an unexpired aware timestamp")
-        if args.output and (
-            args.output.exists() or args.output.resolve().is_relative_to(args.data_root.resolve())
-        ):
-            raise ValueError("Plan output must be new and outside writable data")
-        plan = prepare(args)
-        encoded = json.dumps(plan, indent=2) + "\n"
-        if args.output:
-            with args.output.open("x", encoding="utf-8") as stream:
-                stream.write(encoded)
+    root = Path("/ta3000-data/moex-historical")
+    if plan["stage"] == "branch":
+        fixture = verify_fixture(Path("/staging-control/fixture"), plan["fixture_sha256"])
+        plan["input_pins"] = {
+            "fixture": plan["fixture_sha256"],
+            "data": fixture["data_snapshot_id"],
+        }
+        if plan["target"] == "research":
+            plan["run_config"] = native_research_run_config(
+                research, fixture, root, plan["root_run_id"]
+            )
+            plan["jobs"] = ["research_data_prep_job"]
         else:
-            print(encoded, end="")
-        return 0
-    except (ValueError, OSError, KeyError, TypeError, RuntimeError) as exc:
-        print(json.dumps({"status": "BLOCKED", "reason": str(exc)}), file=sys.stderr)
-        return 2
+            if not Path("/staging-control/fixture/raw-ingest-report.json").is_file():
+                raise ValueError("Miniature raw ingest input report missing; prepare fixture first")
+            output = root / "canonical"
+            paths = data.moex_historical_output_paths(output)
+            for name in ("canonical_session_intervals", "canonical_closed_session_dates"):
+                target = Path(paths.get(name, output / "delta" / f"{name}.delta"))
+                shutil.copytree(Path(fixture["canonical_dir"]) / f"{name}.delta", target)
+            plan["run_config"] = data.build_moex_data_rebuild_run_config(
+                profile_name="canonical_from_existing_raw",
+                canonical_run_id=plan["root_run_id"],
+                canonical_output_dir=output,
+                raw_table_path=Path(fixture["raw_dir"]) / "raw_moex_history.delta",
+                raw_ingest_report_path=Path("/staging-control/fixture/raw-ingest-report.json"),
+                publish_mode="staging_only",
+                downstream_mode="invalidate",
+            )
+            config = plan["run_config"]["ops"]["moex_data_rebuild"]["config"]
+            config["canonical_closed_session_dates_path"] = str(
+                output / "delta/canonical_closed_session_dates.delta"
+            )
+            plan["jobs"] = ["moex_data_rebuild_job"]
+            plan["data_table"] = paths["canonical_bars"]
+            plan["data_manifest"] = str(
+                data._default_data_rebuild_manifest_path(config, plan["root_run_id"])
+            )
+    else:
+        plan["run_config"] = data._build_baseline_daily_schedule_run_config(
+            SimpleNamespace(scheduled_execution_time=datetime.now(UTC))
+        )
+        plan["run_config"]["ops"]["moex_baseline_update"]["config"]["run_id"] = plan["root_run_id"]
+        before = current_snapshot(root / "canonical/moex/baseline-4y-current/.data_snapshots")
+        if before is None:
+            raise ValueError("Working staging requires an accepted Data checkpoint")
+        plan["input_pins"] = {"data": before["snapshot_id"], "tables": before["tables"]}
+        plan["jobs"] = [
+            "moex_baseline_update_job",
+            "moex_cf_catch_up_job",
+            "research_data_prep_job",
+        ]
+    if plan["target"] != "data":
+        request = ResearchSliceRequest(**plan["consumer"])
+        if (
+            not request.instrument_ids
+            or not request.price_columns
+            or not request.indicator_columns
+            or not request.derived_columns
+        ):
+            raise ValueError("Explicit price/L1/L2 consumer coverage required")
+        registry = snapshot_registry(
+            root / "research/gold/current", request.dataset_version, request.contour_id
+        )
+        plan["research_registry"] = str(registry)
+        if plan["stage"] == "branch":
+            config = next(iter(plan["run_config"]["ops"].values()))["config"]
+            if (
+                _registry(config) != registry
+                or set(request.instrument_ids) != set(fixture["instrument_ids"])
+                or request.timeframe not in fixture["timeframes"]
+                or getattr(request, "warmup_bars", 0) > 512
+                or request.indicator_set_version != config["indicator_set_version"]
+                or request.derived_indicator_set_version != config["derived_indicator_set_version"]
+            ):
+                raise ValueError("Consumer does not match bounded native fixture recipe")
+    return plan
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import json
+    import sys
+
+    print(json.dumps(prepare(json.loads(Path(sys.argv[1]).read_text()))))

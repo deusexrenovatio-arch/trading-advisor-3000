@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.common.data_snapshots import save_snapshot_scope
-from trading_advisor_3000.product_plane.common.staging_execution import protected_subprocess_env
 from trading_advisor_3000.product_plane.contracts import CanonicalBar, Timeframe
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     count_delta_table_rows,
@@ -1329,11 +1328,6 @@ def _run_spark_canonicalization(
             text=True,
             check=False,
             timeout=SPARK_CANONICALIZATION_SUBPROCESS_TIMEOUT_SECONDS,
-            env=protected_subprocess_env(
-                os.environ.copy(),
-                native_entry="run_moex_canonicalization_spark_delta_job",
-                output_path=spark_output_dir,
-            ),
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
@@ -1434,11 +1428,6 @@ def _run_spark_canonical_publish(
             text=True,
             check=False,
             timeout=SPARK_PUBLISH_SUBPROCESS_TIMEOUT_SECONDS,
-            env=protected_subprocess_env(
-                os.environ.copy(),
-                native_entry="run_moex_canonical_publish_spark_delta_job",
-                output_path=spark_dir,
-            ),
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(

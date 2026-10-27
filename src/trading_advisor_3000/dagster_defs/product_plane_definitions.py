@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dagster import Definitions
+import os
+
+from dagster import Definitions, multiprocess_executor
 
 from .moex_historical_assets import (
     MOEX_BASELINE_DAILY_SCHEDULE_NAME,
@@ -70,6 +72,11 @@ PRODUCT_PLANE_NIGHTLY_JOB_NAMES = (
 
 
 product_plane_definitions = Definitions(
+    executor=(
+        multiprocess_executor.configured({"max_concurrent": 1, "retries": {"disabled": {}}})
+        if os.environ.get("TA3000_STAGING_PROOF") == "1"
+        else None
+    ),
     assets=[
         *MOEX_HISTORICAL_ASSETS,
         *RESEARCH_ASSETS,

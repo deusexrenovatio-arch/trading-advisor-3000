@@ -4,10 +4,6 @@
 Process automation is driven by canonical Python entrypoints and documented hooks.
 Do not reintroduce shell-only wrapper flows as primary control paths.
 
-Development compute and pre-main native proof must follow
-[guarded staging](docs/runbooks/app/guarded-staging.md) and its stable task budget.
-Normal authorized production schedules retain their native owner.
-
 ## Product Plane Delta Input Rule
 For Product Plane analytical inputs, especially research and backtest inputs, Python is only the orchestration layer.
 Do not load Delta-backed bars, indicators, derived indicators, or campaign result tables through Python row-object/list scans as the active data path.

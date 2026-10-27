@@ -140,10 +140,7 @@ def main() -> int:
     if review_code:
         return review_code
     staging_code = check_staging_acceptance(
-        changed_files,
-        base_ref=args.base_ref,
-        head_ref=args.head_ref,
-        receipt=args.staging_receipt,
+        changed_files, base_ref=args.base_ref, head_ref=args.head_ref, receipt=args.staging_receipt
     )
     if staging_code:
         return staging_code

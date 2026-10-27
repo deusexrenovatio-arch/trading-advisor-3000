@@ -45,9 +45,6 @@ Hosted CI note:
 - Default-off mode prevents infrastructure-side billing errors from producing false-red checks.
 - The only required GitHub status is `pr-lane`; branch push feedback uses `branch-lane`.
 
-Fast/local/CI success does not replace applicable
-[guarded native product proof](docs/runbooks/app/guarded-staging.md) before main.
-
 ## Durable-state checks
 - `python scripts/validate_plans.py`
 - `python scripts/validate_agent_memory.py`

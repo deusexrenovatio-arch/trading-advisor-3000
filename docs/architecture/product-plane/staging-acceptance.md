@@ -1,334 +1,104 @@
 # Staging acceptance before main
 
-Change surface: mixed. Architectural impact: contract-change.
-Decision: accepted. Implementation: staged; activation requires separate route acceptance.
-Runtime/deployment: not established by this decision; require pinned live readback.
+Change surface: mixed. Impact: contract-change. Decision: accepted user scope,
+2026-10-27; implementation and native activation remain separately unproven.
 
-## Decision context and alternatives
+## Three responsibilities
 
-Repeated materialization makes development costly; green tests do not establish
-the deployed producer-to-consumer route. This decision fixes cost and proof order.
-Tests-only or main-first proof was rejected: both permit unverified integration.
-Per-SHA retry/rebuild budgets were rejected: they erase spend history and grow cost.
-A new compute/quota service or separate reference environment was rejected: reuse
-native Dagster/Delta ownership, existing Postgres and the acceptance environment.
+1. One branch command runs a selected existing Data or Research Dagster recipe on
+   immutable miniature inputs. Fixed input rows/bytes/files, monitored output growth, RAM,
+   elapsed time and a stable task attempt limit bound the whole graph. Multiple
+   explicitly budgeted short runs are allowed; no automatic retry or large seed
+   fallback. Existing source, formula, Delta and public consumer owners remain.
+2. One automatic pre-main run tests the frozen integration tree in the existing
+   working staging: native update -> native Research sensors/job -> QC -> Delta
+   publication -> fresh normal consumer. A short fixture result never grants main.
+3. The existing PR/CI lane consumes the result artifact from its native staging
+   job, checks exact base/head/tree and complete route evidence, and blocks main
+   on failure, missing/stale evidence or skipped execution. No separate merger.
 
-Build/review inert foundations through ordinary fast CI. Activate the protected
-compute gate only after its native pilot; a changed product route still requires
-full candidate acceptance before main. Rollback
-disables activation and restores accepted code/image/checkpoint together; preserve
-quota history and receipts. No automatic rebuild, quota reset or acceptance-data copy.
-Sources: [native owners](docs/architecture/product-plane/native-runtime-ownership.md),
-[schema](src/trading_advisor_3000/product_plane/contracts/schemas/staging_acceptance.v1.json),
-[admission](scripts/validate_staging_acceptance.py). Scoped PR receipts and
-runtime readback own implementation/deployment evidence. Revisit on native runtime,
-storage/ownership or recurring-cost changes; reuse this record rather than add a registry.
+## Keep versus remove
 
-## Delivery contract
+Keep isolated code/input/output mounts, native Dagster persistent run metadata,
+fixed miniature mounts, one task attempt counter outside disposable outputs, native
+QC/publication and a fresh public consumer. Dagster owns jobs/sensors/run IDs;
+Delta owns versions and publication; Python only coordinates limits and evidence.
 
-Ordinary PR -> fast CI. Changed executable product route -> one integration
-candidate -> reuse applicable proof or one acceptance graph -> required pr-lane
--> main -> production promotion. Branch native perf is optional, never a prerequisite.
-The integration candidate pins the current main commit, selected branch heads,
-resulting tree, executable dependency closure, runtime image, configuration and
-input snapshot versions. A batch lands as one integration PR. A stale main or
-candidate cannot use a previous admission. Reattestation can reuse computation
-only when the entire executable/configuration/input/coverage closure is unchanged.
-Server-side strict up-to-date main protection closes the gate-to-merge race.
+Remove dedicated quota PostgreSQL/schema/role bootstrap, signed permits and
+receipts/keyring, GitHub App and exclusive merge controller integration, protected
+workflow witnesses, reattestation/reuse machinery, reference-mode activation,
+production observation and promotion validators. Their necessity is not proven
+for this scope. Existing PR protection/CI trust and one configured staging worker
+are the trust boundary. No hostile-admin or arbitrary-code sandbox is claimed.
 
-Acceptance has two protected modes in the same environment. Candidate mode uses
-the fixed task proof budget. Reference mode maintains the last accepted main
-between candidates, through the same ordinary production daily schedule. Only
-the protected host can activate reference mode after validating the signed
-acceptance receipt, actual main/tree merge and immutable artifact binding.
-Reference evidence is labelled reference and cannot admit a new candidate.
+Deep compute/subprocess grants and production observers are removed. Immutable
+miniature inputs plus an internal network bound short runs; a native staging-only
+executor disables retries and uses one step at a time. A small session launcher
+admits only the planned root UUID and its real successful native children, once
+per job. It is not installed on the ordinary staging scheduler.
 
-Each reference graph reserves one slot from the real recorded Dagster tick and
-its scheduled execution time/timezone, never from caller tags or wall-clock date.
-Manual/retry/resume requests cannot create another slot. Per-cycle deadlines and
-resource caps remain bounded, and input pins are captured from the last accepted
-snapshot at cycle start. A proven NOOP is a normal reference outcome. The first
-failed, cancelled or BLOCKED reference graph pauses subsequent cycles until
-diagnosis and a protected-host decision. Switching modes preserves all task
-attempt history; a new day cannot reset a failed candidate's proof budget.
+A persistent native Dagster instance records task limits and reservations under
+a single host lock. Reserve before launching; failure/crash/cancel spends the
+slot. The instance path is fixed by worker configuration, never a per-run flag.
+A missing/uninitialized task budget blocks; SHA/PR/HOME/output changes cannot
+initialize or reset it. Existing task staging-admission-guardrails-20261025 keeps
+small 3/3, acceptance 0/1, rebuild 0. Its previous PostgreSQL records, keys and
+outputs remain untouched; replacement metadata must import prior spend before
+activation. No new native run, quota extension or service migration is authorized.
 
-## Single candidate command
+Acceptance starts the normal update job once; normal sensors launch its native
+children. Waiting for a particular daily cron, proving production NOOP or observing
+production state is unnecessary. Existing regular staging scheduling stays native.
+The candidate's exact source tree, image and input pins are recorded. Retries are
+disabled/denied before native work. A failed or incomplete graph is terminal.
 
-The protected host runs `run_staging_control.py --candidate <candidate.json>`
-with its existing env/plan/manifest and signer configuration. The host validates
-current main and candidate binding, then selects protected read-only reattestation
-or the existing supervisor. An original receipt must verify before it can influence
-routing. Reuse requires identical executable/config/image and original plan; the
-existing observer must establish unchanged pinned inputs/outputs, environment and
-fresh consumer readback. SHA alone is not a compute identity.
+## Migration, cost and proof
 
-A missing proof or proven changed closure selects one acceptance graph, only with
-a plan bound to the new candidate. An invalid signature, unknown applicability,
-failed observer or failed graph stops the command. Never fall back from a failed
-reuse attempt to computation; never retry, rebuild, reseed or extend quota inside
-this command. Existing quotas guard repeated invocations. Setup and incident
-repair are agent work; ordinary integrations use this fixed machine route.
-Implementation and real-route activation remain separate evidence.
+This replaces the unactivated large package in the same branch, not a PR stack.
+Restore unrelated upstream code; preserve native refresh admission and ownership.
+Provide a branch command, one CI acceptance job and one PR result check. Configure
+worker roots/image/fixtures once. Ordinary integration must need no agent-led
+assembly, signing, observer, promotion ceremony or incident recovery loop.
 
-## Short branch validation on prepared test inputs
+Source/config tests and independent review prove only implementation structure.
+A real bounded branch pilot and a full source-to-consumer staging run remain
+pending; activation and production readiness cannot be inferred from tests.
+Rollback restores the previous unactivated branch version; operational historical
+evidence is retained. Existing production is not modified by this reduction.
 
-Branch development has separate bounded small attempts, not only baseline perf.
-Data retains its existing baseline target; Research uses the existing
-research_data_prep_job and production CF/L0/L1/L2/QC/publication functions on a
-prepared synthetic miniature. Runtime/API changes retain their focused existing
-runtime checks. Coverage is explicit; unsupported targets or columns are BLOCKED.
-No branch result, fixture checkpoint or mocked test can admit main.
+## Minimal operator interface (code only; not activated)
 
-The Research fixture contains two instruments, four declared timeframes and 512
-bars per group. A versioned manifest binds every input Delta version, schema,
-row/file count and file hash. Hard preparation limits: 32768 total input rows,
-16 MiB total bytes, 256 files; missing/extra/changed inputs or insufficient warmup
-block before native work. Inputs live under the read-only protected control mount;
-outputs are new isolated tables. No production mount, live acquisition or large
-seed fallback is available. Existing native-call, RAM, deadline and output-growth
-limits still apply. Market Data owns synthetic input construction through its
-existing schemas and Delta writer; shared staging verification is read-only.
-The native Dagster multiprocess executor uses its existing
-DAGSTER_MULTIPROCESS_EXECUTOR_MAX_CONCURRENT=1 setting in staging; no new job or
-executor is introduced. Prepare inputs once and reuse their immutable identity.
+`python scripts/run_staging_control.py branch --target data --output <new-report>`
+or `--target research` runs one short recipe. Both share the same branch budget.
+`acceptance --base-ref <base-SHA> --head-ref <PR-head-SHA> --output <new-report>`
+requires a clean committed checkout of that exact merge tree. The archive is
+mounted read-only; no image build/pull or implicit data seeding occurs.
 
-Cold materialization of this bounded synthetic Research fixture may use the
-native operation=rebuild only for stage=branch, attempt_kind=small and the exact
-research_data_prep_job with a verified protected fixture binding. One whole graph
-spends one small slot. This exception never authorizes ordinary Data/Research
-full-history rebuilds; those retain rebuild=0. It adds no mathematical owner.
-The ordinary full real-base/genuine-cron acceptance stays mandatory before main.
-Preparation, source tests and actual guarded native execution are separate proof;
-no real native attempt or quota extension is granted by this implementation.
+One external `TA3000_STAGING_CONFIG` JSON supplies `task_id`, `budget_home`,
+`work_root`, `acceptance_data`, `fixture_root`, immutable `fixture_sha256`, local
+`image_digest` (sha256), and separate `branch_consumer`/`acceptance_consumer`
+normal ResearchSliceRequest objects (dataset/indicator versions, contour,
+instruments, timeframe, populated price/L1/L2 columns). Worker roots must exist
+and be separate from each other and the checkout/config. Acceptance data needs
+`.ta3000-acceptance-stage` containing `TA3000_ACCEPTANCE_STAGE`; this marks an
+existing working stage, never creates or copies one. Budget setup/history import
+is a separate explicit operation; neither command initializes it.
 
-## Native owners and isolation
+The proof-only Compose session has no host socket or budget mount, no restart,
+9 GiB RAM, 2 CPUs, 2 GiB executable scratch and a container-enforced lifetime:
+600 seconds branch, 1800 acceptance. Branch network is internal; inputs remain
+at most 32768 rows/16 MiB/256 files. Host polling stops output growth above
+4 GiB branch/8 GiB acceptance; this is a sampled threshold, not a disk quota.
+Cleanup stops the complete container graph and preserves data/evidence/history.
+Unconfirmed cleanup retains the existing worker lock for explicit recovery.
+Regular staging updates must use the same host worker lock; do not install the
+session launcher on their scheduler or allow concurrent writes to stage data.
 
-Dagster owns schedules, jobs, sensors, run metadata, retries and persistent quota
-reservations. Delta owns input/output versions and accepted publication. Spark,
-native indicator producers and existing public Research consumers keep their work.
-Python adapts admission, candidate identity and evidence; it adds no compute route.
-
-The session-schedule owner persists open intervals and explicit closed dates from
-the same validated raw evidence. Both projections replace only that evidenced
-instrument/date scope; provenance and conflicts are checked before writes.
-Baseline budgets and pins the effective closed-date input before Spark, and records
-the actual owned projection version in scoped dependency evidence. Explicit read
-overrides retain their own immutable input pin; canonical-root publication keeps
-the owned table authority. Existing table identities, layouts, published keys and
-required-table membership remain unchanged. Only explicit validated closed-date
-records qualify as closure evidence; missing candles supply no such authority.
-
-Branch and acceptance use the production product_plane_definitions entrypoint.
-Each has independent HOME, port, data root and bounded CPU/RAM/scratch. Code is
-read-only. Quota storage is durable outside disposable stage output. A protected
-control plan and verifier checkout are mounted separately from candidate code.
-The runner has no production writable mount, Docker socket or broker credentials.
-The host control boundary is trusted; an administrator deleting quota storage or
-changing protected policy is an explicit operating change, not a supported bypass.
-
-Resource admission follows the native heavy owner: branch webserver, acceptance daemon.
-Defaults: branch webserver 9 GiB; acceptance webserver 3 GiB and daemon 9 GiB.
-Driver heap 3 GiB and scratch 2 GiB remain configured caps.
-Sum of service memory caps plus a 2 GiB host policy reserve must fit Docker memory.
-Heavy cap covers heap + scratch + 2 GiB; control cap covers scratch + 1 GiB.
-Actual MemorySwap equals its memory cap; extra swap is forbidden.
-Reserves are explicit policy floors, not measured peaks or a guaranteed OOM cure.
-Observed OOM and later JVM loss do not identify the killed PID, Xmx, RSS or tmpfs use.
-Failed attempts stay spent. Additional budget requires explicit user approval and
-an append-only signed task-limit extension; plan deadlines remain independently pinned.
-
-Acceptance uses the same logical container data path as production so that pinned
-absolute Delta paths and ancestry remain valid. Initial seeding copies an accepted
-manifest and its complete referenced Delta versions/files independently; no writable
-hardlinks. Thereafter normal scheduled incremental updates maintain the stage.
-An exact protected prior native readback can freeze an accepted Research checkpoint
-and its Data parent after CURRENT advances. Preserve observation time, raw readback
-and digest; candidates cannot nominate stale inputs. This proves recovery from that
-accepted checkpoint, while promotion checks the actual production state separately.
-An unsuccessful candidate cannot become the next baseline. Retain recoverable
-accepted versions, including schema/layout state; reverting code is not data rollback.
-
-## Execution budget
-
-The authoritative task-plan, native-grant and signed-receipt envelope schemas live
-in src/trading_advisor_3000/product_plane/contracts/schemas/staging_acceptance.v1.json,
-with matching fixtures and
-contract tests. The shared staging_contracts validator loads that authority; runtime,
-collector and gates do not redefine DTO meaning. Additive optional fields preserve
-v1; required-field/meaning changes require a new version and explicit compatibility.
-
-The protected task plan fixes a stable task identity, candidate identity, stage,
-source scope, allowed graph/steps, output roots, deadline and attempt limits.
-New-plan defaults: zero small attempts, one acceptance graph per batch, zero
-rebuilds. Optional branch perf requires an explicit small-attempt budget. Existing
-plans and append-only spend remain unchanged; changing these defaults cannot reset them.
-Task identity and prior spend survive SHA/branch/PR/HOME/output recreation.
-
-Reserve before expensive work through native Dagster PostgresRunStorage
-uniqueness, using deterministic reservation IDs. A separate quota database uses
-the existing PostgreSQL service. Protected host credentials initialize its schema
-and migrations. Candidate roles have SELECT/INSERT and required sequence USAGE
-only: no UPDATE/DELETE/TRUNCATE, ownership, privileged role membership, CREATE or
-TEMP. Runtime verifies database/role capabilities and refuses SQLite or owner
-fallback. Quota connection configuration is mounted read-only, independently of
-disposable run HOME. Journal databases and schemas are unchanged.
-Queued UI/CLI/schedule runs and in-process/native calls consume the same
-budget. Each graph stage has a bounded execution count; retries/resume cannot
-silently add computations. Started failed/cancelled attempts remain spent.
-Read-only preflight that finds no change remains pending and consumes no compute
-attempt. A launched NOOP is spent and is not proof of the changed compute route.
-Unknown scope, expired plans, incompatible identity and unapproved rebuilds fail
-closed. No automatic budget extension or full-history fallback is allowed.
-
-The existing Research admission decorators and baseline producer entry enforce
-the protected plan before native work. Stage paths require the protected marker
-and plan. The protected native run launcher reserves attempts at STARTING before
-candidate code; queued waiting stays free. Removing candidate decorators cannot
-create free launched attempts. Asset/native guards also cover execute_in_process
-and direct CLI. Branch uses native direct submission with no daemon; acceptance
-uses the native queue, schedule and sensors. Production's current scheduled route
-is not modified or launched by introducing the staging control configuration.
-Native Spark subprocesses receive a one-use invocation grant minted by the bound
-Dagster scope. It binds the recorded root attempt, exact allowed native entry,
-output roots and plan digest; the subprocess validates and consumes the grant in
-the same durable quota store before computation. Bare CLI calls cannot mint a
-grant. Child process handoff therefore preserves the real route without an
-unrestricted environment-variable bypass.
-Every grant must consume one of the bounded deterministic native claim slots
-exactly once as well as its nonce. Native work requires a currently STARTED run;
-SUCCESS only authorizes a completed upstream edge. Detection also consults the
-immutable control mount when process environment is removed; writing under /tmp
-cannot disable the staging admission boundary.
-
-The protected host supervisor enforces the run deadline and container resource
-limits externally, including termination of the isolated stage on timeout. Native
-guards also check the deadline at handoff and before snapshot publication. Timed
-out/terminated runs cannot supply accepted evidence or advance the accepted stage
-baseline; partial Delta writes remain isolated until recovery.
-
-The genuine acceptance schedule may record and queue its tick while production
-is busy. The protected coordinator keeps dequeue at zero until a short-lived,
-read-only host execution permit matches the plan and shared heavy-work lock.
-The host grants it only inside a declared absolute or recurring safe execution
-window while production is idle. A matching production tick/chain or idle poll
-alone cannot substitute for that window. Quota/runtime start at actual execution, not while queued. Stale
-queued candidates are held before allocating any new candidate quota. Permit
-expiry stops new native handoffs/publication; native run monitoring and the
-external supervisor enforce termination. Production is never paused to test staging.
-Production does not yet share this execution authority: an unexpected/manual
-production launch can race an issued permit. The supervisor revokes the permit
-and stops staging on detection, with bounded monitoring overlap; this does not
-prove atomic cross-runtime exclusion. Resource caps must be safe during that interval.
-
-Actual baseline parameters, including universe/mapping paths, discovery/refresh
-windows, timeframes and economics options, must match protected producer_parameters
-before extraction. Declared source-byte bounds are enforced from native Delta
-active-file metadata or regular input file sizes before input scans/Spark, not
-inferred from written-row counters.
-
-## Evidence and trust
-
-A protected collector independently reads Dagster records/events, published Delta
-versions and the normal research.io.load_backtest_frames consumer response in a
-fresh process with snapshot_read_scope and no read cache. Evidence contains:
-candidate/main/branch/tree identities, executable/runtime/configuration digests,
-input/accepted-output pins, actual schedule tick and root/child run identities,
-nonempty change and stage execution, QC, publication and fresh consumer readback.
-The relevant correction/rollover/migration scenario is required when changed.
-The fresh consumer process loads the candidate artifact, so changed consumer code
-is exercised. Its launch, independent storage/run readback and receipt signing
-belong to the protected collector, not to candidate-authored validation code.
-The collector keeps the original Dagster HOME read-only. After the complete
-recorded graph is idle and its owned daemon stopped, bounded stable database
-families, including every WAL, are captured into observer-owned tmpfs. Before,
-copy and after hashes/file sets must agree; any change or rollback journal blocks
-observation. Only derived SHM is omitted. Native SQLite online backup and integrity
-checks then operate on the private capture; Dagster reads its observation snapshot.
-It is not an authoritative store or a cross-database transaction. Total bytes,
-files/time, exact run/tick identities, live state and publication are checked before
-signing. Original HOME writes and immutable SQLite mode remain forbidden.
-Candidate preparation proposes the next genuine future native cron; the daemon
-creates the real tick and run without retrospective checkpoint edits.
-Protected metadata may propose the next native cron before it occurs; the proposal
-is not an observed tick. Admission reads Dagster's canonical hidden scheduled-time
-tag. Native dequeue and launch require the matching persisted successful tick and
-run link before spending quota; future, unreachable or forged links cannot compute.
-
-Candidate self-reported JSON, tag counts, kind=real and raw-table inspection alone
-cannot establish acceptance. The collector runs outside candidate containers and
-signs its receipt with a protected Ed25519 key. Gates verify against public keys
-from the protected verifier revision; candidates cannot nominate keys or verifier.
-Signed evidence must still match current candidate/main, required route and scope.
-Missing, stale, forged or unreachable evidence blocks pr-lane. There is no skip
-flag that turns a product route change green. Docs-only changes reuse applicable
-proof after fresh scope classification. Evidence retention exceeds admission life.
-The required status is emitted by a protected-base workflow/verifier with read-only
-credentials and no signing secret; candidate installation/imports do not run in
-that verifier's trust context. Hosted compute being disabled must not turn this
-required admission into a skipped-success job. Bootstrap admission is independently
-reviewed before the verifier revision/key become protected; that adoption limitation
-must remain explicit until remote branch protection and the active workflow agree.
-Required status names alone do not bind a GitHub workflow. The canonical protected
-merge controller additionally checks the exact protected workflow/event/run,
-successful steps, admission artifact and current base/head before SHA-bound merge.
-Until remote rules bind that authority, other UI/admin merge routes remain an
-explicit adoption limitation; this controller does not prove all-path enforcement.
-
-For a personal GitHub repository, close that limitation with a separate active
-`main` update-restriction ruleset. Its only bypass is a private controller App,
-limited to pull requests. Keep the existing strict `pr-lane`/PR ruleset without
-bypass. The App receives Contents write and Actions read for this repository only;
-its key remains on the protected host. The host wrapper obtains a temporary token
-only for the existing canonical controller, checks actual rules and revokes it
-afterward. Registration, installation, policy readback and measured refusal are
-operational acceptance requirements; a proposed ruleset is not enforcement proof.
-The repository owner can still change policy settings.
-
-## Resource coexistence and reduced operation
-
-The complete acceptance package uses one candidate command and native future
-cron ticks. Remove retrospective schedule initialization, production-NOOP
-observation, production cursor/event caches and matching production graph proofs.
-The candidate proves its own real scheduled graph, changed writes, QC, publication
-and fresh consumer. Production Data advancing first is not an admission condition.
-
-The protected host must configure an absolute execution window or a recurring
-UTC daily window once. An absent or closed window blocks compute even if an
-unrelated production graph succeeded. A recurring window supports the ordinary
-reference schedule across days without per-day operator work. The host also
-requires idle production, renews its short-lived permit under the shared staging
-lock, and stops staging when production starts or the window closes. Service
-memory/swap/scratch, disk and runtime caps remain mandatory. Production does not
-share the staging lock: watcher delay can contain overlap; the window is an
-operator scheduling policy, not proof of impossible concurrency or measured RAM
-headroom. Live safety and route activation remain pending native acceptance.
-
-Reference mode retains protected activation of accepted main, one graph per real
-native tick and FAIL-to-STOP behavior; it cannot admit a new candidate. Optional
-branch perf retains its explicit budget. The retained core needs no alternate
-source, quota reset, historical catch-up transaction or production semantic probe.
-Retired initialization records and failed attempts remain in the append-only
-ledger. Existing plans without an execution window require explicit preparation;
-the command does not silently edit their policy or create another task identity.
-
-## Promotion and rollout
-
-Promote the verified immutable artifact after main matches the admitted tree.
-Validate transition from actual production schema/layout/checkpoint, including
-skipped intermediate versions. Acceptance data is not copied into production.
-The next ordinary production cycle supplies operational acceptance; no unscheduled
-full rebuild is used for confirmation.
-
-Implement contracts, budget guards, isolated stages, producer evidence and verifier
-before enabling mandatory pre-main admission. First exercise a bounded real native
-pilot, then connect its producer-generated receipt to existing gates. While evidence
-or deployment is missing, report that boundary as pending; tests are not deployment.
-
-## Required proof
-
-Atomic concurrent reservation; exhausted-budget refusal; failed/retry/resume spend;
-SHA/PR/HOME recreation cannot reset spend; direct native and UI bypass refusal;
-production-path rejection; safe seed/restore; actual scheduled nonempty producer
-to published snapshot to normal consumer; forged/stale receipt refusal; fresh
-base/tree merge binding; unchanged executable proof reuse; production transition
-compatibility. One bounded native pilot may satisfy several applicable checks.
+Existing quick code checks must pass before spending acceptance.
+Existing `pr-ci` adds one native job on a Windows `ta3000-staging` runner with
+`TA3000_STAGING_PYTHON` and external configuration. The existing hosted-CI opt-in
+is preserved. Draft PRs cannot launch native acceptance even when CI is enabled;
+only code checks run. Moving the PR to ready is a separate runtime-admission step. `pr-lane` requires that job to succeed, downloads
+only this workflow attempt's artifact and validates its base/head/merge tree,
+image/input pins, native lineage, QC and fresh consumer. A rerun is blocked before
+launch; there is no old-artifact fallback or automatic recomputation.

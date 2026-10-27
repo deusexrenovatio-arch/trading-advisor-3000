@@ -1,6 +1,6 @@
 """Immutable SYNTHETIC inputs for a bounded native Research branch exercise.
 
-Only input rows are generated here. Delta owns their storage and the snapshot
+Only immutable input metadata is verified here. Delta owns their storage and the snapshot
 owner owns their pins/publication. This is neither Research output nor market QC.
 """
 
@@ -11,7 +11,6 @@ import json
 import os
 import re
 import stat
-from collections.abc import Mapping
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
@@ -35,18 +34,6 @@ CANONICAL_TABLES = (
     "canonical_roll_map",
     "canonical_contract_economics",
 )
-_NATIVE_CAPS = {
-    name: 1
-    for name in (
-        "run_continuous_front_spark_job",
-        "run_research_bar_views_spark_job",
-        "materialize_indicator_frames",
-        "materialize_derived_indicator_frames",
-        "run_research_derived_source_frames_spark_job",
-        "run_continuous_front_indicator_pandas_job",
-        "run_continuous_front_indicator_sidecar_spark_job",
-    )
-} | {"materialize_research_dataset": 2}
 
 
 def fixture_time(value):
@@ -243,41 +230,3 @@ def verify_fixture(path, expected_sha256):
     }:
         raise ValueError("fixture Data publication changed")
     return fixture_descriptor(manifest, expected_sha256)
-
-
-def validate_branch_fixture(plan, *, fixture_root=None):
-    """Validate one branch role; only the host supplies its physical mount root."""
-    binding = plan.get("source", {}).get("fixture", {})
-    if (
-        plan.get("stage") != "branch"
-        or plan.get("attempt_kind") != "small"
-        or plan.get("root_job") != "research_data_prep_job"
-        or plan.get("mode", "candidate") != "candidate"
-        or plan.get("require_scheduled") is not False
-        or plan.get("jobs") != {"research_data_prep_job": {"upstream_job": None, "max_runs": 1}}
-        or type(plan["jobs"]["research_data_prep_job"]["max_runs"]) is not int
-        or not isinstance(binding, Mapping)
-        or set(binding) != {"manifest_path", "manifest_sha256"}
-        or binding.get("manifest_path") != f"{LOGICAL_ROOT}/manifest.json"
-    ):
-        raise ValueError("branch Research requires the protected synthetic fixture binding")
-    steps = plan.get("native_steps", {})
-    if (
-        not isinstance(steps, Mapping)
-        or set(steps) != set(_NATIVE_CAPS)
-        or any(
-            isinstance(value, bool)
-            or not isinstance(value, int)
-            or not 0 < value <= _NATIVE_CAPS[name]
-            for name, value in steps.items()
-        )
-    ):
-        raise ValueError("branch Research native caps exceed the fixed fixture route")
-    root = Path(LOGICAL_ROOT) if fixture_root is None else Path(fixture_root)
-    descriptor = verify_fixture(root, binding["manifest_sha256"])
-    if (
-        descriptor.get("canonical_dir") != f"{LOGICAL_ROOT}/canonical"
-        or descriptor.get("raw_dir") != f"{LOGICAL_ROOT}/raw"
-    ):
-        raise ValueError("branch fixture must preserve the fixed logical control root")
-    return descriptor

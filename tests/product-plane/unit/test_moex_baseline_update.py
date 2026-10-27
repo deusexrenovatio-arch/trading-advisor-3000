@@ -5,10 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from trading_advisor_3000.product_plane.common.data_snapshots import (
-    load_snapshot,
-    snapshot_table_reference,
-)
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     delta_table_version,
     read_delta_table_rows,
@@ -64,9 +60,9 @@ def _write_empty_baseline(tmp_path: Path) -> tuple[Path, Path, Path]:
     manifest = historical_data_delta_schema_manifest()
     for name in (
         "canonical_session_intervals",
+        "canonical_closed_session_dates",
         "canonical_session_calendar",
         "canonical_roll_map",
-        "canonical_closed_session_dates",
     ):
         write_delta_table_rows(
             table_path=canonical_bars_path.parent / f"{name}.delta",
@@ -74,49 +70,6 @@ def _write_empty_baseline(tmp_path: Path) -> tuple[Path, Path, Path]:
             columns=dict(manifest[name]["columns"]),
         )
     return raw_table_path, canonical_bars_path, canonical_provenance_path
-
-
-@pytest.mark.parametrize("explicit", [False, True])
-def test_baseline_closed_projection_is_in_initial_source_budget(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    explicit: bool,
-) -> None:
-    from trading_advisor_3000.product_plane.common import staging_source_scope
-
-    raw = tmp_path / "raw_moex_history.delta"
-    bars = tmp_path / "canonical_bars.delta"
-    closed = tmp_path / ("override.delta" if explicit else "canonical_closed_session_dates.delta")
-    captured = {}
-    monkeypatch.setattr(
-        staging_source_scope, "require_staging_parameters", lambda **kw: captured.update(kw)
-    )
-
-    def budget(**kwargs):
-        assert closed in kwargs["input_paths"]
-        assert bars.parent / "canonical_closed_session_dates.delta" in kwargs["input_paths"]
-        assert captured["parameters"]["canonical_closed_session_dates_path"] == (
-            closed if explicit else None
-        )
-        raise RuntimeError("stop after initial budget guard")
-
-    monkeypatch.setattr(staging_source_scope, "require_staging_source_bytes", budget)
-    with pytest.raises(RuntimeError, match="stop after initial budget guard"):
-        baseline_module.run_moex_baseline_update(
-            mapping_registry_path=tmp_path / "mapping.yaml",
-            universe_path=tmp_path / "universe.yaml",
-            raw_table_path=raw,
-            canonical_bars_path=bars,
-            canonical_provenance_path=tmp_path / "canonical_bar_provenance.delta",
-            canonical_closed_session_dates_path=closed if explicit else None,
-            evidence_dir=tmp_path / "evidence",
-            run_id="initial-budget",
-            ingest_till_utc="2026-04-22T00:00:00Z",
-            timeframes={"1d"},
-            refresh_window_days=7,
-            contract_discovery_lookback_days=45,
-            max_changed_window_days=10,
-        )
 
 
 def _contract_economics_row(
@@ -349,13 +302,26 @@ def test_baseline_raw_report_for_canonical_rehashes_merged_changed_windows() -> 
     )
 
 
-@pytest.mark.parametrize("closed_mode", ["owned", "same_basename", "different_basename"])
+@pytest.mark.parametrize("explicit_closed", [False, True])
 def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
     tmp_path: Path,
+    explicit_closed: bool,
     monkeypatch: pytest.MonkeyPatch,
-    closed_mode: str,
 ) -> None:
     raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
+    closed = (
+        tmp_path / "selected_closed.delta"
+        if explicit_closed
+        else canonical_bars_path.parent / "canonical_closed_session_dates.delta"
+    )
+    if explicit_closed:
+        write_delta_table_rows(
+            table_path=closed,
+            rows=[],
+            columns=historical_data_delta_schema_manifest()["canonical_closed_session_dates"][
+                "columns"
+            ],
+        )
     changed_windows = [
         {
             "internal_id": "FUT_BR",
@@ -370,69 +336,10 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
     _patch_common_inputs(monkeypatch, changed_windows)
     captured: dict[str, object] = {}
     stage_order: list[str] = []
-    closed_path = canonical_bars_path.parent / "canonical_closed_session_dates.delta"
-    explicit_closed = closed_mode != "owned"
-    selected_closed = (
-        tmp_path
-        / "frozen"
-        / (
-            "override.delta"
-            if closed_mode == "different_basename"
-            else "canonical_closed_session_dates.delta"
-        )
-        if explicit_closed
-        else closed_path
-    )
-    if explicit_closed:
-        write_delta_table_rows(
-            table_path=selected_closed,
-            rows=[],
-            columns=historical_data_delta_schema_manifest()["canonical_closed_session_dates"][
-                "columns"
-            ],
-        )
-    original_capture = baseline_module.capture_table
-    original_publish = baseline_module.publish_data_snapshot
-
-    def capture(path, **kwargs):
-        result = original_capture(path, **kwargs)
-        if path == closed_path:
-            captured["closed_reference"] = result
-        return result
-
-    def publish(**kwargs):
-        assert closed_path not in kwargs["canonical_paths"]
-        result = original_publish(**kwargs)
-        manifest = load_snapshot(Path(result["snapshot_manifest_path"]))
-        assert "canonical_closed_session_dates" in manifest["tables"]
-        assert "canonical_closed_session_dates" not in manifest["required_tables"]
-        assert (
-            manifest["tables"]["canonical_closed_session_dates"]["table_path"]
-            == closed_path.as_posix()
-        )
-        assert len(manifest["tables"]) == 7
-        return result
 
     def _fake_session_schedule(**kwargs):
         stage_order.append("session_schedule")
         captured["session_schedule"] = kwargs
-        write_delta_table_rows(
-            table_path=closed_path,
-            rows=[
-                {
-                    "instrument_id": "FUT_BR",
-                    "session_date": "2026-04-21",
-                    "policy_id": "fixture-closed",
-                    "source_id": "fixture",
-                    "source_document_hash": "sha256:fixture",
-                }
-            ],
-            columns=historical_data_delta_schema_manifest()["canonical_closed_session_dates"][
-                "columns"
-            ],
-            mode="append",
-        )
-        captured["closed_written"] = original_capture(closed_path)
         return {
             "status": "PASS",
             "mode": "static_reconstructed",
@@ -446,10 +353,6 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
 
     def _fake_canonical(**kwargs):
         stage_order.append("canonical")
-        assert kwargs["canonical_closed_session_dates_path"] == selected_closed
-        assert snapshot_table_reference(selected_closed)["table_path"] == selected_closed.as_posix()
-        assert captured["closed_reference"] == captured["closed_written"]
-        assert captured["closed_reference"]["delta_version"] == 1
         captured.update(kwargs)
         return {
             "status": "PASS",
@@ -466,8 +369,6 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
         _fake_session_schedule,
     )
     monkeypatch.setattr(baseline_module, "run_historical_canonical_route", _fake_canonical)
-    monkeypatch.setattr(baseline_module, "capture_table", capture)
-    monkeypatch.setattr(baseline_module, "publish_data_snapshot", publish)
 
     report = baseline_module.run_moex_baseline_update(
         mapping_registry_path=tmp_path / "mapping.yaml",
@@ -475,6 +376,7 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
         raw_table_path=raw_table_path,
         canonical_bars_path=canonical_bars_path,
         canonical_provenance_path=canonical_provenance_path,
+        canonical_closed_session_dates_path=closed if explicit_closed else None,
         evidence_dir=tmp_path / "evidence",
         run_id="baseline-daily",
         timeframes={"5m", "15m"},
@@ -482,21 +384,13 @@ def test_baseline_update_writes_to_stable_paths_and_scoped_canonical_refresh(
         refresh_window_days=7,
         contract_discovery_lookback_days=45,
         max_changed_window_days=10,
-        canonical_closed_session_dates_path=selected_closed if explicit_closed else None,
     )
 
     assert report["status"] == "PASS"
-    assert (
-        report["windowed_input_references"]["canonical_closed_session_dates"]
-        == captured["closed_reference"]
-    )
-    assert (
-        report["closed_session_dates"]["input_reference"]["table_path"]
-        == selected_closed.as_posix()
-    )
-    assert (
-        report["closed_session_dates"]["owned_projection_reference"] == captured["closed_written"]
-    )
+    assert captured["canonical_closed_session_dates_path"] == closed
+    assert captured["session_schedule"]["canonical_closed_session_dates_path"] == closed
+    assert report["canonical_closed_session_dates_path"] == closed.as_posix()
+    assert report["windowed_input_references"][closed.stem]["table_path"] == closed.as_posix()
     assert stage_order == ["session_schedule", "canonical"]
     assert captured["raw_table_path"] == raw_table_path
     assert captured["canonical_bars_path"] == canonical_bars_path

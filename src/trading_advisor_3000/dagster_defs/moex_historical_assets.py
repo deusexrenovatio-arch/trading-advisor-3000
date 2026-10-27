@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E501
 import json
+import os
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -28,7 +29,6 @@ from dagster import (
     Field as DagsterField,
 )
 
-from trading_advisor_3000.product_plane.common.staging_execution import staging_asset
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import has_delta_log
 from trading_advisor_3000.product_plane.data_plane.moex.baseline_update import (
     BASELINE_UPDATE_REPORT_FILENAME,
@@ -233,7 +233,9 @@ MOEX_BASELINE_DAILY_SCHEDULE_NAME = "moex_baseline_daily_update_schedule"
 MOEX_BASELINE_DAILY_CRON = "0 2 * * *"
 MOEX_HISTORICAL_NIGHTLY_CRON = MOEX_BASELINE_DAILY_CRON
 MOEX_HISTORICAL_EXECUTION_TIMEZONE = "Europe/Moscow"
-MOEX_HISTORICAL_RETRY_POLICY = RetryPolicy(max_retries=3, delay=60)
+MOEX_HISTORICAL_RETRY_POLICY = RetryPolicy(
+    max_retries=0 if os.environ.get("TA3000_STAGING_PROOF") == "1" else 3, delay=60
+)
 MOEX_BASELINE_UPDATE_RETRY_POLICY = RetryPolicy(max_retries=0, delay=0)
 MOEX_BASELINE_UPDATE_HOT_TABLE_RUNTIME = "spark_delta_raw_tail+spark_delta_canonical"
 MOEX_BASELINE_UPDATE_RUNTIME_BOUNDARY_TAG = "dagster+spark_delta_raw_tail+spark_delta_canonical"
@@ -1117,7 +1119,6 @@ def _run_python_raw_ingest_route(op_config: dict[str, object]) -> dict[str, obje
     config_schema=MOEX_BASELINE_UPDATE_OP_CONFIG_SCHEMA,
     retry_policy=MOEX_BASELINE_UPDATE_RETRY_POLICY,
 )
-@staging_asset
 def moex_baseline_update(context) -> dict[str, object]:
     op_config = _op_config_from_context(context)
     artifact_root = _route_artifact_root()
@@ -1803,19 +1804,6 @@ def _run_research_rebuild_stages(
 
 
 def run_moex_data_rebuild_profile(op_config: dict[str, object]) -> dict[str, object]:
-    from trading_advisor_3000.product_plane.common.staging_execution import require_staging_compute
-
-    protected_output = (
-        op_config.get("canonical_output_dir")
-        or op_config.get("canonical_bars_path")
-        or op_config.get("output_dir")
-        or _route_artifact_root()
-    )
-    require_staging_compute(
-        stage="run_moex_data_rebuild_profile",
-        output_path=Path(str(protected_output)),
-        operation="rebuild",
-    )
     profile = resolve_moex_data_rebuild_profile(
         _text_value(op_config, "profile_name") or "canonical_from_existing_raw"
     )
@@ -1890,7 +1878,6 @@ def run_moex_data_rebuild_profile(op_config: dict[str, object]) -> dict[str, obj
     config_schema=MOEX_HISTORICAL_OP_CONFIG_SCHEMA,
     retry_policy=MOEX_HISTORICAL_RETRY_POLICY,
 )
-@staging_asset(operation="rebuild")
 def moex_data_rebuild(context) -> dict[str, object]:
     report = run_moex_data_rebuild_profile(_op_config_from_context(context))
     context.add_output_metadata(

@@ -1,5 +1,0 @@
-ARG BASE_IMAGE
-FROM ${BASE_IMAGE}
-ARG DAGSTER_POSTGRES_VERSION
-# Extend the pinned native runtime; never upgrade Dagster under an existing image.
-RUN python -c "import os, subprocess; from importlib.metadata import version; before=version('dagster'); subprocess.run(['python','-m','pip','install','--no-cache-dir','cryptography>=43,<47','jsonschema>=4.23,<5','dagster-postgres=='+os.environ['DAGSTER_POSTGRES_VERSION']],check=True); assert version('dagster')==before, 'Dagster runtime unexpectedly changed'"

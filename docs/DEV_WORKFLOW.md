@@ -68,19 +68,6 @@ Change surface: `shell` for these execution rules and gate/CI plumbing.
    then run promotion and its control cycle. New improvements are separate work;
    actual correctness blockers remain part of the current task.
 
-Development materialization, perf and acceptance use [guarded staging](docs/runbooks/app/guarded-staging.md)
-under one stable task plan: zero small attempts, one acceptance graph, zero rebuilds
-by default. Branch perf is optional. Use the single candidate command to reuse
-applicable proof or run one native acceptance; failure stops without retry. SHA/branch/PR/HOME/output recreation and retry
-cannot reset spend. Ad hoc compute through alternate roots or unprotected CLI/UI
-is forbidden; exhaustion requires diagnosis and explicit protected-budget authorization.
-
-Before main, changed compute/source-to-consumer behavior requires candidate-bound
-signed proof of the actual native route on pinned real inputs through publication
-and the public consumer. Unit/CI/smoke/NOOP alone is insufficient. Existing authorized
-production daily updates retain their Dagster route; this grants no additional
-production/manual mutation rights.
-
 ### Local fast-check reuse
 
 `run_pr_gate.py` still invokes canonical `run_loop_gate.py`. The latter reuses
@@ -147,10 +134,9 @@ Runtime surfaces:
   `moex_baseline_update_job` owns the update work. Windows Task Scheduler only
   bootstraps or refreshes this container runtime; it must not run the updater
   directly with host Python.
-- Guarded branch and acceptance staging are the default development verification,
-  perf and pre-main proof routes; see the [guarded staging runbook](docs/runbooks/app/guarded-staging.md).
-  `moex_test_staging_on_demand` remains compatibility-only and cannot satisfy
-  protected task admission. Its legacy data root is
+- Test staging is `moex_test_staging_on_demand`. Use it for verification runs,
+  route changes, seeded smoke tests, and risky data-plane checks before touching
+  production staging. It writes under
   `D:/TA3000-data/trading-advisor-3000-verification` and must not mutate the
   production data root.
 - Runtime instance names, paths, mounts, and launch defaults are declared in the

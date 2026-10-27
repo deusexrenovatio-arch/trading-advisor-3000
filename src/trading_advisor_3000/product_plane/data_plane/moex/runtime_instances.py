@@ -15,9 +15,6 @@ RUNTIME_INSTANCES_REGISTRY_RELATIVE_PATH = (
 )
 PRODUCT_RUNTIME_ROLE = "product_runtime_staging"
 VERIFICATION_RUNTIME_ROLE = "disposable_verification_staging"
-BRANCH_RUNTIME_ROLE = "branch_verification_staging"
-ACCEPTANCE_RUNTIME_ROLE = "acceptance_verification_staging"
-STAGING_RUNTIME_ROLES = frozenset({BRANCH_RUNTIME_ROLE, ACCEPTANCE_RUNTIME_ROLE})
 _SAFE_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.=-]+$")
 
 
@@ -176,16 +173,6 @@ def _validate_registry(registry: MoexRuntimeInstancesRegistry) -> None:
             raise ValueError(
                 f"active runtime instance `{instance.instance_id}` must declare manual launch policy"
             )
-        if instance.role in STAGING_RUNTIME_ROLES:
-            if instance.dagster.get("use_instance"):
-                raise ValueError("guarded staging must own its Dagster instance")
-            for field in ("graphql_url", "job", "repository_location"):
-                _require_text(instance.dagster.get(field), name=f"{instance.instance_id}.{field}")
-            _require_text(instance.paths.get("data_root"), name=f"{instance.instance_id}.data_root")
-            if instance.mutation_policy.get("product_runtime_write") is not False:
-                raise ValueError("guarded staging cannot grant product runtime writes")
-            if instance.mutation_policy.get("require_protected_plan") is not True:
-                raise ValueError("guarded staging requires a protected plan")
         if instance.role == PRODUCT_RUNTIME_ROLE:
             _require_text(
                 instance.paths.get("data_root"), name=f"{instance.instance_id}.paths.data_root"
@@ -221,7 +208,7 @@ def render_moex_runtime_instance_paths(
     *,
     run_id: str,
 ) -> dict[str, str]:
-    if instance.role == PRODUCT_RUNTIME_ROLE or instance.role in STAGING_RUNTIME_ROLES:
+    if instance.role == PRODUCT_RUNTIME_ROLE:
         data_root = _require_text(
             instance.paths.get("data_root"), name=f"{instance.instance_id}.paths.data_root"
         )

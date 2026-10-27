@@ -382,9 +382,7 @@ def admitted_asset(function):
         with _owner_scope(value):
             return function(context, *args, **kwargs)
 
-    from trading_advisor_3000.product_plane.common.staging_execution import staging_asset
-
-    return staging_asset(wrapped)
+    return wrapped
 
 
 def _native_value(value):
@@ -680,31 +678,6 @@ def admitted_compute(*, output, sources=(), input_roots=(), windows=None):
             bound.apply_defaults()
             options = bound.arguments
             out = Path(options[output] or options.get("materialized_output_dir"))
-            from trading_advisor_3000.product_plane.common.staging_execution import (
-                require_staging_compute,
-            )
-
-            require_staging_compute(
-                stage=function.__name__,
-                output_path=out,
-                operation=operation or (value or {}).get("operation", "daily"),
-                windows=(value or {}).get("effective_windows"),
-            )
-            from itertools import chain
-
-            from trading_advisor_3000.product_plane.common.staging_source_scope import (
-                require_staging_source_bytes,
-            )
-
-            staging_inputs = chain(
-                (options[key] for key in sources if options.get(key) is not None),
-                (
-                    Path(options[key]) / f"{name}.delta"
-                    for key, names in input_roots
-                    for name in names
-                ),
-            )
-            require_staging_source_bytes(output_path=out, input_paths=staging_inputs)
             dataset = str(
                 options.get("dataset_version") or options["manifest_seed"].dataset_version
             )

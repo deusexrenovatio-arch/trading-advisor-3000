@@ -129,6 +129,8 @@ _ROOTS["proof"] += (
     )
     + (_RESEARCH + "derived_indicators.fingerprints.columnar_fingerprint",)
 )
+_ROOTS["l2"] += (_RESEARCH + "derived_indicators.compute_tail.compute",)
+_ROOTS["proof"] += (_RESEARCH + "derived_indicators.compute_tail.input_hashes",)
 
 # Exact stable native APIs only. Filters/casts/selection stay in the symbol closure.
 _LEAVES = (

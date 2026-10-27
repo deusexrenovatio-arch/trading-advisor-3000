@@ -6,7 +6,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   GITHUB_TOKEN: ${{ github.token }}
@@ -15,10 +15,93 @@ env:
 # runners are not available (for example billing/spending disabled).
 # Set repository variable AI_SHELL_ENABLE_HOSTED_CI=1 to enable lane execution.
 jobs:
-  pr-lane:
+  staging-scope:
     if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' }}
     runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.scope.outputs.required }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Classify native route changes
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python scripts/validate_staging_acceptance.py
+          --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA"
+          --emit-github-output "$GITHUB_OUTPUT"
+
+      - name: Cheap code checks before spending acceptance
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python -m pip install -e .[dev-test] "dagster>=1.8,<2"
+          python - <<'PY'
+          import os, subprocess, sys
+          changed = subprocess.check_output(["git", "diff", "--name-only",
+              f"{os.environ['BASE_SHA']}..{os.environ['HEAD_SHA']}"], text=True).splitlines()
+          subprocess.run([sys.executable, "scripts/run_boring_checks.py", "--profile", "quick",
+              "--scope", "changed", "--changed-files", *changed], check=True)
+          PY
+
+  native-acceptance:
+    needs: staging-scope
+    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && github.event.pull_request.draft == false && needs.staging-scope.result == 'success' && needs.staging-scope.outputs.required == 'true' }}
+    runs-on: [self-hosted, Windows, ta3000-staging]
+    timeout-minutes: 35
+    concurrency:
+      group: ta3000-staging-worker
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+      - name: One native acceptance of the merge checkout
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw 'No automatic acceptance rerun' }
+          if (-not $env:TA3000_STAGING_PYTHON) { throw 'Staging worker is not configured' }
+          & $env:TA3000_STAGING_PYTHON -B scripts/run_staging_control.py acceptance `
+            --base-ref $env:BASE_SHA --head-ref $env:HEAD_SHA `
+            --output artifacts/ci/staging-acceptance.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-acceptance-${{ github.run_attempt }}
+          path: artifacts/ci/staging-acceptance.json
+          if-no-files-found: error
+
+  pr-lane:
+    needs: [staging-scope, native-acceptance]
+    if: ${{ always() && vars.AI_SHELL_ENABLE_HOSTED_CI == '1' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the current native job result
+        env:
+          SCOPE_RESULT: ${{ needs.staging-scope.result }}
+          REQUIRED: ${{ needs.staging-scope.outputs.required }}
+          NATIVE_RESULT: ${{ needs.native-acceptance.result }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          case "$REQUIRED" in
+            true) test "$NATIVE_RESULT" = success ;;
+            false) test "$NATIVE_RESULT" = skipped ;;
+            *) exit 2 ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -34,7 +117,7 @@ jobs:
       - name: Install Bootstrap Dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e '.[dev-test,staging-control]'
+          python -m pip install -e .[dev-test]
 
       - name: Resolve Diff Range
         id: diff-range
@@ -63,6 +146,20 @@ jobs:
             python -m pip install -e ".[${{ steps.pr-matrix.outputs.install_extras }}]"
           fi
 
+      - name: Setup Java for Spark
+        if: contains(steps.pr-matrix.outputs.install_extras, 'data-proof')
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download this attempt's native result
+        if: needs.staging-scope.outputs.required == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: staging-acceptance-${{ github.run_attempt }}
+          path: artifacts/ci/native
+
       - name: PR Gate
         shell: bash
         run: |
@@ -71,7 +168,8 @@ jobs:
             --head-ref "${{ steps.diff-range.outputs.head_ref }}" \
             --snapshot-mode changed-files \
             --profile "${{ steps.pr-matrix.outputs.gate_profile }}" \
-            --summary-file artifacts/ci/pr-gate-summary.md
+            --summary-file artifacts/ci/pr-gate-summary.md \
+            --staging-receipt artifacts/ci/native/staging-acceptance.json
 
       - name: Tracked Secret Scan
         run: python scripts/validate_no_tracked_secrets.py

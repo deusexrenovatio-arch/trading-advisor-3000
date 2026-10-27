@@ -352,19 +352,8 @@ def gate_repository(repository):
         "run_pr_gate.py",
         "run_nightly_gate.py",
         "validate_architecture_review.py",
-        "validate_staging_acceptance.py",
-        "build_staging_candidate.py",
     ):
         shutil.copy2(ROOT / "scripts" / name, scripts / name)
-    for name in (
-        "__init__.py",
-        "app_metadata.py",
-        "product_plane/__init__.py",
-        "product_plane/common/staging_route_proof.py",
-    ):
-        target = repository / "src/trading_advisor_3000" / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / "src/trading_advisor_3000" / name, target)
     (repository / "configs").mkdir()
     (repository / "configs/change_surface_mapping.yaml").write_text(
         "surface_priority: [governance]\n"
@@ -766,7 +755,10 @@ def test_missing_standard_is_not_accepted_by_triggered_gate(gate_repository, nam
     assert "architecture" in result.stdout
 
 
-def test_print_binding_exposes_standard_pin_and_current_ids(gate_repository):
+def test_print_binding_exposes_standard_pin_and_current_ids(gate_repository, monkeypatch):
+    # This fixture requests only a standard binding, without any enclosing PR review.
+    monkeypatch.delenv("AI_SHELL_ARCHITECTURE_REVIEW_SOURCE", raising=False)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
     repo, _, _ = gate_repository
     result = subprocess.run(
         [
