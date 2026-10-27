@@ -339,7 +339,7 @@ def _continuous_front_replace_filter_groups(
             dataset_version=dataset_version,
             instrument_ids=instrument_ids,
             timeframes=timeframes,
-            start_ts=start_ts,
+            start_ts=None if table_name == "continuous_front_adjustment_ladder" else start_ts,
             end_ts=end_ts,
         )
     ]
@@ -1292,12 +1292,13 @@ def _build_spark_native_tables(
                 )
     elif start_ts or end_ts:
         # Direct bounds have the same causal-context requirement as refresh
-        # windows. Keep their exact output range (including sidecar tables).
+        # windows. L1 consumes absolute roll epochs and needs the complete
+        # ladder prefix; bars and roll events keep the requested output range.
         for name in CONTINUOUS_FRONT_TABLES:
             if name == "continuous_front_qc_report":
                 continue
             time_column = "ts" if name == "continuous_front_bars" else "effective_ts"
-            if start_ts:
+            if start_ts and name != "continuous_front_adjustment_ladder":
                 tables[name] = tables[name].where(
                     F.col(time_column) >= F.lit(start_ts).cast("timestamp")
                 )

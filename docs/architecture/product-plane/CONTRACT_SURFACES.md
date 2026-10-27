@@ -45,6 +45,8 @@ The following contracts are versioned and test-covered, but they are not part of
 - `continuous_front_qc_report.v1`
 - `research_campaign.v1`
 - `research_run_summary.v1`
+- `research_contract_migration.v1` — pinned explicit rebuild plan for isolated
+  Research verification; does not grant daily reuse or production promotion.
 - `data_scope_recovery.v1`: exact native Data segment proof, retained historical prefix,
   immutable bridge publication; [operational boundary](../../runbooks/app/data-research-snapshot-publication.md#explicit-scope-recovery).
 - `research_refresh_admission.v1`: explicit daily/rebuild operation; native input and parent pins;

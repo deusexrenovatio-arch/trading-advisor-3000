@@ -1,4 +1,5 @@
 import copy
+import json
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,11 @@ from test_research_hash_compatibility import accepted_chain as accepted_chain
 from trading_advisor_3000.product_plane.research import compute_contract as c
 from trading_advisor_3000.product_plane.research import hash_compatibility as h
 from trading_advisor_3000.product_plane.research.semantic_fingerprint import digest
+
+
+def accepted_operational_contract():
+    path = Path(__file__).parents[1] / "fixtures/research/accepted-compute-20261025.json"
+    return json.loads(path.read_text())["contract"]
 
 
 def old_contract(current):
@@ -18,7 +24,7 @@ def old_contract(current):
 
 
 def test_operational_admission_transition_requires_exact_old_and_new_boundaries():
-    current = c.semantic_compute_contract()
+    current = accepted_operational_contract()
     old = old_contract(current)
     mapped, proof = h.admission_contract_transition(old, current)
     assert proof["old_compute_digest"] == old["digest"]
@@ -36,13 +42,16 @@ def test_operational_admission_transition_requires_exact_old_and_new_boundaries(
             h.admission_contract_transition(old, changed)
 
 
-def test_legacy_parameters_accept_new_daily_receipt_but_not_changed_domain(accepted_chain):
+@pytest.mark.parametrize("accepted_chain", ["operational"], indirect=True)
+def test_historical_operational_receipt_rejects_changed_domain(accepted_chain):
     from trading_advisor_3000.product_plane.common import data_snapshots as storage
     from trading_advisor_3000.product_plane.research.admission import issue_admission
     from trading_advisor_3000.product_plane.research.refresh_scope import resolve_refresh_scope
 
     config, pending, instance, _, publish, _, checkpoint = accepted_chain
-    current = c.semantic_compute_contract(config)
+    current = accepted_operational_contract()
+    # Exercise the historical provider against its frozen accepted contract;
+    # the current tail provider is deliberately not granted this allowance.
     accepted = publish(parameters={"semantic_compute_contract": old_contract(current)})
     root = Path(config["canonical_output_dir"]) / ".data_snapshots"
     previous = storage.current_snapshot(root)
@@ -110,7 +119,12 @@ def _numeric_hashes():
 
 
 def test_audited_engine_keeps_stored_l1_l2_hashes_and_other_changes_invalidate():
-    identity = c._current_numeric_identity()
+    contract = accepted_operational_contract()
+    identity = {
+        "engine": contract["engine"],
+        "kernels": contract["kernels"],
+        "dependencies": contract["numeric_dependencies"],
+    }
     assert identity["engine"] == h.ADMISSION_ENGINE
     old = {**identity, "engine": h.BOOTSTRAP_ENGINE}
     token = c._active_numeric_identity.set(old)
@@ -118,7 +132,12 @@ def test_audited_engine_keeps_stored_l1_l2_hashes_and_other_changes_invalidate()
         stored = _numeric_hashes()
     finally:
         c._active_numeric_identity.reset(token)
-    assert _numeric_hashes() == stored
+    token = c._active_numeric_identity.set(identity)
+    try:
+        assert _numeric_hashes() == stored
+    finally:
+        c._active_numeric_identity.reset(token)
+    assert all(a != b for a, b in zip(_numeric_hashes(), stored, strict=True))
     for section, key in [("engine", None), ("kernels", "l1"), ("dependencies", "numpy")]:
         changed = copy.deepcopy(identity)
         if key is None:
@@ -134,6 +153,7 @@ def test_audited_engine_keeps_stored_l1_l2_hashes_and_other_changes_invalidate()
 
 def test_equivalent_alias_does_not_mask_raw_engine_drift(monkeypatch):
     identity = c._current_numeric_identity()
+    identity = {**identity, "engine": h.ADMISSION_ENGINE}
     calls = iter([identity, {**identity, "engine": h.BOOTSTRAP_ENGINE}])
     monkeypatch.setattr(c, "_current_numeric_identity", lambda: next(calls))
 
@@ -160,7 +180,15 @@ def test_old_engine_carrier_changed_suffix_preserves_native_prefix(tmp_path, mon
     kwargs = _window_kwargs(tmp_path)
     key = next(iter(kwargs["partition_counts"]))
     bars = [_view(ts_index=i, close=80.0 + i) for i in range(5)]
-    identity = c._current_numeric_identity()
+    contract = accepted_operational_contract()
+    identity = {
+        "engine": contract["engine"],
+        "kernels": contract["kernels"],
+        "dependencies": contract["numeric_dependencies"],
+    }
+    # This test isolates the already-admitted operational transition. It does
+    # not claim that current tail kernels can reuse that historical carrier.
+    monkeypatch.setattr(c, "_current_numeric_identity", lambda: copy.deepcopy(identity))
     token = c._active_numeric_identity.set({**identity, "engine": h.BOOTSTRAP_ENGINE})
     try:
         rows = owner._build_partition_rows(

@@ -278,6 +278,39 @@ def test_continuous_front_qc_replace_scope_uses_available_dimensions_only() -> N
     assert "ts" not in condition
 
 
+def test_direct_ladder_replace_includes_causal_prefix_but_tail_replace_does_not() -> None:
+    options = dict(
+        table_name="continuous_front_adjustment_ladder",
+        dataset_version="dataset-v1",
+        instrument_ids=("FUT_BR",),
+        timeframes=("15m",),
+        start_ts="2026-05-12T00:00:00Z",
+        end_ts="2026-05-12T23:59:59Z",
+    )
+    direct = job._continuous_front_replace_filter_groups(**options)
+    assert direct == [
+        [
+            ("dataset_version", "=", "dataset-v1"),
+            ("instrument_id", "in", ["FUT_BR"]),
+            ("timeframe", "in", ["15m"]),
+            ("effective_ts", "<=", options["end_ts"]),
+        ]
+    ]
+    windows = job._normalize_refresh_windows(
+        [
+            {
+                "instrument_id": "FUT_BR",
+                "timeframe": "15m",
+                "start_ts": options["start_ts"],
+                "end_ts": options["end_ts"],
+            }
+        ]
+    )
+    tail = job._continuous_front_replace_filter_groups(**options, refresh_windows=windows)
+    assert ("effective_ts", ">=", options["start_ts"]) in tail[0]
+    assert ("effective_ts", "<=", options["end_ts"]) in tail[0]
+
+
 def test_continuous_front_batch_replace_scope_keeps_per_window_time_bounds() -> None:
     refresh_windows = job._normalize_refresh_windows(  # type: ignore[attr-defined]
         (
@@ -602,7 +635,8 @@ def test_calendar_expiry_spark_policy_uses_unbounded_contract_windows_for_partia
               ('BRX5@MOEX', 'FUT_BR', '15m', '2025-09-25 06:00:00', 211.0, 213.0, 210.0, 212.0, 850, 0),
               ('BRU5@MOEX', 'FUT_BR', '15m', '2025-09-26 06:00:00', 102.0, 104.0, 101.0, 103.0, 100, 0),
               ('BRV5@MOEX', 'FUT_BR', '15m', '2025-09-26 06:00:00', 112.0, 114.0, 111.0, 113.0, 700, 0),
-              ('BRV5@MOEX', 'FUT_BR', '15m', '2025-10-01 06:00:00', 113.0, 115.0, 112.0, 114.0, 710, 0)
+              ('BRV5@MOEX', 'FUT_BR', '15m', '2025-10-01 06:00:00', 113.0, 115.0, 112.0, 114.0, 710, 0),
+              ('BRX5@MOEX', 'FUT_BR', '15m', '2025-10-01 06:00:00', 213.0, 215.0, 212.0, 214.0, 900, 0)
             AS t(
               contract_id,
               instrument_id,
@@ -647,6 +681,46 @@ def test_calendar_expiry_spark_policy_uses_unbounded_contract_windows_for_partia
 
         assert [row["active_contract_id"] for row in front] == ["BRV5@MOEX", "BRV5@MOEX"]
         assert [row["native_close"] for row in front] == pytest.approx([112.0, 113.0])
+        assert {row["roll_epoch"] for row in front} == {1}
+        ladder = tables["continuous_front_adjustment_ladder"]
+        assert {row["roll_sequence"] for row in ladder.toLocalIterator()} == {1}
+        assert ladder.where("effective_ts < TIMESTAMP '2025-09-25 00:00:00'").count() == 1
+        assert ladder.where("effective_ts > TIMESTAMP '2025-09-26 23:59:59'").count() == 0
+        columns = [
+            "dataset_version",
+            "instrument_id",
+            "timeframe",
+            "roll_sequence",
+            "effective_ts",
+            "additive_gap",
+        ]
+        expected = [
+            row.asDict()
+            for row in ladder.select(*columns).orderBy("roll_sequence").toLocalIterator()
+        ]
+        for _ in range(2):
+            paths = job._write_spark_dataframe_tables(
+                spark=spark,
+                tables=tables,
+                output_dir=tmp_path / "bounded-output",
+                dataset_version="spark-calendar-partial-v1",
+                instrument_ids=("FUT_BR",),
+                timeframes=("15m",),
+                start_ts="2025-09-25T00:00:00Z",
+                end_ts="2025-09-26T23:59:59Z",
+            )
+            written = spark.read.format("delta").load(paths["continuous_front_adjustment_ladder"])
+            assert (
+                written.groupBy("dataset_version", "instrument_id", "timeframe", "roll_sequence")
+                .count()
+                .where("count > 1")
+                .count()
+                == 0
+            )
+            assert [
+                row.asDict()
+                for row in written.select(*columns).orderBy("roll_sequence").toLocalIterator()
+            ] == expected
     finally:
         spark.stop()
 

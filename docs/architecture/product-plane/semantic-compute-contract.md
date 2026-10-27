@@ -73,6 +73,31 @@ raw semantic contracts and entry/exit drift checks retain the actual engine.
 Unknown engines, changed kernels/dependencies and unrelated contract components
 remain distinct. This allowance is a bounded migration, not a universal alias.
 
+## Explicit isolated contract migration
+
+The CF tail/checkpoint rollout changes CF/L1/L2 kernels, the fingerprint
+authority, proof interpretation and logical schemas. It is not covered by the
+operational allowance above. Old numerical outputs, checkpoints and quality
+evidence must not be relabelled as compatible.
+
+An explicit migration plans a complete `operation="rebuild"` in a new isolated
+root. The plan binds the accepted source Research manifest, current Data parent
+and native input pins, declared calculation domain, target compute digest and
+all output roots. Apply revalidates these bindings before writing. Unknown or
+stale evidence, overlapping roots and consumed/nonempty targets fail closed.
+
+The existing complete data-prep asset selection, native runtimes, quality owners
+and snapshot publisher perform the rebuild. Only the new verification registry
+is published; source manifests and current pointers remain unchanged. Subsequent
+daily admission must consume that newly accepted contract. This path does not
+authorize production promotion or an automatic rebuild from a blocked sensor.
+
+Bounded CF bars retain absolute roll epochs. Their adjustment ladder must retain
+the causal prefix through the end bound, including entries before the requested
+bar start. Direct bounded replacement deletes the same ladder prefix before
+writing it again; refresh-window tail replacement retains its existing bounds.
+This preserves L1's input contract without duplicate historical ladder keys.
+
 Literal hashes, CLI and operational application evidence belong to the
 [snapshot publication runbook](docs/runbooks/app/data-research-snapshot-publication.md).
 Rollback must retain compatible code, immutable manifests and native pins;
