@@ -352,6 +352,7 @@ def gate_repository(repository):
         "run_pr_gate.py",
         "run_nightly_gate.py",
         "validate_architecture_review.py",
+        "validate_staging_acceptance.py",
     ):
         shutil.copy2(ROOT / "scripts" / name, scripts / name)
     (repository / "configs").mkdir()
@@ -378,6 +379,7 @@ def gate_repository(repository):
 def run_gate(repo, name, *args, env=None, stdin=None):
     environment = os.environ.copy()
     for key in (
+        "PYTHONPATH",
         "AI_SHELL_ARCHITECTURE_REVIEW_SOURCE",
         "GITHUB_EVENT_PATH",
         "GITHUB_EVENT_NAME",
