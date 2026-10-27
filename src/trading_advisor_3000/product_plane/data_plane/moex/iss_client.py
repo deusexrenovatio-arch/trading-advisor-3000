@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import time
@@ -645,6 +646,95 @@ class MoexISSClient:
                 date_till=date_till,
             )
         )
+
+    def iter_candle_source_rows(
+        self,
+        *,
+        engine: str,
+        market: str,
+        board: str,
+        secid: str,
+        interval: int,
+        date_from: date,
+        date_till: date,
+        max_pages: int = 100,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield lossless source rows, including null/fractional volume and ISS value.
+
+        The source row count owns pagination. Invalid block shapes, repeated pages,
+        and an exhausted request budget fail explicitly instead of truncating data.
+        Legacy typed futures candle parsing remains a separate, unchanged API.
+        """
+        if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages <= 0:
+            raise ValueError("max_pages must be a positive integer")
+        if date_from > date_till:
+            raise ValueError("date_from must not follow date_till")
+        if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
+            raise ValueError("interval must be a positive integer")
+        path = (
+            f"/iss/engines/{engine}/markets/{market}/boards/{board}/securities/{secid}/candles.json"
+        )
+        seen_pages: set[str] = set()
+        start = 0
+        for _ in range(max_pages):
+            payload = self._get_json(
+                path,
+                params={
+                    "iss.meta": "off",
+                    "interval": str(interval),
+                    "from": date_from.isoformat(),
+                    "till": date_till.isoformat(),
+                    "start": str(start),
+                },
+                event_context={
+                    "operation": "candle_source_rows",
+                    "engine": engine,
+                    "market": market,
+                    "board": board,
+                    "secid": secid,
+                    "interval": interval,
+                    "page_start": start,
+                },
+            )
+            block = payload.get("candles")
+            if not isinstance(block, dict):
+                raise ValueError(f"MOEX candles block missing for {secid}")
+            columns, data = block.get("columns"), block.get("data")
+            if (
+                not isinstance(columns, list)
+                or not columns
+                or any(not isinstance(name, str) or not name for name in columns)
+                or len(set(columns)) != len(columns)
+                or not isinstance(data, list)
+            ):
+                raise ValueError(f"MOEX candles columns/data shape invalid for {secid}")
+            if any(not isinstance(row, list) or len(row) != len(columns) for row in data):
+                raise ValueError(f"MOEX candles row shape invalid for {secid}")
+            if not data:
+                return
+            fingerprint = hashlib.sha256(
+                json.dumps([columns, data], sort_keys=True, ensure_ascii=True).encode("utf-8")
+            ).hexdigest()
+            if fingerprint in seen_pages:
+                raise ValueError(f"MOEX candles repeated page for {secid} at start={start}")
+            seen_pages.add(fingerprint)
+            self._emit_request_event(
+                {
+                    "event": "moex_candle_source_rows_page",
+                    "status": "parsed",
+                    "engine": engine,
+                    "market": market,
+                    "board": board,
+                    "secid": secid,
+                    "interval": interval,
+                    "page_start": start,
+                    "row_count": len(data),
+                }
+            )
+            for row in data:
+                yield dict(zip(columns, row, strict=True))
+            start += len(data)
+        raise ValueError(f"MOEX candles max_pages={max_pages} exhausted for {secid}")
 
     def fetch_history_board_securities(
         self,

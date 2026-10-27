@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/market_quote_series.v1.json",
+  "title": "MarketQuoteSeriesV1",
+  "type": "object",
+  "required": ["schema_version", "series_id", "security_id", "source", "asset_class", "engine", "market", "board", "secid", "underlying_security_id", "source_timezone", "price_basis", "price_unit", "volume_unit", "turnover_unit", "tradable", "metadata_asof", "metadata_json", "aliases_json"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "market_quote_series.v1"},
+    "series_id": {"type": "string", "minLength": 1},
+    "security_id": {"type": "string", "minLength": 1},
+    "source": {"type": "string", "const": "moex_iss"},
+    "asset_class": {"type": "string", "enum": ["equity", "futures", "index"]},
+    "engine": {"type": "string", "minLength": 1},
+    "market": {"type": "string", "minLength": 1},
+    "board": {"type": "string", "minLength": 1},
+    "secid": {"type": "string", "minLength": 1},
+    "underlying_security_id": {"type": ["string", "null"], "minLength": 1},
+    "source_timezone": {"type": "string", "const": "Europe/Moscow"},
+    "price_basis": {"type": "string", "const": "source_native"},
+    "price_unit": {"type": "string", "enum": ["source_native", "index_points"]},
+    "volume_unit": {"type": "string", "enum": ["source_native", "not_applicable"]},
+    "turnover_unit": {"type": "string", "enum": ["source_native", "not_applicable"]},
+    "tradable": {"type": "boolean"},
+    "metadata_asof": {"type": "string", "minLength": 1},
+    "metadata_json": {"type": "string", "minLength": 2},
+    "aliases_json": {"type": "string", "minLength": 2}
+  },
+  "additionalProperties": false
+}
