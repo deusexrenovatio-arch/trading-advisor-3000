@@ -240,3 +240,38 @@ engine is aliased; live kernels and dependencies still invalidate carriers.
 Raw semantic contracts and native operation entry/exit drift checks retain the
 real engine. This prevents an operational compatibility allowance from widening
 a changed suffix into an otherwise unnecessary complete-series replacement.
+
+## Explicit isolated Research contract migration
+
+Changed numerical kernels are not an operational hash allowance. The CF
+tail/checkpoint rollout requires a complete explicit rebuild for the declared
+domain. Daily admission against the old Research remains BLOCKED. Do not edit
+old manifests, alias engines or rewind the baseline-success sensor cursor.
+
+Use `python -m trading_advisor_3000.product_plane.research.contract_migration`:
+
+1. Prepare a JSON request with `accepted_research_manifest_path`,
+   `data_manifest_path`, a **nonexistent** `target_root`, and `domain`.
+   Domain requires `dataset_version`, nonempty `dataset_instrument_ids` and
+   `timeframes`, and explicit ordered `start_ts` / `end_ts`. Include the intended
+   continuous-front policy, profile versions and tick sizes. Inputs must have
+   accepted current manifests and pinned raw lineage.
+2. Run `--request request.json` and export stdout to a plan file outside the
+   target/source roots. Planning writes nothing. Inspect changed components,
+   exact input pins, target digest, domain and all six identical op configs.
+3. Apply only in an isolated runtime with source volumes **read-only** and the
+   verification destination writable: `--apply-plan plan.json`. All bindings
+   are revalidated before the new root is claimed. Any stale source, input,
+   target code/contract, tampered plan or reused destination rejects.
+4. Existing complete native data-prep assets, sidecar QC and snapshot publication
+   run under the target root. New `compute_state_json` and `input_row_hash`
+   carriers are calculated; old checkpoints and QC are never reused. Read
+   `migration-receipt.json`, physical Delta schemas/rows and the new accepted
+   verification manifest. Test a subsequent scoped daily update and retry there.
+
+The sole plan schema is `research_contract_migration.v1.json`. A successful plan
+cannot prove numerical equivalence. A failed run retains its isolated files;
+use a new target for a new migration attempt. A consumed plan cannot rebuild
+again. This procedure neither promotes verification to production nor unblocks
+the already-consumed production handoff. Production application and the next
+ordinary nightly acceptance remain separate operator actions.

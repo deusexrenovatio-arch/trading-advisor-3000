@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -7,12 +8,16 @@ import pytest
 from trading_advisor_3000.product_plane.research import hash_compatibility as owner
 
 
-def test_reviewed_current_package_keeps_frozen_numerics_and_environment_guard():
+def test_tail_rollout_is_not_the_frozen_operational_allowance():
     from trading_advisor_3000.product_plane.research import compute_contract as c
 
     contract = c.semantic_compute_contract()
-    assert contract["engine"] == owner.ADMISSION_ENGINE
-    assert c.kernel_contract() == {**owner.BOOTSTRAP_KERNELS, "sidecar": owner.ADMISSION_SIDECAR}
+    assert contract["engine"] != owner.ADMISSION_ENGINE
+    assert {
+        key
+        for key in ("cf", "l1", "l2")
+        if contract["kernels"][key] != owner.BOOTSTRAP_KERNELS[key]
+    } == {"cf", "l1", "l2"}
     assert (
         owner.BOOTSTRAP_ENGINE == "c00f66d72676fc94012c3f063a56b14a5fe875d7d6ecdc4331d5aa01ccfb9be2"
     )
@@ -86,7 +91,7 @@ def accepted_chain(tmp_path, monkeypatch, request):
         run_id="data",
         code_version="old",
         quality_checks={"data": "PASS"},
-        parameters={"downstream_scope": {"version": 1, "full_refresh": False}},
+        parameters={"downstream_scope": {"version": 2, "full_refresh": False}},
     )
     registry = canonical / ".data_snapshots"
     data_path = snapshots.save_snapshot(registry, data)
@@ -126,7 +131,14 @@ def accepted_chain(tmp_path, monkeypatch, request):
 
     from trading_advisor_3000.product_plane.research import compute_contract as c
 
-    current_contract = c.semantic_compute_contract(config)
+    if getattr(request, "param", None) == "operational":
+        frozen = Path(__file__).parents[1] / "fixtures/research/accepted-compute-20261025.json"
+        current_contract = json.loads(frozen.read_text())["contract"]
+        monkeypatch.setattr(
+            c, "semantic_compute_contract", lambda *_args, **_kwargs: current_contract
+        )
+    else:
+        current_contract = c.semantic_compute_contract(config)
     # A real native source table participates in every bootstrap admission.
     _, source_contract = c.source_frame_schema_pair(current_contract)
     types = {
@@ -365,6 +377,17 @@ def test_accepted_cf_revalidation_preserves_qc_and_never_calls_numeric_owner(
         snapshot_id=research["snapshot_id"], manifest_sha256=research["manifest_sha256"]
     )
     config.update(data_snapshot_enabled=True, code_version="new")
+    if not change_data:
+        from trading_advisor_3000.product_plane.research.admission import (
+            configure_admission,
+            issue_admission,
+        )
+
+        admission = issue_admission(config, operation="daily")
+        assert admission["outcome"] == "NOOP"
+        with pytest.raises(ValueError, match="NOOP"):
+            configure_admission(config, refresh_admission=admission)
+        return
     if change_data:
         _advance_data(accepted_chain)
         _apply_scope(accepted_chain, _resolved(accepted_chain))
@@ -413,7 +436,9 @@ def test_accepted_cf_revalidation_preserves_qc_and_never_calls_numeric_owner(
             old_get = instance.get_run_by_id
             instance.get_run_by_id = lambda run_id: (
                 SimpleNamespace(
-                    status=SimpleNamespace(value="SUCCESS"), job_name="moex_cf_catch_up_job"
+                    status=SimpleNamespace(value="SUCCESS"),
+                    job_name="moex_cf_catch_up_job",
+                    run_config={"ops": {"continuous_front_bars": {"config": config}}},
                 )
                 if run_id == "current-cf"
                 else old_get(run_id)
@@ -439,7 +464,7 @@ def test_accepted_cf_revalidation_preserves_qc_and_never_calls_numeric_owner(
             forged["hash_compatibility"]["manifest_sha256"] = "forged"
             consumer.run_id = "forged-research"
             consumer.op_config = forged
-            with pytest.raises(ValueError, match="forged"):
+            with pytest.raises(ValueError, match="compatibility changed"):
                 continuous_front_bars(consumer)
 
 
@@ -546,6 +571,15 @@ def _apply_scope(accepted_chain, scope):
     )
     if scope.get("hash_compatibility"):
         config["hash_compatibility"] = scope["hash_compatibility"]
+    from trading_advisor_3000.product_plane.research.admission import (
+        configure_admission,
+        issue_admission,
+    )
+
+    config.update(data_snapshot_enabled=True, operation="daily")
+    config.update(
+        configure_admission(config, refresh_admission=issue_admission(config, operation="daily"))
+    )
 
 
 @pytest.mark.parametrize("accepted_chain", [None, "post226"], indirect=True)
@@ -598,7 +632,8 @@ def test_changed_data_migration_rejects_unproven_ancestry_edges(accepted_chain, 
                 path = path[1:]
             Path(path).unlink()
     scope = _resolved(accepted_chain)
-    assert scope["force_full_refresh"] is True
+    assert scope["outcome"] == "BLOCKED"
+    assert scope["force_full_refresh"] is False
     with pytest.raises((ValueError, checkpoint.SnapshotUnavailableError)):
         checkpoint._validate_hash_compatibility(config, pending, instance)
 
@@ -855,6 +890,8 @@ def test_native_migration_from_failure_preserves_completed_delta_checkpoint(
         with execute_job(reconstructable(reconstruct_hash_seed_job), instance=instance) as seeded:
             assert seeded.success
             publish(owners={stage: seeded.run_id for stage in stages})
+        _advance_data(accepted_chain)
+        _apply_scope(accepted_chain, _resolved(accepted_chain))
         run_config = {
             "ops": {name: {"config": config} for name in ("hash_resume_l1", "hash_resume_r2")}
         }

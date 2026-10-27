@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Isolated Research contract migration plan v1",
+  "type": "object",
+  "required": ["schema_version", "request", "source_snapshot_id", "source_manifest_sha256", "target_compute_digest", "target_runtime_digest", "changed_components", "run_config", "plan_id"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "request": {
+      "type": "object",
+      "required": ["accepted_research_manifest_path", "data_manifest_path", "target_root", "domain"],
+      "properties": {
+        "accepted_research_manifest_path": {"type": "string", "minLength": 1},
+        "data_manifest_path": {"type": "string", "minLength": 1},
+        "target_root": {"type": "string", "minLength": 1},
+        "domain": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "source_snapshot_id": {"type": "string", "minLength": 1},
+    "source_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "target_compute_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "target_runtime_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "changed_components": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "run_config": {"type": "object"},
+    "plan_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}
