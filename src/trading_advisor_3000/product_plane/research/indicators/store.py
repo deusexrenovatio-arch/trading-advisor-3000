@@ -82,7 +82,6 @@ INDICATOR_RESERVED_COLUMNS = {
     "refresh_context_hash",
     "source_snapshot_hash",
     "volume_profile_input_hash",
-    "compute_state_json",
 }
 INDICATOR_FRAME_LOGICAL_KEY = (
     "dataset_version",
@@ -164,7 +163,6 @@ class IndicatorFrameRow:
     refresh_context_hash: str = ""
     source_snapshot_hash: str = ""
     volume_profile_input_hash: str = ""
-    compute_state_json: str = ""
     bar_end_ts: str | None = field(default=None, compare=False, repr=False)
 
     def partition_key(self, *, series_mode: str) -> IndicatorFramePartitionKey:
@@ -204,7 +202,6 @@ class IndicatorFrameRow:
             "refresh_context_hash": self.refresh_context_hash,
             "source_snapshot_hash": self.source_snapshot_hash,
             "volume_profile_input_hash": self.volume_profile_input_hash,
-            "compute_state_json": self.compute_state_json,
         }
 
     @classmethod
@@ -247,7 +244,6 @@ class IndicatorFrameRow:
             refresh_context_hash=str(payload.get("refresh_context_hash") or ""),
             source_snapshot_hash=str(payload.get("source_snapshot_hash") or ""),
             volume_profile_input_hash=str(payload.get("volume_profile_input_hash") or ""),
-            compute_state_json=str(payload.get("compute_state_json") or ""),
         )
 
 
@@ -287,7 +283,6 @@ def indicator_store_contract(
         "refresh_context_hash": "string",
         "source_snapshot_hash": "string",
         "volume_profile_input_hash": "string",
-        "compute_state_json": "string",
     }
     contracts = {
         "research_indicator_frames": {
@@ -742,7 +737,6 @@ def load_indicator_partition_rows(
                 "refresh_context_hash",
                 "source_snapshot_hash",
                 "volume_profile_input_hash",
-                "compute_state_json",
             )
         )
     )
@@ -795,7 +789,6 @@ def load_indicator_frames(
                     "refresh_context_hash",
                     "source_snapshot_hash",
                     "volume_profile_input_hash",
-                    "compute_state_json",
                 )
             )
         )

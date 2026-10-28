@@ -996,9 +996,7 @@ def _compute_spec(frame: pd.DataFrame, spec: IndicatorSpec) -> dict[str, pd.Seri
             spec.output_columns[1]: trix[f"TRIXs_{suffix}"],
         }
     if spec.operation_key == "kst":
-        from .kst import compute_kst
-
-        kst = compute_kst(frame)
+        kst = ta.kst(close)
         if kst is None:
             return _none_outputs()
         return {
@@ -1055,16 +1053,14 @@ def _append_computed_columns(frame: pd.DataFrame, columns: Mapping[str, pd.Serie
     return pd.concat([frame, output_frame], axis=1)
 
 
-def _compute_profile_frame_unmasked(
-    frame: pd.DataFrame, profile: IndicatorProfile, *, spec_runner=None
-) -> pd.DataFrame:
+def _compute_profile_frame_unmasked(frame: pd.DataFrame, profile: IndicatorProfile) -> pd.DataFrame:
     result = frame.copy()
     pending_outputs: dict[str, pd.Series] = {}
     for spec in profile.indicators:
         if set(spec.required_input_columns) & set(pending_outputs):
             result = _append_computed_columns(result, pending_outputs)
             pending_outputs = {}
-        pending_outputs.update((spec_runner or _compute_spec)(result, spec))
+        pending_outputs.update(_compute_spec(result, spec))
     return _append_computed_columns(result, pending_outputs)
 
 
@@ -1142,12 +1138,10 @@ def _fill_bar_usage_noncomputed_rows(
     return filled
 
 
-def _compute_profile_frame(
-    frame: pd.DataFrame, profile: IndicatorProfile, *, spec_runner=None
-) -> pd.DataFrame:
+def _compute_profile_frame(frame: pd.DataFrame, profile: IndicatorProfile) -> pd.DataFrame:
     assert_indicator_bar_usage_policy_coverage(profile)
     if frame.empty or "bar_usage_flags" not in frame.columns:
-        return _compute_profile_frame_unmasked(frame, profile, spec_runner=spec_runner)
+        return _compute_profile_frame_unmasked(frame, profile)
     result = frame.copy()
     for rule, output_columns in indicator_bar_usage_groups_for_outputs(
         profile.expected_output_columns()
@@ -1161,7 +1155,7 @@ def _compute_profile_frame(
             computed = pd.DataFrame(index=eligible_frame.index)
         else:
             computed = _compute_profile_frame_unmasked(
-                eligible_frame, _profile_for_specs(profile, specs), spec_runner=spec_runner
+                eligible_frame, _profile_for_specs(profile, specs)
             )
         result = _append_computed_columns(
             result,
@@ -1307,16 +1301,7 @@ def _compute_continuous_front_profile_frame(
     profile: IndicatorProfile,
     *,
     adjustment_ladder_rows: tuple[dict[str, object], ...],
-    checkpoint_runner=None,
-    tail_start=None,
 ) -> pd.DataFrame:
-    if checkpoint_runner is not None and tail_start is not None:
-        # Eligibility has already been applied. Bound normalization, derived
-        # price inputs and roll-boundary masks as well as indicator calls.
-        from .native_checkpoint import BUFFER
-
-        prefix = frame.index[frame.index < tail_start]
-        frame = frame.loc[prefix[-BUFFER:].append(frame.index[frame.index >= tail_start])]
     if frame.empty:
         return _compute_profile_frame(frame, profile)
     rules = rules_for_indicator_profile(profile)
@@ -1373,8 +1358,6 @@ def _compute_continuous_front_profile_frame(
     for target_epoch in sorted(frame["roll_epoch"].unique()):
         epoch = int(target_epoch)
         target_index = frame.index[frame["roll_epoch"] == epoch]
-        if tail_start is not None and not (target_index >= tail_start).any():
-            continue
         source_frame = frame[frame["roll_epoch"] <= epoch].copy()
         zero_anchor_frame = full_zero_anchor_frame.loc[source_frame.index]
         target_anchor_frame = _asof_adjusted_price_frame(
@@ -1407,18 +1390,12 @@ def _compute_continuous_front_profile_frame(
                                 target_anchor_frame=target_anchor_frame,
                                 native_frame=full_native_frame,
                             )
-                            invariant_compute_cache[cache_key] = (
-                                checkpoint_runner(invariant_frame, spec, f"{group_id}:invariant")
-                                if checkpoint_runner
-                                else _compute_spec(invariant_frame, spec)
+                            invariant_compute_cache[cache_key] = _compute_spec(
+                                invariant_frame, spec
                             )
                         compute_cache[cache_key] = invariant_compute_cache[cache_key]
                     else:
-                        compute_cache[cache_key] = (
-                            checkpoint_runner(group_frame, spec, f"{group_id}:{epoch}")
-                            if checkpoint_runner
-                            else _compute_spec(group_frame, spec)
-                        )
+                        compute_cache[cache_key] = _compute_spec(group_frame, spec)
                 computed_outputs = compute_cache[cache_key]
                 for output_column in output_columns:
                     series = computed_outputs[output_column].reindex(target_anchor_frame.index)
@@ -1431,17 +1408,13 @@ def _compute_continuous_front_profile_frame(
     computed_columns = list(
         dict.fromkeys(column for segment in computed_segments for column in segment.columns)
     )
-    if not computed_segments:
-        return frame.reindex(columns=[*frame.columns, *profile.expected_output_columns()])
     concat_segments = [segment.dropna(axis=1, how="all") for segment in computed_segments]
     computed = pd.concat(concat_segments).sort_index().reindex(columns=computed_columns)
-    return _enforce_continuous_front_native_boundaries(
-        computed, profile, checkpoint_runner=checkpoint_runner
-    )
+    return _enforce_continuous_front_native_boundaries(computed, profile)
 
 
 def _enforce_continuous_front_native_boundaries(
-    frame: pd.DataFrame, profile: IndicatorProfile, *, checkpoint_runner=None
+    frame: pd.DataFrame, profile: IndicatorProfile
 ) -> pd.DataFrame:
     result = frame.copy()
     roll_epoch = pd.to_numeric(result["roll_epoch"], errors="coerce").fillna(0).astype(int)
@@ -1460,13 +1433,9 @@ def _enforce_continuous_front_native_boundaries(
         recomputed_outputs = pd.DataFrame(
             index=result.index, columns=list(spec.output_columns), dtype="object"
         )
-        for epoch, segment in result.groupby(roll_epoch, sort=False):
+        for _, segment in result.groupby(roll_epoch, sort=False):
             recomputed = _compute_profile_frame(
-                segment.copy(),
-                _profile_for_specs(profile, (spec,)),
-                spec_runner=(lambda f, s: checkpoint_runner(f, s, f"reset:{int(epoch)}"))
-                if checkpoint_runner
-                else None,
+                segment.copy(), _profile_for_specs(profile, (spec,))
             )
             segment_outputs = recomputed[list(spec.output_columns)]
             recomputed_outputs.loc[segment_outputs.index, list(spec.output_columns)] = (
@@ -1501,8 +1470,6 @@ def _compute_profile_frame_for_series(
     *,
     series_mode: str,
     adjustment_ladder_rows: tuple[dict[str, object], ...],
-    checkpoint_runner=None,
-    tail_start=None,
 ) -> pd.DataFrame:
     if series_mode != "continuous_front":
         return _compute_profile_frame(frame, profile)
@@ -1511,8 +1478,6 @@ def _compute_profile_frame_for_series(
             frame,
             profile,
             adjustment_ladder_rows=adjustment_ladder_rows,
-            checkpoint_runner=checkpoint_runner,
-            tail_start=tail_start,
         )
     result = frame.copy()
     for rule, output_columns in indicator_bar_usage_groups_for_outputs(
@@ -1530,12 +1495,6 @@ def _compute_profile_frame_for_series(
                 eligible_frame,
                 _profile_for_specs(profile, specs),
                 adjustment_ladder_rows=adjustment_ladder_rows,
-                checkpoint_runner=(
-                    lambda f, s, key: checkpoint_runner(f, s, f"{rule.required_flags}:{key}")
-                )
-                if checkpoint_runner
-                else None,
-                tail_start=tail_start,
             )
         result = _append_computed_columns(
             result,
@@ -1804,25 +1763,8 @@ def _compute_partition_frame(
     existing_by_ts,
     resolved_volume_profile_source_rows,
     volume_profile_tick_size_by_instrument,
-    checkpoint_state=None,
-    checkpoint_rows=None,
-    input_hashes=(),
 ):
-    if series_mode == "continuous_front":
-        from .cf_tail import compute
-
-        computed = compute(
-            frame,
-            compute_profile,
-            series_ladder_rows,
-            cached_rows,
-            prefix_length,
-            diagnostics,
-            checkpoint_state,
-            input_hashes=input_hashes,
-            checkpoints_out=checkpoint_rows,
-        )
-    elif prefix_length:
+    if prefix_length:
         existing_frame = pd.DataFrame([row.values for row in cached_rows[:prefix_length]])
         computed = _compute_cached_profile_frame(
             frame,
@@ -1839,14 +1781,6 @@ def _compute_partition_frame(
             adjustment_ladder_rows=series_ladder_rows,
         )
     if _profile_has_volume_profile_spec(compute_profile):
-        if series_mode == "continuous_front" and prefix_length:
-            # VP input hashes proved this prefix independently of recursive CF
-            # state. Preserve it also when the CF checkpoint engine falls back.
-            for column in VOLUME_PROFILE_INDICATOR_COLUMNS:
-                computed[column] = computed[column].astype(object)
-                computed.loc[: prefix_length - 1, column] = [
-                    cached_rows[i].values.get(column) for i in range(prefix_length)
-                ]
         if volume_profile_refresh_ts is not None:
             cached_indices = [
                 index for index, bar in enumerate(series) if bar.ts not in volume_profile_refresh_ts
@@ -1944,7 +1878,7 @@ def _build_partition_rows(
     prefix_length = 0
     # Native source-hash format is independent of whether a verified prefix
     # can continue computation. Unsupported specs still use full history.
-    if compute_profile == profile:
+    if series_mode != "continuous_front" and compute_profile == profile:
         for original, cached, row_hash in zip(series, cached_rows, input_row_hashes):
             if (
                 cached.ts != original.ts
@@ -1962,8 +1896,6 @@ def _build_partition_rows(
         diagnostics["full_history_spec_count"] = int(
             diagnostics.get("full_history_spec_count", 0)
         ) + len(compute_profile.indicators)
-    checkpoint_state = {}
-    checkpoint_rows = {}
     computed = _compute_partition_frame(
         frame=frame,
         series=series,
@@ -1977,9 +1909,6 @@ def _build_partition_rows(
         existing_by_ts=existing_by_ts,
         resolved_volume_profile_source_rows=resolved_volume_profile_source_rows,
         volume_profile_tick_size_by_instrument=volume_profile_tick_size_by_instrument,
-        checkpoint_state=checkpoint_state,
-        checkpoint_rows=checkpoint_rows,
-        input_hashes=input_row_hashes,
     )
     payload_rows = computed.to_dict("records")
     output_columns = profile.expected_output_columns()
@@ -2055,25 +1984,7 @@ def _build_partition_rows(
                 refresh_context_hash=refresh_context_hash,
                 source_snapshot_hash=source_snapshot_hash,
                 volume_profile_input_hash=volume_profile_hashes.get(original.ts, ""),
-                compute_state_json=json.dumps(
-                    checkpoint_rows[index], sort_keys=True, allow_nan=False
-                )
-                if index in checkpoint_rows
-                else "",
             )
-        )
-    if series_mode == "continuous_front":
-        changed_states = [
-            row.ts
-            for row in rows
-            if row.compute_state_json
-            != getattr(existing_by_ts.get(row.ts), "compute_state_json", "")
-        ]
-        diagnostics.pop("cf_checkpoint_write_start_ts", None)
-        if changed_states:
-            diagnostics["cf_checkpoint_write_start_ts"] = min(changed_states)
-        diagnostics["cf_checkpoint_bytes"] = sum(
-            len(row.compute_state_json.encode()) for row in rows
         )
     return rows
 
@@ -2998,23 +2909,8 @@ def _indicator_input_row_hashes(
             # CF math consumes native OHLC, roll epochs and session projections,
             # beyond a profile's declared public-price columns. Old partial row
             # proofs must not certify reuse after a native/projection correction.
-            payload["cf_input_version"] = 3
-            dependencies = input_columns | {
-                "native_open",
-                "native_high",
-                "native_low",
-                "native_close",
-                "roll_epoch",
-                "volume",
-                "open_interest",
-                "session_open_ts",
-                "session_close_ts",
-            }
-            if has_volume_profile:
-                dependencies |= {"bar_start_ts", "bar_end_ts"}
-            payload["bar"] = {
-                key: value for key, value in row.to_dict().items() if key in dependencies
-            }
+            payload["cf_input_version"] = 2
+            payload["bar"] = row.to_dict()
         if has_volume_profile and (cached_volume_profile_hashes or {}).get(row.ts):
             payload["volume_profile"] = cached_volume_profile_hashes[row.ts]
         elif has_volume_profile:
@@ -3581,71 +3477,28 @@ def _materialize_indicator_window_tails(
                 candidates = [*changed_ts, *[row.ts for row in existing if row.ts not in source_ts]]
                 if not candidates:
                     reused += 1
-                    layout_changed_ts = []
                     if not snapshot_matches:
-                        from trading_advisor_3000.product_plane.common.table_layout import (
-                            YEAR_PARTITION_COLUMN,
-                        )
-
-                        # Close time is transient on the DTO; compare its
-                        # persisted physical year rather than a missing field.
-                        filters = [
-                            (name, "=", getattr(partition, name))
-                            for name in (
-                                "dataset_version",
-                                "indicator_set_version",
-                                "contour_id",
-                                "series_mode",
-                                "series_id",
-                                "instrument_id",
-                                "timeframe",
-                                "contract_id",
-                            )
-                            if getattr(partition, name) not in (None, "")
-                        ]
-                        layout = read_delta_table_arrow(
-                            indicator_output_dir / "research_indicator_frames.delta",
-                            columns=["ts", YEAR_PARTITION_COLUMN],
-                            filters=filters,
-                        ).to_pydict()
-                        years = {
-                            _utc_timestamp(ts): int(year)
-                            for ts, year in zip(
-                                layout["ts"], layout[YEAR_PARTITION_COLUMN], strict=True
-                            )
-                        }
-                        layout_changed_ts = [
-                            row.ts
-                            for row in series
-                            if years.get(_utc_timestamp(row.ts))
-                            != _utc_timestamp(row.bar_end_ts).year
-                        ]
-                    if not snapshot_matches:
-                        # A lineage-only change advances the final carrier;
-                        # a close-year correction rewrites its preserved suffix.
+                        # Advance one complete carrier after actual content proof;
+                        # preserve every earlier row and all numerical values.
                         carrier = existing_by_ts[series[-1].ts]
                         stamp = max(
                             pd.Timestamp.now(tz="UTC"),
                             _utc_timestamp(str(metadata.get("created_at") or carrier.created_at))
                             + pd.Timedelta(1, unit="us"),
                         )
-                        starts[partition] = (
-                            min(layout_changed_ts) if layout_changed_ts else carrier.ts
-                        )
+                        starts[partition] = carrier.ts
                         assert_source_stable()
                         yield (
                             partition,
                             [
                                 replace(
-                                    existing_by_ts[row.ts],
+                                    carrier,
                                     source_snapshot_hash=source_snapshot_hash,
                                     source_dataset_bars_hash=source_dataset_bars_hash,
                                     row_count=count,
-                                    bar_end_ts=row.bar_end_ts,
+                                    bar_end_ts=series[-1].bar_end_ts,
                                     created_at=stamp.isoformat().replace("+00:00", "Z"),
                                 )
-                                for row in series
-                                if row.ts >= starts[partition]
                             ],
                         )
                         metadata_rebased += 1
@@ -3661,7 +3514,6 @@ def _materialize_indicator_window_tails(
             )
             if not full_legacy_partition:
                 starts[partition] = start
-            diagnostics.pop("cf_full_replacement_required", None)
             rows = _build_partition_rows(
                 dataset_version=partition.dataset_version,
                 indicator_set_version=partition.indicator_set_version,
@@ -3679,19 +3531,6 @@ def _materialize_indicator_window_tails(
                 native_full_compute=True,
                 volume_profile_refresh_ts=None if full_legacy_partition else changed_ts,
             )
-            if partition.series_mode == "continuous_front":
-                if diagnostics.get("cf_full_replacement_required"):
-                    start = series[0].ts
-                    starts[partition] = start
-                elif existing and partition in starts:
-                    # Expired anchors may precede the numerical window. Widen
-                    # the predicate AND preserved payload atomically.
-                    start = min(
-                        start,
-                        existing[-1].ts,
-                        str(diagnostics.get("cf_checkpoint_write_start_ts") or start),
-                    )
-                    starts[partition] = start
             if _profile_has_volume_profile_spec(profile) and (
                 volume_profile_source_rows is None and volume_profile_raw_1m_table_path is None
             ):
