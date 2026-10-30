@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/market_quote_bar.v1.json",
+  "title": "MarketQuoteBarV1",
+  "description": "Native daily source candle; ts_close retains the inclusive source end, not an exclusive interval bound.",
+  "type": "object",
+  "required": ["schema_version", "series_id", "timeframe", "ts_open", "ts_close", "source_begin", "source_end", "open", "high", "low", "close", "volume", "turnover", "open_interest", "volume_status", "source_run_id", "fetched_at"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "market_quote_bar.v1"},
+    "series_id": {"type": "string", "minLength": 1},
+    "timeframe": {"type": "string", "const": "1d"},
+    "ts_open": {"type": "string", "minLength": 1},
+    "ts_close": {"type": "string", "minLength": 1},
+    "source_begin": {"type": "string", "minLength": 1},
+    "source_end": {"type": "string", "minLength": 1},
+    "open": {"type": "number"},
+    "high": {"type": "number"},
+    "low": {"type": "number"},
+    "close": {"type": "number"},
+    "volume": {"type": ["number", "null"], "minimum": 0},
+    "turnover": {"type": ["number", "null"], "minimum": 0},
+    "open_interest": {"type": "null"},
+    "volume_status": {"type": "string", "enum": ["reported", "missing", "not_applicable"]},
+    "source_run_id": {"type": "string", "minLength": 1},
+    "fetched_at": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}
