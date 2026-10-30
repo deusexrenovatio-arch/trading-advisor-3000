@@ -1,5 +1,9 @@
 # Bounded MOEX contract parameter continuation
 
+Expired-contract resolution during daily renewal follows the
+[admitted-description decision](docs/architecture/product-plane/expired-contract-description-resolution.md).
+The original bounded bundle contract below remains unchanged.
+
 The direct economics Spark API can explicitly admit the reviewed thirteen-asset
 parameter bundle for **2026-07-29 through 2026-10-05 inclusive**. Default additional
 tuple is empty; all32 registered historical regimes retain their IDs, values and
