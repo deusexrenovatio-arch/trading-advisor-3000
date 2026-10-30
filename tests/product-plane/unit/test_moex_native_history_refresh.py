@@ -174,6 +174,286 @@ def _actual_mc_rows():
     ]
 
 
+def _ngv6_archive(tmp_path, *, overrides=None, duplicate=False):
+    import hashlib
+    import json
+
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    provenance = json.dumps(
+        {
+            "description_hash": "a" * 64,
+            "description_lot": 100.0,
+            "rule_min_step": 0.001,
+            "rule_lot_volume": 100.0,
+            "original_source_id": refresh.HISTORY_SOURCE,
+            "original_source_document_id": "RFUD:NGV6:2026-10-05",
+            "parameter_validation_evidence_sha256": "b" * 64,
+        }
+    )
+    digest = hashlib.sha256(provenance.encode()).hexdigest()
+    row = {
+        "source_id": refresh.PREPARED_SOURCE,
+        "board": "RFUD",
+        "moex_secid": "NGV6",
+        "assetcode": "NG",
+        "trade_date": "2026-10-05",
+        "last_trade_date": "2026-10-28",
+        "last_del_date": "2026-10-28",
+        "min_step": 0.001,
+        "lot_volume": 100.0,
+        "source_document_id": f"prepared-specification:{digest}",
+        "source_document_hash": digest,
+        "enrichment_provenance_json": provenance,
+        **(overrides or {}),
+    }
+    columns = {key: "string" for key in row}
+    columns.update(trade_date="date", min_step="double", lot_volume="double")
+    path = tmp_path / "prepared.delta"
+    write_delta_table_rows(
+        table_path=path, rows=[row] * (2 if duplicate else 1), columns=columns, compact=False
+    )
+    verified = {
+        "prepared_input_table_id": DeltaTable(str(path)).metadata().id,
+        "prepared_input_version": 0,
+        "dated_official_tc_evidence_sha256": "c" * 64,
+    }
+    return path, verified, row, columns
+
+
+def _ng_rule():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        assetcode="NG",
+        min_step=0.001,
+        lot_volume=100.0,
+        tick_value_quote=0.1,
+        quote_currency="USD",
+    )
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        None,
+        "provenance",
+        "min_step",
+        "lot_volume",
+        "missing",
+        "future",
+        "post_expiry",
+        "active",
+        "duplicate",
+        "current_crosscheck",
+    ],
+)
+def test_ngv6_expired_history_survives_current_delisting(tmp_path, monkeypatch, failure):
+    """Real archived Delta; replace only trust/production-ID and output-write boundaries."""
+    import json
+    from datetime import UTC, datetime
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    overrides = {
+        "provenance": {"enrichment_provenance_json": "{}"},
+        "min_step": {"min_step": 0.01},
+        "lot_volume": {"lot_volume": 10.0},
+        "missing": {"moex_secid": "NGX6"},
+        "future": {"trade_date": "2026-10-24"},
+        "post_expiry": {"last_trade_date": "2026-10-22"},
+        "active": {"last_trade_date": "2026-11-01", "last_del_date": "2026-11-01"},
+    }.get(failure)
+    path, verified, archived, _ = _ngv6_archive(
+        tmp_path, overrides=overrides, duplicate=failure == "duplicate"
+    )
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 30, 22, tzinfo=UTC).astimezone(tz)
+
+    monkeypatch.setattr(refresh, "datetime", FixedDateTime)
+    raw_path, oi_path = tmp_path / "raw.delta", tmp_path / "oi.delta"
+    real_delta = DeltaTable
+    production_ids = {
+        raw_path: "ae9e49f9-9e8f-405d-9e07-0a2079eee691",
+        oi_path: "026176bf-9d3b-4192-adcf-559cd33f7c93",
+    }
+    monkeypatch.setattr(refresh, "validate_contract_parameter_evidence", lambda *args: verified)
+    monkeypatch.setattr(refresh, "bind_contract_parameter_input", lambda *args: 0)
+    monkeypatch.setattr(
+        refresh,
+        "DeltaTable",
+        lambda p, **kw: (
+            real_delta(p, **kw)
+            if str(p) == str(path)
+            else SimpleNamespace(metadata=lambda: SimpleNamespace(id=production_ids[Path(p)]))
+        ),
+    )
+    raw_columns = dict.fromkeys(
+        (
+            "source_id source_url source_document_id source_document_hash fetched_at_utc engine "
+            "market board moex_secid trade_date assetcode contract_shortname last_trade_date "
+            "last_del_date min_step lot_volume official_step_price official_initial_margin "
+            "last_settle_price raw_payload_json enrichment_provenance_json"
+        ).split(),
+        "string",
+    )
+    oi_columns = dict.fromkeys(
+        (
+            "source_id board moex_secid trade_date source_document_hash raw_payload_json "
+            "internal_id source_open_interest_text open_interest observation_status "
+            "observation_frequency available_at_utc availability_status source_delta_path "
+            "source_delta_version parent_raw_snapshot_sha256 materialization_run_id "
+            "materialized_at_utc"
+        ).split(),
+        "string",
+    )
+    monkeypatch.setattr(refresh, "_columns", lambda p: oi_columns if p == oi_path else raw_columns)
+    written = {}
+
+    def capture(p, rows, **kwargs):
+        written[p] = rows
+        return {
+            "table_path": str(p),
+            "table_id": verified["prepared_input_table_id"],
+            "delta_version": 1,
+        }
+
+    monkeypatch.setattr(refresh, "write_changed_support_rows", capture)
+    official = {
+        "SECID": "NGV6",
+        "ASSETCODE": "NG",
+        "BOARDID": "RFUD",
+        "TRADEDATE": "2026-10-23",
+        "SHORTNAME": "NG-10.26",
+        "OPENPOSITION": 991522,
+        "SETTLEPRICE": 3.125,
+    }
+    client = SimpleNamespace(
+        fetch_history_board_securities=lambda **kwargs: [SimpleNamespace(payload=official)]
+    )
+    current = [
+        {
+            "SECID": "NGX6",
+            "ASSETCODE": "NG",
+            "MINSTEP": 0.001,
+            "LOTVOLUME": 100.0,
+            "STEPPRICE": 8.5 if failure == "current_crosscheck" else 8.0,
+            "IMTIME": "2026-10-23 07:00:04",
+        }
+    ]
+    fx = [
+        {
+            "secid": "USD/RUB",
+            "tradedate": "2026-10-22",
+            "tradetime": "19:00:00",
+            "clearing": "mc",
+            "rate": 80.0,
+        },
+        {
+            "secid": "USD/RUB",
+            "tradedate": "2026-10-23",
+            "tradetime": "19:00:00",
+            "clearing": "tc",
+            "rate": 81.0,
+        },
+    ]
+    kwargs = dict(
+        client=client,
+        raw_contract_specs_path=raw_path,
+        prepared_path=path,
+        daily_open_interest_path=oi_path,
+        trade_dates=[date(2026, 10, 23)],
+        base_rules=(_ng_rule(),),
+        base_evidence=object(),
+        current_securities=current,
+        dated_fx_rows=fx,
+        run_id="ngv6-regression",
+    )
+    if failure:
+        with pytest.raises(ValueError):
+            refresh.refresh_native_history_support(**kwargs)
+        assert written == {}
+        return
+    renewal = refresh.refresh_native_history_support(**kwargs)
+    assert renewal.admitted_date_end == "2026-10-23"
+    assert written[oi_path][0]["open_interest"] == 991522
+    assert json.loads(written[raw_path][0]["raw_payload_json"]) == official
+    assert written[raw_path][0]["last_settle_price"] == 3.125
+    prepared = written[path][0]
+    assert prepared["last_trade_date"] == "2026-10-28"
+    provenance = json.loads(prepared["enrichment_provenance_json"])
+    assert provenance["description_hash"] == "a" * 64
+    ref = provenance["archived_description"]
+    assert ref["delta_version"] == 0
+    assert ref["source_document_hash"] == archived["source_document_hash"]
+    assert ref["parameter_validation_evidence_sha256"] == "b" * 64
+
+
+def test_ngv6_description_pins_admitted_version_and_replays(tmp_path):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    path, verified, row, columns = _ngv6_archive(tmp_path)
+    write_delta_table_rows(
+        table_path=path,
+        rows=[dict(row, trade_date="2026-10-21", min_step=99.0)],
+        columns=columns,
+        compact=False,
+    )
+    assert DeltaTable(str(path)).version() == 1
+    kwargs = dict(
+        secid="NGV6", rule=_ng_rule(), trade_date=date(2026, 10, 23), as_of_date=date(2026, 10, 31)
+    )
+    first = refresh._expired_contract_description(path, verified, **kwargs)
+    assert first == refresh._expired_contract_description(path, verified, **kwargs)
+    assert first[0] == {"LASTTRADEDATE": "2026-10-28", "LASTDELDATE": "2026-10-28"}
+    assert first[1]["delta_version"] == 0
+    assert first[1]["trade_date"] == "2026-10-05"
+    with pytest.raises(ValueError, match="units"):
+        refresh._expired_contract_description(
+            path, dict(verified, prepared_input_version=1), **kwargs
+        )
+    with pytest.raises(ValueError, match="identity"):
+        refresh._expired_contract_description(
+            path, dict(verified, prepared_input_table_id="wrong"), **kwargs
+        )
+
+
+@pytest.mark.parametrize(
+    "day,as_of,allowed",
+    [
+        (date(2026, 10, 28), date(2026, 10, 31), True),
+        (date(2026, 10, 29), date(2026, 10, 31), False),
+        (date(2026, 10, 23), date(2026, 10, 28), False),
+    ],
+)
+def test_ngv6_description_expiry_boundaries(tmp_path, day, as_of, allowed):
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    path, verified, _, _ = _ngv6_archive(tmp_path)
+    kwargs = dict(secid="NGV6", rule=_ng_rule(), trade_date=day, as_of_date=as_of)
+    if allowed:
+        assert (
+            refresh._expired_contract_description(path, verified, **kwargs)[0]["LASTTRADEDATE"]
+            == "2026-10-28"
+        )
+    else:
+        with pytest.raises(ValueError, match="date"):
+            refresh._expired_contract_description(path, verified, **kwargs)
+
+
 def test_current_crosscheck_uses_mc_available_at_specification_time():
     from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
 

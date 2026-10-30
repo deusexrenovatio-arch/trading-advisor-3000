@@ -325,6 +325,88 @@ def _check_current(current_securities, rules, fx, *, dated_fx_rows):
     }
 
 
+def _expired_contract_description(prepared_path, verified, *, secid, rule, trade_date, as_of_date):
+    """Resolve static metadata from the admitted snapshot, never mutable latest."""
+    import pyarrow.dataset as ds
+
+    table = DeltaTable(str(prepared_path), version=verified["prepared_input_version"])
+    if table.metadata().id != verified["prepared_input_table_id"]:
+        raise ValueError("expired description input identity mismatch")
+    columns = [
+        "trade_date",
+        "last_trade_date",
+        "last_del_date",
+        "min_step",
+        "lot_volume",
+        "source_document_id",
+        "source_document_hash",
+        "enrichment_provenance_json",
+    ]
+    predicate = (
+        (ds.field("source_id") == PREPARED_SOURCE)
+        & (ds.field("board") == "RFUD")
+        & (ds.field("moex_secid") == secid)
+        & (ds.field("assetcode") == rule.assetcode)
+        & (ds.field("trade_date") <= trade_date)
+    )
+    rows = (
+        table.to_pyarrow_dataset()
+        .scanner(columns=columns, filter=predicate)
+        .head(10001)
+        .to_pylist()
+    )
+    if not rows or len(rows) > 10000:
+        raise ValueError(f"expired contract lacks bounded admitted description: {secid}")
+    latest = max(row["trade_date"] for row in rows)
+    candidates = [row for row in rows if row["trade_date"] == latest]
+    if len(candidates) != 1:
+        raise ValueError(f"ambiguous admitted expired description: {secid}")
+    row = candidates[0]
+    expiry = date.fromisoformat(str(row["last_trade_date"]))
+    delivery = row["last_del_date"]
+    if not trade_date <= expiry < as_of_date or (
+        delivery is not None and date.fromisoformat(str(delivery)) < expiry
+    ):
+        raise ValueError(f"expired description does not cover requested date: {secid}")
+    if (
+        _positive(row["min_step"], "archived MINSTEP") != rule.min_step
+        or _positive(row["lot_volume"], "archived LOTVOLUME") != rule.lot_volume
+    ):
+        raise ValueError(f"expired description units differ from reviewed rule: {secid}")
+    original_json = row["enrichment_provenance_json"]
+    if not isinstance(original_json, str):
+        raise ValueError(f"expired description lacks stored provenance: {secid}")
+    digest = hashlib.sha256(original_json.encode("utf-8")).hexdigest()
+    provenance = json.loads(original_json)
+    if (
+        row["source_document_hash"] != digest
+        or row["source_document_id"] != f"prepared-specification:{digest}"
+        or not isinstance(provenance, dict)
+        or not re.fullmatch(r"[0-9a-f]{64}", str(provenance.get("description_hash", "")))
+        or provenance.get("original_source_id") != HISTORY_SOURCE
+        or provenance.get("original_source_document_id") != f"RFUD:{secid}:{latest}"
+        or provenance.get("description_lot") != rule.lot_volume
+        or provenance.get("rule_min_step") != rule.min_step
+        or provenance.get("rule_lot_volume") != rule.lot_volume
+    ):
+        raise ValueError(f"expired description provenance mismatch: {secid}")
+    description = {"LASTTRADEDATE": expiry.isoformat(), "LASTDELDATE": delivery}
+    reference = {
+        "table_path": prepared_path.resolve().as_posix(),
+        "table_id": table.metadata().id,
+        "delta_version": table.version(),
+        "moex_secid": secid,
+        "trade_date": str(latest),
+        "source_document_id": row["source_document_id"],
+        "source_document_hash": digest,
+        "description_hash": provenance["description_hash"],
+        "parameter_validation_evidence_sha256": provenance.get(
+            "parameter_validation_evidence_sha256"
+        ),
+    }
+    return description, reference
+
+
 @dataclass(frozen=True)
 class NativeHistoryRenewal:
     base_rules: tuple
@@ -396,6 +478,7 @@ def refresh_native_history_support(
     rows = {"raw": [], "prepared": [], "oi": []}
     observed, admitted = [], []
     fetched_at = datetime.now(UTC).isoformat()
+    as_of_date = datetime.fromisoformat(fetched_at).astimezone(ZoneInfo("Europe/Moscow")).date()
     for day in dates:
         day_rows = client.fetch_history_board_securities(
             engine="futures", market="forts", board="RFUD", trade_date=day
@@ -408,11 +491,17 @@ def refresh_native_history_support(
                 continue
             if payload.get("TRADEDATE") != day.isoformat() or payload.get("BOARDID") != "RFUD":
                 raise ValueError("official history key differs from requested date/board")
-            if secid not in descriptions:
-                raise ValueError(
-                    "official history contract lacks current reviewed native description"
+            archived_description = None
+            description, rule = descriptions.get(secid), rules[asset]
+            if description is None:
+                description, archived_description = _expired_contract_description(
+                    prepared_path,
+                    verified,
+                    secid=secid,
+                    rule=rule,
+                    trade_date=day,
+                    as_of_date=as_of_date,
                 )
-            description, rule = descriptions[secid], rules[asset]
             count, status, text = project_open_interest(payload.get("OPENPOSITION"))
             settle = _positive(payload.get("SETTLEPRICE"), "SETTLEPRICE")
             raw = dict(
@@ -442,7 +531,11 @@ def refresh_native_history_support(
                 original_history_hash=raw["source_document_hash"],
                 original_source_id=HISTORY_SOURCE,
                 original_source_document_id=raw["source_document_id"],
-                description_hash=_hash(description),
+                description_hash=(
+                    archived_description["description_hash"]
+                    if archived_description
+                    else _hash(description)
+                ),
                 description_lot=rule.lot_volume,
                 rule_min_step=rule.min_step,
                 rule_lot_volume=rule.lot_volume,
@@ -451,6 +544,8 @@ def refresh_native_history_support(
                 current_snapshot_not_daily_official=True,
                 current_snapshot_crosscheck_sha256=_hash(crosscheck),
             )
+            if archived_description is not None:
+                provenance["archived_description"] = archived_description
             prepared_hash = _hash(provenance)
             prepared = dict(
                 raw,
