@@ -2,7 +2,18 @@ from datetime import date
 
 import pytest
 
-from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexISSClient
+from trading_advisor_3000.product_plane.data_plane.moex.iss_client import (
+    FuturesContractSnapshot,
+    MoexISSClient,
+)
+
+
+def _snapshot(rows, day="2026-10-12", *, seqnum=1):
+    return FuturesContractSnapshot(
+        tuple(rows),
+        date.fromisoformat(day),
+        ({"dataversion": {"trade_date": day, "data_version": 1, "seqnum": seqnum}},),
+    )
 
 
 def test_history_payload_retained_for_native_support(monkeypatch):
@@ -375,7 +386,7 @@ def test_ngv6_expired_history_survives_current_delisting(tmp_path, monkeypatch, 
         trade_dates=[date(2026, 10, 23)],
         base_rules=(_ng_rule(),),
         base_evidence=object(),
-        current_securities=current,
+        current_snapshot=_snapshot(current, "2026-10-23"),
         dated_fx_rows=fx,
         run_id="ngv6-regression",
     )
@@ -397,6 +408,9 @@ def test_ngv6_expired_history_survives_current_delisting(tmp_path, monkeypatch, 
     assert ref["delta_version"] == 0
     assert ref["source_document_hash"] == archived["source_document_hash"]
     assert ref["parameter_validation_evidence_sha256"] == "b" * 64
+    assert provenance["current_snapshot_crosscheck_sha256"] == refresh._current_crosscheck_hash(
+        renewal.current_crosscheck
+    )
 
 
 def test_ngv6_description_pins_admitted_version_and_replays(tmp_path):
@@ -454,12 +468,29 @@ def test_ngv6_description_expiry_boundaries(tmp_path, day, as_of, allowed):
             refresh._expired_contract_description(path, verified, **kwargs)
 
 
-def test_current_crosscheck_uses_mc_available_at_specification_time():
+def test_current_crosscheck_rejects_initial_margin_time_without_source_session():
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    rows = _actual_mc_rows()
+    with pytest.raises(ValueError, match="source.*session"):
+        refresh._check_current(
+            [_current_br_specification()],
+            [_br_rule()],
+            refresh._fx_records(rows),
+            dated_fx_rows=rows,
+        )
+
+
+@pytest.mark.parametrize("imtime", ["2026-10-12 07:00:04", "2026-10-12 21:21:03", None, "invalid"])
+def test_current_crosscheck_uses_source_session_independently_of_margin_time(imtime):
     from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
 
     rows = _actual_mc_rows()
     descriptions, report = refresh._check_current(
-        [_current_br_specification()], [_br_rule()], refresh._fx_records(rows), dated_fx_rows=rows
+        _snapshot([_current_br_specification(imtime=imtime)]),
+        [_br_rule()],
+        refresh._fx_records(rows),
+        dated_fx_rows=rows,
     )
     assert set(descriptions) == {"BRX6"}
     assert report["status"] == "PASS"
@@ -467,12 +498,15 @@ def test_current_crosscheck_uses_mc_available_at_specification_time():
     assert report["dated_mc_rate"] == 84.9048
 
 
-def test_current_crosscheck_uses_same_day_mc_after_its_fixing():
+def test_current_crosscheck_rolls_mc_only_when_source_session_changes():
     from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
 
     rows = _actual_mc_rows()
     _, report = refresh._check_current(
-        [_current_br_specification(imtime="2026-10-12 20:00:00", step_price=8.39153)],
+        _snapshot(
+            [_current_br_specification(imtime="2026-10-12 20:00:00", step_price=8.39153)],
+            "2026-10-13",
+        ),
         [_br_rule()],
         refresh._fx_records(rows),
         dated_fx_rows=rows,
@@ -488,34 +522,50 @@ def test_current_crosscheck_does_not_pick_a_rate_to_fit_step_price(step_price):
     rows = _actual_mc_rows()
     with pytest.raises(ValueError, match="current datedMC crosscheck failed: BR"):
         refresh._check_current(
-            [_current_br_specification(step_price=step_price)],
+            _snapshot([_current_br_specification(step_price=step_price)]),
             [_br_rule()],
             refresh._fx_records(rows),
             dated_fx_rows=rows,
         )
 
 
-@pytest.mark.parametrize("imtime", [None, "", "2026-10-12", "invalid"])
-def test_current_crosscheck_rejects_missing_or_invalid_specification_time(imtime):
+@pytest.mark.parametrize(
+    "day,step_price", [("2026-10-30", 0.80676), ("2026-10-31", 0.80557), ("2026-11-02", 0.80557)]
+)
+def test_nasd_night_and_weekend_snapshot_bind_to_their_source_session(day, step_price):
+    from types import SimpleNamespace
+
     from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
 
-    rows = _actual_mc_rows()
-    with pytest.raises(ValueError, match="IMTIME"):
-        refresh._check_current(
-            [_current_br_specification(imtime=imtime)],
-            [_br_rule()],
-            refresh._fx_records(rows),
-            dated_fx_rows=rows,
-        )
+    rows = [
+        dict(secid="USD/RUB", tradedate=d, tradetime="19:00:00", clearing="mc", rate=r)
+        for d, r in [("2026-10-29", 80.6761), ("2026-10-30", 80.5573)]
+    ]
+    row = dict(
+        SECID="NAZ6",
+        ASSETCODE="NASD",
+        MINSTEP=1.0,
+        LOTVOLUME=41,
+        STEPPRICE=step_price,
+        IMTIME="2026-10-30 21:21:03",
+    )
+    rule = SimpleNamespace(
+        assetcode="NASD", min_step=1.0, lot_volume=41, tick_value_quote=0.01, quote_currency="USD"
+    )
+    _, report = refresh._check_current(
+        _snapshot([row], day), [rule], refresh._fx_records(rows), dated_fx_rows=rows
+    )
+    assert report["dated_mc_date"] == ("2026-10-29" if day == "2026-10-30" else "2026-10-30")
+    assert report["contracts"][0]["step_price"] == step_price
 
 
 def test_current_crosscheck_rejects_missing_preceding_mc():
     from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
 
     rows = _actual_mc_rows()[1:]
-    with pytest.raises(ValueError, match="dated MC.*IMTIME"):
+    with pytest.raises(ValueError, match="source session.*preceding actual MC"):
         refresh._check_current(
-            [_current_br_specification()],
+            _snapshot([_current_br_specification()]),
             [_br_rule()],
             refresh._fx_records(rows),
             dated_fx_rows=rows,
@@ -529,11 +579,51 @@ def test_current_crosscheck_rejects_missing_fixing_time():
     rows[0].pop("tradetime")
     with pytest.raises(ValueError, match="dated MC.*time"):
         refresh._check_current(
-            [_current_br_specification()],
+            _snapshot([_current_br_specification()]),
             [_br_rule()],
             refresh._fx_records(rows),
             dated_fx_rows=rows,
         )
+
+
+def test_source_sequence_alone_does_not_rewrite_native_support(tmp_path):
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+
+    fx = _actual_mc_rows()
+    reports = [
+        refresh._check_current(
+            _snapshot([_current_br_specification()], seqnum=seq),
+            [_br_rule()],
+            refresh._fx_records(fx),
+            dated_fx_rows=fx,
+        )[1]
+        for seq in (1, 2)
+    ]
+    assert reports[0]["source_audit"] != reports[1]["source_audit"]
+    assert refresh._hash(reports[0]) != refresh._hash(reports[1])
+    path = tmp_path / "stable.delta"
+    columns = dict(
+        source_id="string",
+        board="string",
+        moex_secid="string",
+        trade_date="date",
+        source_document_hash="string",
+    )
+    results = []
+    for report in reports:
+        row = dict(
+            source_id="prepared",
+            board="RFUD",
+            moex_secid="BRX6",
+            trade_date="2026-10-09",
+            source_document_hash=refresh._current_crosscheck_hash(report),
+        )
+        results.append(refresh.write_changed_support_rows(path, [row], columns=columns))
+    assert results[0]["changed_rows"] == 1
+    assert results[1]["changed_rows"] == 0
+    assert DeltaTable(str(path)).version() == results[0]["delta_version"]
 
 
 def test_oi_write_ahead_retains_old_and_new_keys_across_failed_commit(tmp_path, monkeypatch):

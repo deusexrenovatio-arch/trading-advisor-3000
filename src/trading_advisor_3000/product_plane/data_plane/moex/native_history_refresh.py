@@ -29,6 +29,7 @@ from .contract_parameter_continuation import (
     validate_contract_parameter_evidence,
 )
 from .economics import MoexContractParameterRegime
+from .iss_client import FuturesContractSnapshot
 
 HISTORY_SOURCE = "moex_iss_history_forts_securities_unmodified"
 PREPARED_SOURCE = "moex_history_specification_enriched_staging"
@@ -241,8 +242,15 @@ def _source_timestamp(value, name):
     return stamp.replace(tzinfo=market_tz) if stamp.tzinfo is None else stamp.astimezone(market_tz)
 
 
-def _check_current(current_securities, rules, fx, *, dated_fx_rows):
-    """Match the actual MC available at each specification's MOEX IMTIME."""
+def _current_crosscheck_hash(crosscheck):
+    """Receipt sequence changes alone cannot rewrite identical support business rows."""
+    return _hash({key: value for key, value in crosscheck.items() if key != "source_audit"})
+
+
+def _check_current(snapshot, rules, fx, *, dated_fx_rows):
+    """Compare session parameters with the actual MC preceding their source trading day."""
+    if not isinstance(snapshot, FuturesContractSnapshot) or type(snapshot.trade_date) is not date:
+        raise ValueError("current crosscheck requires a source-bound session snapshot")
     by_asset = {rule.assetcode: rule for rule in rules}
     mc_dates = [day for day, kind in fx if kind == "MC"]
     if not mc_dates:
@@ -270,7 +278,7 @@ def _check_current(current_securities, rules, fx, *, dated_fx_rows):
     if set(observations) != set(mc_dates):
         raise ValueError("current snapshot requires actual dated MC observation times")
     profiles, descriptions, matches = {}, {}, []
-    for payload in current_securities:
+    for payload in snapshot.securities:
         asset = str(payload.get("ASSETCODE") or "")
         if asset not in by_asset:
             continue
@@ -282,28 +290,41 @@ def _check_current(current_securities, rules, fx, *, dated_fx_rows):
         if step != rule.min_step or lot != rule.lot_volume:
             raise ValueError(f"current native units changed: {asset}")
         mc = 1.0
+        match = {
+            "secid": str(payload.get("SECID") or ""),
+            "assetcode": asset,
+            "min_step": step,
+            "lot_volume": lot,
+            "quote_currency": rule.quote_currency,
+            "tick_value_quote": rule.tick_value_quote,
+        }
         if rule.quote_currency == "USD":
-            imtime = _source_timestamp(payload.get("IMTIME") or payload.get("imtime"), "IMTIME")
-            available = [day for day, stamp in observations.items() if stamp <= imtime]
+            available = [
+                day for day in observations if date.fromisoformat(day) < snapshot.trade_date
+            ]
             if not available:
                 raise ValueError(
-                    f"current snapshot has no actual dated MC at or before IMTIME: {asset}"
+                    f"current source session {snapshot.trade_date} "
+                    f"has no preceding actual MC: {asset}"
                 )
             mc_date = max(available, key=observations.__getitem__)
             mc = fx[mc_date, "MC"]
-            matches.append(
-                {
-                    "secid": str(payload.get("SECID") or ""),
-                    "specification_imtime": imtime.isoformat(),
-                    "dated_mc_date": mc_date,
-                    "dated_mc_time": observations[mc_date].isoformat(),
-                    "dated_mc_rate": mc,
-                }
+            match.update(
+                dated_mc_date=mc_date,
+                dated_mc_time=observations[mc_date].isoformat(),
+                dated_mc_rate=mc,
             )
         expected = rule.tick_value_quote * mc
-        error = abs(_positive(payload.get("STEPPRICE"), "STEPPRICE") / expected - 1.0)
+        actual = _positive(payload.get("STEPPRICE"), "STEPPRICE")
+        error = abs(actual / expected - 1.0)
         if error >= 0.001:
-            raise ValueError(f"current datedMC crosscheck failed: {asset}")
+            raise ValueError(
+                f"current datedMC crosscheck failed: {asset}; "
+                f"source_session={snapshot.trade_date}; MC={match.get('dated_mc_date')}; "
+                f"actual={actual}; expected={expected}"
+            )
+        match.update(step_price=actual, expected_step_price=expected)
+        matches.append(match)
         secid = str(payload.get("SECID") or "")
         if not secid or secid in descriptions:
             raise ValueError("current securities require unique contract identifiers")
@@ -313,10 +334,16 @@ def _check_current(current_securities, rules, fx, *, dated_fx_rows):
         profile["maximum"] = max(profile["maximum"], error)
     if set(profiles) != set(by_asset):
         raise ValueError("current snapshot does not cover all reviewed thirteen assets")
-    mc_date = max((match["dated_mc_date"] for match in matches), default=max(mc_dates))
+    mc_date = max(
+        (match["dated_mc_date"] for match in matches if "dated_mc_date" in match),
+        default=max(mc_dates),
+    )
     return descriptions, {
         "status": "PASS",
-        "method": "current_snapshot_dated_mc_crosscheck",
+        "method": "current_snapshot_session_mc_crosscheck",
+        "source_trade_date": snapshot.trade_date.isoformat(),
+        "source_mapping": "bounded_session_parameter_inference",
+        "source_audit": {"pages": list(snapshot.source_pages)},
         "dated_mc_date": mc_date,
         "dated_mc_rate": fx[mc_date, "MC"],
         "profiles": list(profiles.values()),
@@ -433,8 +460,9 @@ def refresh_native_history_support(
     trade_dates,
     base_rules,
     base_evidence,
-    current_securities,
+    current_snapshot,
     dated_fx_rows,
+    current_fx_rows=None,
     run_id,
     pending_scope_path=None,
 ):
@@ -460,7 +488,10 @@ def refresh_native_history_support(
         raise ValueError("native history renewal requires a contiguous bounded date window")
     fx = _fx_records(dated_fx_rows)
     descriptions, crosscheck = _check_current(
-        current_securities, base_rules, fx, dated_fx_rows=dated_fx_rows
+        current_snapshot,
+        base_rules,
+        _fx_records(current_fx_rows) if current_fx_rows is not None else fx,
+        dated_fx_rows=current_fx_rows if current_fx_rows is not None else dated_fx_rows,
     )
     rules = {rule.assetcode: rule for rule in base_rules}
     columns = {
@@ -542,7 +573,7 @@ def refresh_native_history_support(
                 parameter_source="reviewed_static_parameter_continuation",
                 parameter_validation_evidence_sha256=verified["dated_official_tc_evidence_sha256"],
                 current_snapshot_not_daily_official=True,
-                current_snapshot_crosscheck_sha256=_hash(crosscheck),
+                current_snapshot_crosscheck_sha256=_current_crosscheck_hash(crosscheck),
             )
             if archived_description is not None:
                 provenance["archived_description"] = archived_description
