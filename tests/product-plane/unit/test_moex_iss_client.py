@@ -200,6 +200,93 @@ def test_fetch_futures_contract_securities_pages_forts_endpoint() -> None:
     assert len(client.calls) == 1
 
 
+def _snapshot_page(*, day="2026-10-30", version=7, seqnum=10, rows=None):
+    return {
+        "securities": {
+            "columns": ["SECID", "STEPPRICE", "IMTIME", "UNKNOWN"],
+            "data": rows
+            if rows is not None
+            else [["NAZ6", 0.80676, "2026-10-30 21:21:03", "retained"]],
+        },
+        "dataversion": {
+            "columns": ["trade_date", "trade_session_date", "data_version", "seqnum"],
+            "data": [[day, day, version, seqnum]],
+        },
+    }
+
+
+def test_current_snapshot_retains_same_page_source_session_and_unmodified_rows(monkeypatch):
+    client = MoexISSClient()
+    page = _snapshot_page()
+    calls = []
+
+    def get(path, *, params, **kwargs):
+        calls.append((path, params))
+        return page
+
+    monkeypatch.setattr(client, "_get_json", get)
+    snapshot = client.fetch_futures_contract_snapshot()
+    assert snapshot.trade_date == date(2026, 10, 30)
+    assert snapshot.securities == (
+        {
+            "SECID": "NAZ6",
+            "STEPPRICE": 0.80676,
+            "IMTIME": "2026-10-30 21:21:03",
+            "UNKNOWN": "retained",
+        },
+    )
+    assert snapshot.source_pages[0]["dataversion"] == dict(
+        trade_date="2026-10-30", trade_session_date="2026-10-30", data_version=7, seqnum=10
+    )
+    assert calls[0][1]["iss.only"] == "securities,dataversion"
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["missing", "multiple", "bad_date", "conflicting_date", "bool_version", "missing_seqnum"],
+)
+def test_current_snapshot_rejects_unbound_or_conflicting_source_metadata(monkeypatch, fault):
+    page = _snapshot_page()
+    if fault == "missing":
+        del page["dataversion"]
+    elif fault == "multiple":
+        page["dataversion"]["data"] *= 2
+    elif fault == "bad_date":
+        page["dataversion"]["data"][0][0] = "20261030"
+    elif fault == "conflicting_date":
+        page["dataversion"]["data"][0][1] = "2026-11-02"
+    elif fault == "bool_version":
+        page["dataversion"]["data"][0][2] = True
+    else:
+        page["dataversion"]["data"][0][3] = None
+    client = MoexISSClient()
+    monkeypatch.setattr(client, "_get_json", lambda *a, **k: page)
+    with pytest.raises(ValueError, match="source session"):
+        client.fetch_futures_contract_snapshot()
+
+
+@pytest.mark.parametrize("fault", ["date", "version", "sequence", None])
+def test_current_snapshot_checks_terminal_page_context(monkeypatch, fault):
+    first = _snapshot_page()
+    first["securities.cursor"] = {}
+    last = _snapshot_page(
+        day="2026-11-02" if fault == "date" else "2026-10-30",
+        version=8 if fault == "version" else 7,
+        seqnum=9 if fault == "sequence" else 11,
+        rows=[],
+    )
+    pages = iter([first, last])
+    client = MoexISSClient()
+    monkeypatch.setattr(client, "_get_json", lambda *a, **k: next(pages))
+    if fault:
+        with pytest.raises(ValueError, match="source session"):
+            client.fetch_futures_contract_snapshot()
+    else:
+        snapshot = client.fetch_futures_contract_snapshot()
+        assert len(snapshot.securities) == 1
+        assert len(snapshot.source_pages) == 2
+
+
 def test_fetch_futures_indicative_rates_reads_securities_block() -> None:
     client = _PagedEconomicsClient()
 
