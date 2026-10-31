@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "namespace": "MOEX",
+  "assets": [
+    {
+      "asset_id": "SBER",
+      "kind": "equity"
+    },
+    {
+      "asset_id": "IMOEX",
+      "kind": "reference_index"
+    }
+  ],
+  "instruments": [
+    {
+      "instrument_id": "SBER@MOEX",
+      "asset_id": "SBER",
+      "kind": "equity",
+      "instrument_role": "base",
+      "venue": "MOEX",
+      "market": "shares",
+      "board": "TQBR",
+      "tradable": true,
+      "execution_eligible": false,
+      "economics_state": "unknown",
+      "size_variant": {
+        "state": "not_applicable",
+        "value": null
+      },
+      "specification": null,
+      "expiry": null
+    },
+    {
+      "instrument_id": "IMOEX@MOEX",
+      "asset_id": "IMOEX",
+      "kind": "reference_index",
+      "instrument_role": "base",
+      "venue": "MOEX",
+      "market": "index",
+      "board": "SNDX",
+      "tradable": false,
+      "execution_eligible": false,
+      "economics_state": "not_applicable",
+      "size_variant": {
+        "state": "not_applicable",
+        "value": null
+      },
+      "specification": null,
+      "expiry": null
+    },
+    {
+      "instrument_id": "SRZ6@MOEX",
+      "asset_id": "SBER",
+      "kind": "future",
+      "instrument_role": "derivative",
+      "venue": "MOEX",
+      "market": "futures",
+      "board": "RFUD",
+      "tradable": true,
+      "execution_eligible": false,
+      "economics_state": "unknown",
+      "size_variant": {
+        "state": "known",
+        "value": "standard"
+      },
+      "specification": {
+        "derivative_subtype": "future",
+        "deliverable_or_benchmark": {
+          "state": "known",
+          "value": "illustrative SBER ordinary-share basket"
+        },
+        "settlement": "cash",
+        "settlement_currency": "RUB",
+        "price_currency": "RUB",
+        "quantity_unit": "contracts",
+        "multiplier": {
+          "state": "known",
+          "value": 1
+        },
+        "contract_size": {
+          "state": "known",
+          "value": 10
+        },
+        "size_variant": {
+          "state": "known",
+          "value": "standard"
+        },
+        "grade": {
+          "state": "not_applicable",
+          "value": null
+        },
+        "location": {
+          "state": "not_applicable",
+          "value": null
+        }
+      },
+      "expiry": "2026-12-17T00:00:00Z"
+    },
+    {
+      "instrument_id": "SRH7@MOEX",
+      "asset_id": "SBER",
+      "kind": "future",
+      "instrument_role": "derivative",
+      "venue": "MOEX",
+      "market": "futures",
+      "board": "RFUD",
+      "tradable": true,
+      "execution_eligible": false,
+      "economics_state": "unknown",
+      "size_variant": {
+        "state": "known",
+        "value": "standard"
+      },
+      "specification": {
+        "derivative_subtype": "future",
+        "deliverable_or_benchmark": {
+          "state": "known",
+          "value": "illustrative SBER ordinary-share basket"
+        },
+        "settlement": "cash",
+        "settlement_currency": "RUB",
+        "price_currency": "RUB",
+        "quantity_unit": "contracts",
+        "multiplier": {
+          "state": "known",
+          "value": 1
+        },
+        "contract_size": {
+          "state": "known",
+          "value": 10
+        },
+        "size_variant": {
+          "state": "known",
+          "value": "standard"
+        },
+        "grade": {
+          "state": "not_applicable",
+          "value": null
+        },
+        "location": {
+          "state": "not_applicable",
+          "value": null
+        }
+      },
+      "expiry": "2027-03-18T00:00:00Z"
+    }
+  ]
+}
