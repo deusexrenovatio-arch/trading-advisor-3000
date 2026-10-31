@@ -944,7 +944,11 @@ def refresh_moex_contract_economics(
     if verified is not None:
         bind_contract_parameter_input(sources["raw_contract_specs_path"], verified)
     renewal_report = None
-    current_securities = client.fetch_futures_contract_securities()
+    if economics_history_refresh:
+        current_snapshot = client.fetch_futures_contract_snapshot()
+        current_securities = list(current_snapshot.securities)
+    else:
+        current_securities = client.fetch_futures_contract_securities()
     required_contract_ids = _required_economics_contract_ids(
         universe=universe, mappings=mappings, contract_payloads=current_securities
     )
@@ -958,6 +962,18 @@ def refresh_moex_contract_economics(
         dated_fx_rows = client.fetch_futures_indicative_rates(
             date_from=trade_dates[0], date_till=end
         )
+        current_fx_rows = list(dated_fx_rows)
+        current_end = current_snapshot.trade_date - timedelta(days=1)
+        if current_end > end:
+            if (current_end - end).days > 32:
+                raise ValueError(
+                    "current source session FX gap exceeds the bounded 32-day acquisition"
+                )
+            current_fx_rows.extend(
+                client.fetch_futures_indicative_rates(
+                    date_from=end + timedelta(days=1), date_till=current_end
+                )
+            )
         renewal = refresh_native_history_support(
             client=client,
             raw_contract_specs_path=raw_economics_root / "raw_moex_contract_securities.delta",
@@ -967,8 +983,9 @@ def refresh_moex_contract_economics(
             trade_dates=trade_dates,
             base_rules=options["additional_contract_parameter_regimes"],
             base_evidence=options["contract_parameter_evidence"],
-            current_securities=current_securities,
+            current_snapshot=current_snapshot,
             dated_fx_rows=dated_fx_rows,
+            current_fx_rows=current_fx_rows,
             run_id=run_id,
         )
         rules, evidence = renew_contract_parameter_evidence(renewal)
