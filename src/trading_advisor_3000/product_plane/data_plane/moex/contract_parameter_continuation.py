@@ -209,7 +209,12 @@ def _validate_owned_renewal(additional, evidence):
 
     import pyarrow.dataset as ds
 
-    from .native_history_refresh import HISTORY_SOURCE, PREPARED_SOURCE, _hash
+    from .native_history_refresh import (
+        HISTORY_SOURCE,
+        PREPARED_SOURCE,
+        _current_crosscheck_hash,
+        _hash,
+    )
 
     renewal = evidence.renewal
     if additional != _renewed_rules(renewal):
@@ -289,7 +294,7 @@ def _validate_owned_renewal(additional, evidence):
             or provenance.get("parameter_validation_evidence_sha256")
             != base["dated_official_tc_evidence_sha256"]
             or provenance.get("current_snapshot_crosscheck_sha256")
-            != _hash(renewal.current_crosscheck)
+            != _current_crosscheck_hash(renewal.current_crosscheck)
             or provenance.get("current_snapshot_not_daily_official") is not True
         ):
             raise ValueError("native prepared row differs from reviewed renewal provenance")

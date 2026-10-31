@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -3264,14 +3265,18 @@ def test_economics_scoped_reuse_retains_quality_rejection(tmp_path, problem):
     )
 
 
-def test_native_history_source_failure_preserves_real_fixture_renewal(tmp_path, monkeypatch):
+@pytest.mark.parametrize("source_day", [date(2026, 7, 11), date(2026, 7, 13)])
+def test_native_history_source_failure_preserves_real_fixture_renewal(
+    tmp_path, monkeypatch, source_day
+):
     from types import SimpleNamespace
 
     _patch_common_inputs(monkeypatch, [])
     paths = {name: tmp_path / f"{name}.delta" for name in ("raw", "prepared", "oi")}
-    observed = {}
+    observed, forwarded = {}, {}
 
     def renew(**kwargs):
+        forwarded.update(kwargs)
         refs = {}
         from trading_advisor_3000.product_plane.data_plane.moex.native_history_refresh import (
             write_changed_support_rows,
@@ -3318,13 +3323,28 @@ def test_native_history_source_failure_preserves_real_fixture_renewal(tmp_path, 
     monkeypatch.setattr(
         baseline_module, "renew_contract_parameter_evidence", lambda value: ((), {})
     )
+    write_raw = baseline_module._write_iss_economics_raw_tables
+
+    def capture_raw(**kwargs):
+        forwarded["persisted_fx"] = list(kwargs["fx_payloads"])
+        return write_raw(**kwargs)
+
+    monkeypatch.setattr(baseline_module, "_write_iss_economics_raw_tables", capture_raw)
 
     class Client:
-        def fetch_futures_contract_securities(self):
-            return [{"SECID": "BRM6", "ASSETCODE": "BR", "IMTIME": "2026-07-11 10:00:00"}]
+        def fetch_futures_contract_snapshot(self):
+            from trading_advisor_3000.product_plane.data_plane.moex.iss_client import (
+                FuturesContractSnapshot,
+            )
+
+            return FuturesContractSnapshot(
+                ({"SECID": "BRM6", "ASSETCODE": "BR", "IMTIME": "2026-07-11 10:00:00"},),
+                source_day,
+                (),
+            )
 
         def fetch_futures_indicative_rates(self, **kwargs):
-            return [{"secid": "USD/RUB", "tradedate": "2026-07-10", "rate": 80}]
+            return [{"secid": "USD/RUB", "tradedate": kwargs["date_till"].isoformat(), "rate": 80}]
 
         def fetch_futures_rms_limits(self, **kwargs):
             return []
@@ -3354,6 +3374,13 @@ def test_native_history_source_failure_preserves_real_fixture_renewal(tmp_path, 
         )
     renewal = captured.value.native_history_renewal
     assert renewal["tables"] == observed
+    assert forwarded["current_snapshot"].trade_date == source_day
+    assert forwarded["persisted_fx"] == forwarded["dated_fx_rows"]
+    assert max(row["tradedate"] for row in forwarded["persisted_fx"]) == "2026-07-10"
+    assert (
+        max(row["tradedate"] for row in forwarded["current_fx_rows"])
+        == (source_day - timedelta(days=1)).isoformat()
+    )
     assert renewal["source_hash"] == "fixture-history"
     assert renewal["tables"]["oi"]["delta_version"] == delta_table_version(paths["oi"])
     _write_contract_economics_table(
