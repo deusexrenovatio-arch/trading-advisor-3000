@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E501
 import json
+import os
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -232,7 +233,9 @@ MOEX_BASELINE_DAILY_SCHEDULE_NAME = "moex_baseline_daily_update_schedule"
 MOEX_BASELINE_DAILY_CRON = "0 2 * * *"
 MOEX_HISTORICAL_NIGHTLY_CRON = MOEX_BASELINE_DAILY_CRON
 MOEX_HISTORICAL_EXECUTION_TIMEZONE = "Europe/Moscow"
-MOEX_HISTORICAL_RETRY_POLICY = RetryPolicy(max_retries=3, delay=60)
+MOEX_HISTORICAL_RETRY_POLICY = RetryPolicy(
+    max_retries=0 if os.environ.get("TA3000_STAGING_PROOF") == "1" else 3, delay=60
+)
 MOEX_BASELINE_UPDATE_RETRY_POLICY = RetryPolicy(max_retries=0, delay=0)
 MOEX_BASELINE_UPDATE_HOT_TABLE_RUNTIME = "spark_delta_raw_tail+spark_delta_canonical"
 MOEX_BASELINE_UPDATE_RUNTIME_BOUNDARY_TAG = "dagster+spark_delta_raw_tail+spark_delta_canonical"

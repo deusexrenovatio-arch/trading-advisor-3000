@@ -44,6 +44,11 @@ Default order: `loop gate -> pr gate -> nightly gate -> dashboard refresh`.
    - `AI_SHELL_ENABLE_HOSTED_CI=1`
    - default is disabled to avoid false-red checks when hosted runners are unavailable.
 
+Admission evidence is shell-owned for every PR. The existing surface mapping
+selects `code` or `native`; the PR gate verifies the selected result for that build.
+Product adapters own native route/QC/consumer validation. See
+[acceptance evidence](docs/architecture/acceptance-evidence.md).
+
 Main merge requirement:
 - GitHub protection for `main` must require successful `pr-lane` before merge.
 - `pr-lane` is reserved for pull request events so push-range failures cannot shadow a green PR-range check.

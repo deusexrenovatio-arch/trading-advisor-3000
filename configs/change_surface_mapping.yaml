@@ -53,7 +53,22 @@ surfaces:
       - scripts/run_f1d_sidecar_immutable_evidence.py
       - scripts/run_f1e_real_broker_process.py
   app-data:
+    evidence_level: native
+    evidence_exclude_prefixes: [tests/]
     prefixes:
+      - src/trading_advisor_3000/product_plane/common/data_snapshots.py
+      - src/trading_advisor_3000/product_plane/common/table_layout.py
+      - src/trading_advisor_3000/product_plane/common/staging_
+      - configs/moex_foundation/
+      - configs/moex_reconciliation/
+      - configs/product-plane/continuous_front_indicators.yaml
+      - deployment/docker/dagster-staging/
+      - deployment/runtime-instances/moex-runtime-instances.v1.yaml
+      - scripts/prepare_staging_plan.py
+      - scripts/collect_staging_acceptance.py
+      - scripts/run_staging_control.py
+      - pyproject.toml
+      - uv.lock
       - src/trading_advisor_3000/product_plane/data_plane/
       - src/trading_advisor_3000/product_plane/research/
       - src/trading_advisor_3000/dagster_defs/
