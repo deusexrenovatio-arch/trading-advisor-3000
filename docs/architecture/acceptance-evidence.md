@@ -110,7 +110,9 @@ One external `TA3000_STAGING_CONFIG` JSON supplies `task_id`, `budget_home`,
 `work_root`, `acceptance_data`, `fixture_root`, immutable `fixture_sha256`, local
 `image_digest` (sha256), and separate `branch_consumer`/`acceptance_consumer`
 normal ResearchSliceRequest objects (dataset/indicator versions, contour,
-instruments, timeframe, populated price/L1/L2 columns). Worker roots must exist
+instruments, timeframe, populated price/L1/L2 columns). The worker passes the
+consumer dataset to native sensors through their existing environment setting.
+Worker roots must exist
 and be separate from each other and the checkout/config. Acceptance data needs
 `.ta3000-acceptance-stage` containing `TA3000_ACCEPTANCE_STAGE`; this marks an
 existing working stage, never creates or copies one. Budget setup/history import

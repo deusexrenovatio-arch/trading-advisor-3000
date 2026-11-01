@@ -85,6 +85,7 @@ def execute(plan, config, code, session, data):
     env = {
         **os.environ,
         "STAGING_IMAGE": config["image_digest"],
+        "STAGING_DATASET_VERSION": plan["consumer"]["dataset_version"],
         "STAGING_CODE": str(code),
         "STAGING_CONTROL": str(control),
         "STAGING_HOME": str(home),

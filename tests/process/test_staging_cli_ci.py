@@ -47,7 +47,12 @@ def run_mock_session(monkeypatch, session, instance, outcome="SUCCESS"):
     clock = [0]
     monkeypatch.setattr(cli.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(cli.time, "sleep", lambda _: None)
-    plan = dict(stage="branch", target="data", root_run_id="native-root")
+    plan = dict(
+        stage="branch",
+        target="data",
+        root_run_id="native-root",
+        consumer={"dataset_version": "frozen-dataset"},
+    )
     prepared = dict(plan, jobs=[JOBS[0]], run_config={})
     config = dict(
         budget_home=session / "budget",
@@ -58,6 +63,7 @@ def run_mock_session(monkeypatch, session, instance, outcome="SUCCESS"):
 
     def fake_run(command, **kwargs):
         assert command[:2] == ["docker", "compose"]  # intercepted; never executed
+        assert kwargs["env"]["STAGING_DATASET_VERSION"] == "frozen-dataset"
         calls.append(command)
         if "down" in command and outcome == "cleanup-error":
             raise subprocess.CalledProcessError(1, command)
@@ -195,6 +201,10 @@ def test_compose_bounds_whole_container_and_hides_host_counter():
         "${STAGING_SECONDS:?time limit required}",
     ]
     assert worker["restart"] == "no" and worker["mem_limit"] == "9g"
+    assert (
+        worker["environment"]["TA3000_RESEARCH_DATA_PREP_DATASET_VERSION"]
+        == "${STAGING_DATASET_VERSION:?consumer dataset required}"
+    )
     assert worker["pull_policy"] == "never" and "build" not in worker
     assert "product_plane.common.staging_execution" in worker["command"][-1]
     assert config["networks"]["proof"]["internal"] == "${STAGING_INTERNAL:?}"

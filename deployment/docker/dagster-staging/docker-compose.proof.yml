@@ -24,6 +24,7 @@ services:
       PYTHONPATH: /workspace/src:/workspace/scripts
       PYTHONDONTWRITEBYTECODE: "1"
       TA3000_STAGING_PLAN: /staging-control/plan.json
+      TA3000_RESEARCH_DATA_PREP_DATASET_VERSION: ${STAGING_DATASET_VERSION:?consumer dataset required}
       TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/moex-historical
       TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
