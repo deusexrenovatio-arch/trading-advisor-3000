@@ -6,7 +6,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   GITHUB_TOKEN: ${{ github.token }}
@@ -15,10 +15,98 @@ env:
 # runners are not available (for example billing/spending disabled).
 # Set repository variable AI_SHELL_ENABLE_HOSTED_CI=1 to enable lane execution.
 jobs:
-  pr-lane:
+  code-checks:
     if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' }}
     runs-on: ubuntu-latest
+    outputs:
+      evidence_level: ${{ steps.scope.outputs.evidence_level }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install code-check dependencies
+        run: python -m pip install -e .[dev-test] "dagster>=1.8,<2"
+
+      - name: Select evidence level
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python scripts/validate_pr_evidence.py
+          --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA"
+          --emit-github-output "$GITHUB_OUTPUT"
+
+      - name: Cheap code checks before spending acceptance
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python - <<'PY'
+          import os, subprocess, sys
+          changed = subprocess.check_output(["git", "diff", "--name-only",
+              f"{os.environ['BASE_SHA']}..{os.environ['HEAD_SHA']}"], text=True).splitlines()
+          subprocess.run([sys.executable, "scripts/run_boring_checks.py", "--profile", "quick",
+              "--scope", "changed", "--changed-files", *changed], check=True)
+          PY
+
+      - name: Check the configured native producer contract
+        run: python -m pytest tests/product-plane/unit/test_staging_acceptance.py -q
+
+  native-acceptance:
+    needs: code-checks
+    if: ${{ vars.AI_SHELL_ENABLE_HOSTED_CI == '1' && github.event.pull_request.draft == false && needs.code-checks.result == 'success' && needs.code-checks.outputs.evidence_level == 'native' }}
+    runs-on: [self-hosted, Windows, ta3000-staging]
+    timeout-minutes: 35
+    concurrency:
+      group: ta3000-staging-worker
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: true
+      - name: One native acceptance of the merge checkout
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if ($env:GITHUB_RUN_ATTEMPT -ne '1') { throw 'No automatic acceptance rerun' }
+          if (-not $env:TA3000_STAGING_PYTHON) { throw 'Staging worker is not configured' }
+          & $env:TA3000_STAGING_PYTHON -B scripts/run_staging_control.py acceptance `
+            --base-ref $env:BASE_SHA --head-ref $env:HEAD_SHA `
+            --output artifacts/ci/staging-acceptance.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-acceptance-${{ github.run_attempt }}
+          path: artifacts/ci/staging-acceptance.json
+          if-no-files-found: error
+
+  pr-lane:
+    needs: [code-checks, native-acceptance]
+    if: ${{ always() && vars.AI_SHELL_ENABLE_HOSTED_CI == '1' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the current native job result
+        env:
+          SCOPE_RESULT: ${{ needs.code-checks.result }}
+          EVIDENCE_LEVEL: ${{ needs.code-checks.outputs.evidence_level }}
+          NATIVE_RESULT: ${{ needs.native-acceptance.result }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          case "$EVIDENCE_LEVEL" in
+            native) test "$NATIVE_RESULT" = success ;;
+            code) test "$NATIVE_RESULT" = skipped ;;
+            *) exit 2 ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -70,6 +158,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Download this attempt's native result
+        if: needs.code-checks.outputs.evidence_level == 'native'
+        uses: actions/download-artifact@v4
+        with:
+          name: staging-acceptance-${{ github.run_attempt }}
+          path: artifacts/ci/native
+
       - name: PR Gate
         shell: bash
         run: |
@@ -78,7 +173,8 @@ jobs:
             --head-ref "${{ steps.diff-range.outputs.head_ref }}" \
             --snapshot-mode changed-files \
             --profile "${{ steps.pr-matrix.outputs.gate_profile }}" \
-            --summary-file artifacts/ci/pr-gate-summary.md
+            --summary-file artifacts/ci/pr-gate-summary.md \
+            --evidence-receipt artifacts/ci/native/staging-acceptance.json
 
       - name: Tracked Secret Scan
         run: python scripts/validate_no_tracked_secrets.py
