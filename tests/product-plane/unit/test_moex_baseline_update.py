@@ -595,10 +595,13 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
     write_delta_table_rows(table_path=oi_path, rows=[{"count": 1}], columns={"count": "long"})
     write_delta_table_rows(table_path=oi_path, rows=[{"count": 2}], columns={"count": "long"})
     renewed_oi = baseline_module.capture_table(oi_path)
+    prepared_path = tmp_path / "prepared" / "raw_moex_contract_securities.delta"
+    write_delta_table_rows(table_path=prepared_path, rows=[{"count": 1}], columns={"count": "long"})
+    prepared_reference = baseline_module.capture_table(prepared_path)
     renewal = {
         "tables": {
             "raw": baseline_module.capture_table(raw_table_path),
-            "prepared": baseline_module.capture_table(canonical_bars_path),
+            "prepared": prepared_reference,
             "oi": renewed_oi,
         }
     }
@@ -657,7 +660,7 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
         economics_history_refresh=economics_history_refresh,
         daily_open_interest_path=oi_path if economics_history_refresh else None,
         daily_open_interest_version=0 if economics_history_refresh else None,
-        economics_source_paths={"raw_contract_specs_path": tmp_path / "prepared.delta"}
+        economics_source_paths={"raw_contract_specs_path": prepared_path}
         if economics_history_refresh
         else None,
     )
@@ -665,6 +668,12 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
     assert stage_order == ["economics", "canonical"]
     if economics_history_refresh:
         assert report["economics_refresh"]["native_history_renewal"] == renewal
+        assert (
+            report["economics_refresh"]["snapshot_inputs"]["prepared_raw_moex_contract_securities"]
+            == prepared_reference
+        )
+        published = baseline_module.current_snapshot(canonical_bars_path.parent / ".data_snapshots")
+        assert published["tables"]["prepared_raw_moex_contract_securities"] == prepared_reference
     assert report["status"] == "PASS"
     assert report["economics_refresh"]["status"] == "PASS-NOOP"
     assert report["economics_refresh"]["refresh_status"] == "DEFERRED"
