@@ -240,3 +240,130 @@ metadata validation and Delta metadata reads, with no analytical compute.
 Rollback removes the unused admission route; old readers/data need no recovery.
 Removal/revisit: replace this explicit snapshot mode only after sourced temporal
 facts are accepted; never silently upgrade existing bindings into PIT claims.
+
+## Bounded native snapshot read projection
+
+Change surface: product-plane. Architecture impact: contract-change.
+Decision status: independently reviewed bounded extension.
+Implementation status: staged opt-in read slice, locally verified against existing
+outputs; full PR write-proof matrix unexecuted. Owners: Contracts (executable carrier), Market
+Data (identity/pins and bars), Research (L0/L1/L2), Interfaces (opt-in inspector).
+
+Read existing accepted verification outputs through snapshot-only admission.
+Thin `snapshot_read_request.v1` and `snapshot_read_projection.v1` schemas refer
+to this same shared authority, namespace and native binding rules. This carrier
+is an explicit read projection, not `canonical_bar.v3` or a complete canonical
+market key: unconfirmed Q/calendar/publication lag remains unverified. Never
+invent lag_seconds=0, official calendars, temporal intervals or CF definitions.
+Old JSON contracts, writers and physical schemas retain their existing meaning.
+
+Request is closed: schema_version=1, identity (snapshot selector), layer
+bars/L0/L1/L2, series_type=native, timeframe, UTC start/end, ordered unique
+projection, row_limit (1..500, existing inspector bound), positive byte_limit,
+research (null for bars; explicit dataset/contour/set/profile version fields for
+Research, irrelevant versions null). CF/PIT/rolling aliases fail closed.
+
+Carrier is a closed metadata envelope plus Arrow IPC. Envelope fields:
+schema_version=1, contract_version=snapshot_read_projection.v1, status
+ok/empty/unavailable, request, identity (native binding), source, projection,
+payload, fingerprint, unavailable_reason. Source, when present, contains the
+unchanged original table reference, explicit table UUID/version/Arrow-schema
+hash, exact original config JSON/hash/context ID, sourced recipe-version pairs,
+and source report/manifest/namespace/mapping pins. Those pins must agree with
+the supplied native binding; Research context is distinct from source context.
+Projection contains timestamp_column, source_key_timestamp semantics, grain,
+ordered columns, canonical_Q_verified=false, historical_PIT_verified=false and
+unverified Q terms. Payload is null only for unavailable; otherwise row count,
+base64 Arrow schema bytes (including field/schema metadata) and IPC content SHA.
+Fingerprint covers stable envelope metadata and the data IPC hash, without its
+own field. Retrieval time never enters applicability or reproducible identity.
+
+The shared schema declares executable Arrow rules: mandatory identity columns,
+forbidden legacy/grouping columns, constant bindings, native timestamp/grain,
+wire metadata key and payload paths. Its validator executes those rules against
+actual Arrow buffers, schema/metadata, ordered projection, count, budgets,
+constants and uniqueness. Numeric values never pass through JSON/Pandas/list
+conversion. Arrow IPC preserves source types and NULL/NaN masks; source hashes
+remain lineage. New projection fingerprint is not an economic or series ID.
+
+Market Data owns a public immutable pinned snapshot context. Construction uses
+the verified source-backed admission constructor and explicit read-side table
+pins captured from these existing report outputs, without changing the report.
+Every read/cache hit rechecks original input bytes, report/config/receipt scope,
+requested native mapping, original ref, UUID/exact version and source schema.
+The pinned report/receipt supplies path mapping; no arbitrary path or latest
+fallback. Research calls this public identity/pin boundary for its owned tables.
+Explicit frozen selection versions come from the existing selected outputs;
+they must agree with the matching report context/profile, never pick latest.
+
+Predicates before scanner: exact legacy descriptor and native contract (null for
+equity/index), native discriminator, null CF scope, timeframe, half-open period,
+correct layer context and explicit dataset/contour/set/profile versions. Bars
+also bind security_id. Source/feed/board/price basis come from the pinned
+descriptor plus corresponding context, even where physically absent in frames.
+Bars use original bar_start_ts; Research uses original ts. Do not rename them
+to an unproven close/open axis or reconstruct TF/bounds. Timestamp strings are
+parsed only inside Arrow predicates/grain checks; returned buffers keep types.
+
+Only requested columns, source grain/filter checks and mandatory identity/time
+columns reach the bounded scanner. Unknown/forbidden projection fields reject.
+Read at most row_limit+1; overflow or wire-byte overflow rejects rather than
+returning an undeclared truncation. Native IDs are metadata-projected from the
+admitted contract/descriptor, never active_contract_id. No row join/dedup,
+resampling, indicator computation or fallback materialization. Sort by normalized
+source timestamp/native grain before fingerprint; duplicate canonical projection
+grain rejects. Missing accepted output is unavailable; valid empty slice is empty.
+
+A new memory-only byte-bounded LRU stores immutable IPC bytes under the explicit
+snapshot_read_projection.v1 namespace. Key covers contract, every source/table/
+schema/mapping/config/recipe pin, selector, Research selection, layer, period/TF,
+ordered projection and budgets. Pins/projection/applicability validate before
+cache lookup; decoded hits validate again. Legacy caches/spill readers are unused.
+
+Existing DataInspector gets one opt-in POST Arrow route using public Market and
+Research readers. No new service/UI or automatic production-root binding. Its
+existing legacy reader remains unchanged. Actual proof: original accepted
+producer output -> adapters -> inspector consumer -> schema/Arrow validation;
+independent direct bounded pinned Arrow predicates are the oracle for every
+value, type, NULL/NaN mask, grain, index execution NULL, repeat and old readback.
+Fixtures stay in memory; source proof reads existing Delta only. Required broad
+write-proof matrix remains explicitly unexecuted under the user's prohibition.
+
+Alternatives rejected: JSON-number conversion, pretending complete Q, duplicating
+identity DTO meaning, futures backtest loader for other assets, spill-file cache,
+latest reads, Python broad row scans, silent dedup/truncation and writer changes.
+Runtime choice: Delta/Arrow predicates/projection/IPC; Python bounded contract
+adaptation and metadata validation, no compute fallback. Cost: bounded rows/bytes
+and configured cache bytes; no performance/SLA claim. Rollback: opt out of the
+inspector route/use old reader; no data restore. Revisit full canonical-key/PIT
+admission only when independently sourced Q and temporal facts exist.
+
+Exact carrier names: request.research has dataset_version, contour_id,
+indicator_set_version, derived_indicator_set_version, profile_version and
+source_indicator_profile_version; every field is present, irrelevant fields null.
+Projection mandatory order is asset_id, instrument_id, series_type, timeframe,
+then the unchanged source timestamp column, followed by ordered requested fields.
+Its grain is those mandatory columns. Timestamp comparisons/grain normalization
+use native Arrow UTC timestamps without altering returned source buffers.
+Source fields are original_reference, read_pin (table_id, delta_version,
+arrow_schema_sha256, source_schema_ipc_base64, reference_sha256), configuration (dataset_context_id,
+sha256, original_json), recipes (name/version pairs), report_sha256,
+manifest_sha256, mapping_version, namespace_sha256 and pin_bundle_sha256.
+Read-side pin bundles retain public common.data_snapshots capture_table references;
+open_pinned_table verifies them before scanner/cache, including original report
+path/version correspondence. This metadata-only capture publishes no snapshot.
+Payload fields are row_count, schema_ipc_base64 and ipc_sha256. Data hash is SHA256
+of uncompressed Arrow IPC stream after deterministic native-grain sorting and
+combine_chunks, preserving original Arrow metadata. Envelope fingerprint is
+SHA256 of sorted compact UTF-8 JSON without fingerprint (no NaN values in JSON).
+Wire IPC adds the JSON envelope under its schema metadata key; decoding restores
+the exact payload schema metadata and verifies schema/hash/count/column constants/
+grain/window/order/budgets. Wire byte budget includes that envelope. Cache stores
+only immutable wire bytes; unavailable returns an explicit reason without data.
+The embedded original source schema must hash to arrow_schema_sha256. Every raw
+projected field and schema metadata must match that source schema exactly;
+only the four admitted identity/grain metadata columns are replaced. This makes
+type/field-metadata preservation executable, independent of payload self-description.
+
+Operational request, read-pin capture, actual readback evidence and rollback:
+[snapshot read projection runbook](docs/runbooks/app/snapshot-read-projection.md).

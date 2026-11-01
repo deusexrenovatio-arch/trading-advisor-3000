@@ -28,6 +28,8 @@ CONTRACTS = {
     "temporal_mapping.v1.json",
     "snapshot_identity_selector.v1.json",
     "snapshot_identity_binding.v1.json",
+    "snapshot_read_request.v1.json",
+    "snapshot_read_projection.v1.json",
 }
 KEYWORDS = {
     "$schema",
@@ -74,6 +76,7 @@ KEYWORDS = {
     "x-resolution-match",
     "x-resolution-time",
     "x-tuple-member",
+    "x-arrow",
 }
 
 
@@ -171,6 +174,34 @@ class _Evaluator:
             _fail("schema must be an object")
         if unsupported := set(schema) - KEYWORDS:
             _fail(f"unsupported schema assertions: {sorted(unsupported)}")
+        if "x-arrow" in schema:
+            rules = schema["x-arrow"]
+            if not isinstance(rules, dict) or set(rules) != {
+                "required_columns",
+                "forbidden_columns",
+                "constants",
+                "metadata_key",
+            }:
+                _fail("unsupported Arrow contract rules")
+            for name in ("required_columns", "forbidden_columns"):
+                if (
+                    not isinstance(rules[name], list)
+                    or not all(isinstance(x, str) and x for x in rules[name])
+                    or len(set(rules[name])) != len(rules[name])
+                ):
+                    _fail("invalid Arrow column rules")
+            if not isinstance(rules["metadata_key"], str) or not rules["metadata_key"]:
+                _fail("invalid Arrow metadata key")
+            if not isinstance(rules["constants"], list) or not all(
+                isinstance(pair, list)
+                and len(pair) == 2
+                and all(isinstance(x, str) and x for x in pair)
+                for pair in rules["constants"]
+            ):
+                _fail("invalid Arrow constant rules")
+            columns = [pair[0] for pair in rules["constants"]]
+            if len(set(columns)) != len(columns) or set(columns) != set(rules["required_columns"]):
+                _fail("Arrow constants must bind every mandatory metadata column exactly once")
         if "format" in schema and schema["format"] != "utc-instant":
             _fail("unsupported schema format")
         if "additionalProperties" in schema and not isinstance(
@@ -503,3 +534,9 @@ def identity_input_fingerprint(payload: dict[str, Any]) -> str:
         payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def snapshot_arrow_rules() -> dict[str, Any]:
+    """Schema-owned executable Arrow carrier rules; never a second DTO authority."""
+    evaluator = _Evaluator({})
+    return copy.deepcopy(evaluator._resolve("#/$defs/read_envelope")["x-arrow"])

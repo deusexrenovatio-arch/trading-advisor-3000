@@ -1,0 +1,162 @@
+{
+  "contract_version": "snapshot_read_projection.v1",
+  "fingerprint": "51dd289afa2a8639929d6d4ae23b8d1bdb93bf7fcbf963ebb001dc8356552b3b",
+  "identity": {
+    "asset_id": "SBER",
+    "historical_mapping_verified": false,
+    "observed_at": "2026-10-27T14:23:45Z",
+    "schema_version": 1,
+    "selector": {
+      "applicability": "snapshot_bound",
+      "instrument_id": "SBER@MOEX",
+      "namespace": "MOEX",
+      "pins": {
+        "assignment_version": "synthetic-assignment-v1",
+        "assignments_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "configuration_sha256": "2e825c97f998c24a9764c4256ff43b59ae08dcf4d47e31386d4ab835b87794a0",
+        "dataset_context_id": "CTX:2e825c97f998c24a9764c4256ff43b59ae08dcf4d47e31386d4ab835b87794a0",
+        "namespace_sha256": "df3acd7bbd151d22c1251b37562b7a17dd69f999598b085e0e30af51b38dcca5",
+        "report_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "source_manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "table": {
+          "delta_version": 7,
+          "source_path": "fixture://source",
+          "table_id": "fixture-table"
+        }
+      },
+      "price_basis": "source_native",
+      "schema_version": 1,
+      "source_context": {
+        "board": "TQBR",
+        "market": "shares",
+        "provider": "fixture_terminal",
+        "venue": "MOEX"
+      },
+      "source_engine": "stock"
+    },
+    "source_descriptor": {
+      "board": "TQBR",
+      "engine": "stock",
+      "legacy_contract_id": null,
+      "legacy_series_id": "fixture:shares:SBER:TQBR:source_native",
+      "market": "shares",
+      "price_basis": "source_native",
+      "provider": "fixture_terminal",
+      "secid": "SBER",
+      "security_id": "fixture:shares:SBER",
+      "venue": "MOEX"
+    },
+    "source_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "source_reference": "fixture://illustrative-source-record",
+    "source_symbol": "SBER"
+  },
+  "payload": {
+    "ipc_sha256": "55d1f63d6d7a2eb094b8a4fde2f83f813f90a8551adcc8af21884f37ba8170dd",
+    "row_count": 3,
+    "schema_ipc_base64": "/////6ACAAAQAAAAAAAKAA4ABgAFAAgACgAAAAABBAAQAAAAAAAKAAwAAAAEAAgACgAAADwAAAAEAAAAAQAAAAQAAACU/v//HAAAAAQAAAANAAAAc291cmNlLXNjaGVtYQAAAAcAAABmaXh0dXJlAAgAAAAEAgAAwAEAAJABAABgAQAA9AAAAHgAAAA4AAAABAAAACz+//8AAAEHEAAAABgAAAAEAAAAAAAAAAYAAABhbW91bnQAAAj///8MAAAAAwAAAFz+//8AAAECEAAAACQAAAAEAAAAAAAAAAgAAABxdWFudGl0eQAAAAAIAAwACAAHAAgAAAAAAAABQAAAAJr///8AAAEDFAAAAFQAAAAIAAAAFAAAAAAAAAAFAAAAY2xvc2UAAAABAAAABAAAAID///8cAAAABAAAAA8AAABzeW50aGV0aWMtcHJpY2UABAAAAHVuaXQAAAYABgAEAAYAAAACABIAGAAIAAYABwAMAAAAEAAUABIAAAAAAAEFFAAAAFgAAAAIAAAAHAAAAAAAAAAMAAAAYmFyX3N0YXJ0X3RzAAAAAAEAAAAMAAAACAAMAAQACAAIAAAAFAAAAAQAAAAGAAAAc291cmNlAAAEAAAAYXhpcwAAAAA8////eP///wAAAQUQAAAAHAAAAAQAAAAAAAAACQAAAHRpbWVmcmFtZQAAAGj///+k////AAABBRAAAAAcAAAABAAAAAAAAAALAAAAc2VyaWVzX3R5cGUAlP///9D///8AAAEFEAAAACAAAAAEAAAAAAAAAA0AAABpbnN0cnVtZW50X2lkAAAAxP///xAAFAAIAAYABwAMAAAAEAAQAAAAAAABBRAAAAAgAAAABAAAAAAAAAAIAAAAYXNzZXRfaWQAAAAABAAEAAQAAAA="
+  },
+  "projection": {
+    "canonical_Q_verified": false,
+    "columns": [
+      "asset_id",
+      "instrument_id",
+      "series_type",
+      "timeframe",
+      "bar_start_ts",
+      "close",
+      "quantity",
+      "amount"
+    ],
+    "grain": [
+      "asset_id",
+      "instrument_id",
+      "series_type",
+      "timeframe",
+      "bar_start_ts"
+    ],
+    "historical_PIT_verified": false,
+    "timestamp_column": "bar_start_ts",
+    "timestamp_semantics": "source_key_timestamp",
+    "unverified_Q": [
+      "official_session_calendar",
+      "publication_time",
+      "availability_lag_seconds"
+    ]
+  },
+  "request": {
+    "byte_limit": 2000000,
+    "end": "2026-10-23T00:00:00Z",
+    "identity": {
+      "applicability": "snapshot_bound",
+      "instrument_id": "SBER@MOEX",
+      "namespace": "MOEX",
+      "pins": {
+        "assignment_version": "synthetic-assignment-v1",
+        "assignments_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "configuration_sha256": "2e825c97f998c24a9764c4256ff43b59ae08dcf4d47e31386d4ab835b87794a0",
+        "dataset_context_id": "CTX:2e825c97f998c24a9764c4256ff43b59ae08dcf4d47e31386d4ab835b87794a0",
+        "namespace_sha256": "df3acd7bbd151d22c1251b37562b7a17dd69f999598b085e0e30af51b38dcca5",
+        "report_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "source_manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "table": {
+          "delta_version": 7,
+          "source_path": "fixture://source",
+          "table_id": "fixture-table"
+        }
+      },
+      "price_basis": "source_native",
+      "schema_version": 1,
+      "source_context": {
+        "board": "TQBR",
+        "market": "shares",
+        "provider": "fixture_terminal",
+        "venue": "MOEX"
+      },
+      "source_engine": "stock"
+    },
+    "layer": "bars",
+    "projection": [
+      "close",
+      "quantity",
+      "amount"
+    ],
+    "research": null,
+    "row_limit": 500,
+    "schema_version": 1,
+    "series_type": "native",
+    "start": "2026-10-19T00:00:00Z",
+    "timeframe": "1d"
+  },
+  "schema_version": 1,
+  "source": {
+    "configuration": {
+      "dataset_context_id": "CTX:2e825c97f998c24a9764c4256ff43b59ae08dcf4d47e31386d4ab835b87794a0",
+      "original_json": "{\"recipe\":\"synthetic-observation\"}",
+      "sha256": "2e825c97f998c24a9764c4256ff43b59ae08dcf4d47e31386d4ab835b87794a0"
+    },
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "mapping_version": "synthetic-assignment-v1",
+    "namespace_sha256": "df3acd7bbd151d22c1251b37562b7a17dd69f999598b085e0e30af51b38dcca5",
+    "original_reference": {
+      "path": "fixture://source",
+      "version": 7
+    },
+    "pin_bundle_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "read_pin": {
+      "arrow_schema_sha256": "c1572d34e45e8ed43bfad521ce419481affcc0c14d16cf8b92f385b084fe49b5",
+      "delta_version": 7,
+      "reference_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "source_schema_ipc_base64": "/////+ABAAAQAAAAAAAKAA4ABgAFAAgACgAAAAABBAAQAAAAAAAKAAwAAAAEAAgACgAAADwAAAAEAAAAAQAAAAQAAACU/v//HAAAAAQAAAANAAAAc291cmNlLXNjaGVtYQAAAAcAAABmaXh0dXJlAAQAAAAEAQAAiAAAAEgAAAAEAAAA0P///wAAAQcQAAAAGAAAAAQAAAAAAAAABgAAAGFtb3VudAAA+P7//wwAAAADAAAAEAAUAAgABgAHAAwAAAAQABAAAAAAAAECEAAAACQAAAAEAAAAAAAAAAgAAABxdWFudGl0eQAAAAAIAAwACAAHAAgAAAAAAAABQAAAAJr///8AAAEDFAAAAFQAAAAIAAAAFAAAAAAAAAAFAAAAY2xvc2UAAAABAAAABAAAAID///8cAAAABAAAAA8AAABzeW50aGV0aWMtcHJpY2UABAAAAHVuaXQAAAYABgAEAAYAAAACABIAGAAIAAYABwAMAAAAEAAUABIAAAAAAAEFFAAAAFwAAAAIAAAAHAAAAAAAAAAMAAAAYmFyX3N0YXJ0X3RzAAAAAAEAAAAMAAAACAAMAAQACAAIAAAAFAAAAAQAAAAGAAAAc291cmNlAAAEAAAAYXhpcwAAAAAEAAQABAAAAAAAAAA=",
+      "table_id": "fixture-table"
+    },
+    "recipes": [
+      {
+        "name": "normalization",
+        "version": "synthetic-observation"
+      }
+    ],
+    "report_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "status": "ok",
+  "unavailable_reason": null
+}

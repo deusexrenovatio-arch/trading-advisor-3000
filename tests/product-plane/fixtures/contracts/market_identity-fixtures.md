@@ -18,3 +18,7 @@ The snapshot_identity_selector.v1 and snapshot_identity_binding.v1 fixtures are
 also synthetic: repeated-letter hashes, table/context labels and observation
 dates establish no real source or historical applicability. Source-backed
 admission is verified separately against the original pinned pilot artifacts.
+
+Snapshot read request/projection examples are synthetic Arrow metadata fixtures.
+Their schema bytes, buffer hashes, quantities and dates demonstrate the carrier;
+they are not exchange inputs or evidence of historical/PIT applicability.
