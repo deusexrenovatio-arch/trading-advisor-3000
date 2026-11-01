@@ -54,7 +54,6 @@ jobs:
           PY
 
       - name: Check the configured native producer contract
-        if: steps.scope.outputs.evidence_level == 'native'
         run: python -m pytest tests/product-plane/unit/test_staging_acceptance.py -q
 
   native-acceptance:

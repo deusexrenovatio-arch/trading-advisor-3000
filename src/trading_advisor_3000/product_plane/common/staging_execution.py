@@ -54,6 +54,21 @@ def bind_run(instance, run, plan, seen=()):
 
 
 def __getattr__(name):
+    if name == "product_plane_definitions":
+        from dagster import Definitions, multiprocess_executor
+
+        from trading_advisor_3000.dagster_defs.product_plane_definitions import (
+            product_plane_definitions,
+        )
+
+        return Definitions.merge(
+            product_plane_definitions,
+            Definitions(
+                executor=multiprocess_executor.configured(
+                    {"max_concurrent": 1, "retries": {"disabled": {}}}
+                )
+            ),
+        )
     if name != "StagingRunLauncher":
         raise AttributeError(name)
     from dagster._core.launcher.default_run_launcher import DefaultRunLauncher

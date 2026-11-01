@@ -117,6 +117,14 @@ def test_data_surface_routes_to_surface_pr_matrix_runner() -> None:
     [
         (["configs/change_surface_mapping.yaml"], "code"),
         (["scripts/run_pr_gate.py"], "code"),
+        (["scripts/run_staging_control.py"], "code"),
+        (["scripts/collect_staging_acceptance.py"], "code"),
+        (["deployment/docker/dagster-staging/docker-compose.proof.yml"], "code"),
+        (["src/trading_advisor_3000/product_plane/common/staging_execution.py"], "code"),
+        (
+            ["src/trading_advisor_3000/product_plane/data_plane/moex/staging_test_fixture.py"],
+            "code",
+        ),
         (["docs/README.md"], "code"),
         (["src/trading_advisor_3000/product_plane/interfaces/api.py"], "code"),
         (["tests/product-plane/unit/test_research_frames.py"], "code"),
@@ -155,6 +163,11 @@ def test_evidence_level_is_configured_and_unknown_level_blocks(tmp_path):
     "source",
     [
         "surfaces: []",
+        (
+            "surfaces: {engine: {prefixes: [engine/], evidence_level: native, "
+            "exclude_prefixes: tests/}}"
+        ),
+        "surfaces: {engine: {prefixes: [engine/], evidence_level: native, exclude_prefixes: ['']}}",
         "surfaces: {engine: {prefixes: [''], evidence_level: native}}",
         (
             "surfaces: {engine: {prefixes: [engine/], evidence_level: native, "
@@ -171,3 +184,24 @@ def test_broken_evidence_mapping_cannot_downgrade_to_code(tmp_path, source):
     path.write_text(source)
     with pytest.raises(ValueError, match="[Ee]vidence"):
         compute_surface(["engine/code.py"], mapping_path=path)
+
+
+def test_acceptance_support_does_not_select_product_data_matrix():
+    from run_surface_pr_matrix import build_pr_surface_matrix_plan
+
+    paths = [
+        "src/trading_advisor_3000/product_plane/common/staging_acceptance.py",
+        "src/trading_advisor_3000/product_plane/common/staging_execution.py",
+        "src/trading_advisor_3000/product_plane/common/staging_test_fixture.py",
+        "src/trading_advisor_3000/product_plane/data_plane/moex/staging_test_fixture.py",
+        "tests/product-plane/unit/test_staging_test_fixture.py",
+        "deployment/docker/dagster-staging/docker-compose.proof.yml",
+    ]
+    surface = compute_surface(paths, mapping_path=ROOT / "configs/change_surface_mapping.yaml")
+    plan = build_pr_surface_matrix_plan(surface)
+    assert surface["evidence_level"] == "code"
+    assert plan.contour == "governance-only" and not plan.checks
+    paths.append("src/trading_advisor_3000/product_plane/research/io.py")
+    surface = compute_surface(paths, mapping_path=ROOT / "configs/change_surface_mapping.yaml")
+    assert surface["evidence_level"] == "native"
+    assert build_pr_surface_matrix_plan(surface).contour == "data-proof"

@@ -15,15 +15,14 @@ services:
       - sh
       - -c
       - >-
-        dagster-daemon run -m trading_advisor_3000.dagster_defs.product_plane_definitions
+        dagster-daemon run -m trading_advisor_3000.product_plane.common.staging_execution
         -a product_plane_definitions -d /workspace &
-        exec dagster-webserver -m trading_advisor_3000.dagster_defs.product_plane_definitions
+        exec dagster-webserver -m trading_advisor_3000.product_plane.common.staging_execution
         -a product_plane_definitions -d /workspace -h 0.0.0.0 -p 3000
     environment:
       DAGSTER_HOME: /opt/dagster/dagster_home
       PYTHONPATH: /workspace/src:/workspace/scripts
       PYTHONDONTWRITEBYTECODE: "1"
-      TA3000_STAGING_PROOF: "1"
       TA3000_STAGING_PLAN: /staging-control/plan.json
       TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
       TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/moex-historical

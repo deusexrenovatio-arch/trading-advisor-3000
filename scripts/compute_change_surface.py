@@ -150,6 +150,10 @@ def compute_surface(changed_files: list[str], *, mapping_path: Path) -> dict[str
             not isinstance(surface_config, dict)
             or not isinstance(surface_config.get("prefixes"), list)
             or any(not isinstance(p, str) or not p for p in surface_config.get("prefixes", []))
+            or not isinstance(surface_config.get("exclude_prefixes", []), list)
+            or any(
+                not isinstance(p, str) or not p for p in surface_config.get("exclude_prefixes", [])
+            )
         ):
             raise ValueError("Invalid evidence surface mapping")
         level = surface_config.get("evidence_level", "code")

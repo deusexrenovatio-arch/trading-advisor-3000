@@ -196,7 +196,7 @@ def test_compose_bounds_whole_container_and_hides_host_counter():
     ]
     assert worker["restart"] == "no" and worker["mem_limit"] == "9g"
     assert worker["pull_policy"] == "never" and "build" not in worker
-    assert "product_plane_definitions" in worker["command"][-1]
+    assert "product_plane.common.staging_execution" in worker["command"][-1]
     assert config["networks"]["proof"]["internal"] == "${STAGING_INTERNAL:?}"
     volumes = worker["volumes"]
     assert all(
@@ -237,7 +237,7 @@ def test_ci_consumes_only_current_successful_native_job(tmp_path):
         for s in jobs["code-checks"]["steps"]
         if s.get("name") == "Check the configured native producer contract"
     )
-    assert producer_test["if"] == "steps.scope.outputs.evidence_level == 'native'"
+    assert "if" not in producer_test
     assert "test_staging_acceptance.py" in producer_test["run"]
     assert native["concurrency"]["cancel-in-progress"] is False
     assert set(lane["needs"]) == {"code-checks", "native-acceptance"}
@@ -370,3 +370,31 @@ def test_draft_pr_cannot_spend_native_acceptance_budget():
     condition = yaml.safe_load(path.read_text())["jobs"]["native-acceptance"]["if"]
     terms = condition.removeprefix("${{ ").removesuffix(" }}").split(" && ")
     assert "github.event.pull_request.draft == false" in terms
+
+
+def test_proof_definitions_preserve_native_graph_and_disable_executor_retries():
+    for dependency in ("dagster", "pyarrow", "deltalake"):
+        pytest.importorskip(dependency)
+    from trading_advisor_3000.dagster_defs.product_plane_definitions import (
+        product_plane_definitions as native,
+    )
+    from trading_advisor_3000.product_plane.common.staging_execution import (
+        product_plane_definitions as proof,
+    )
+
+    for field in ("assets", "jobs", "sensors", "schedules"):
+        assert all(
+            a is b for a, b in zip(getattr(proof, field), getattr(native, field), strict=True)
+        )
+    assert native.executor is None
+    assert proof.resources == (native.resources or {})
+    expected = {"max_concurrent": 1, "retries": {"disabled": {}}}
+    for name in (
+        "moex_data_rebuild_job",
+        "moex_baseline_update_job",
+        "moex_cf_catch_up_job",
+        "research_data_prep_job",
+    ):
+        executor = proof.get_job_def(name).executor_def
+        result = executor.apply_config_mapping({"config": {}})
+        assert result.success and result.value == {"config": expected}

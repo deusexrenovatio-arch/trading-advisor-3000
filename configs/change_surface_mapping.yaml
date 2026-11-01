@@ -30,6 +30,13 @@ surfaces:
       - docs/architecture/
       - tests/architecture/
   app-runtime:
+    exclude_prefixes: &acceptance_support
+      - src/trading_advisor_3000/product_plane/common/staging_acceptance.py
+      - src/trading_advisor_3000/product_plane/common/staging_execution.py
+      - src/trading_advisor_3000/product_plane/common/staging_test_fixture.py
+      - src/trading_advisor_3000/product_plane/data_plane/moex/staging_test_fixture.py
+      - tests/product-plane/unit/test_staging_
+      - deployment/docker/dagster-staging/docker-compose.proof.yml
     prefixes:
       - src/trading_advisor_3000/product_plane/runtime/
       - src/trading_advisor_3000/product_plane/interfaces/
@@ -53,20 +60,17 @@ surfaces:
       - scripts/run_f1d_sidecar_immutable_evidence.py
       - scripts/run_f1e_real_broker_process.py
   app-data:
+    exclude_prefixes: *acceptance_support
     evidence_level: native
     evidence_exclude_prefixes: [tests/]
     prefixes:
       - src/trading_advisor_3000/product_plane/common/data_snapshots.py
       - src/trading_advisor_3000/product_plane/common/table_layout.py
-      - src/trading_advisor_3000/product_plane/common/staging_
       - configs/moex_foundation/
       - configs/moex_reconciliation/
       - configs/product-plane/continuous_front_indicators.yaml
       - deployment/docker/dagster-staging/
       - deployment/runtime-instances/moex-runtime-instances.v1.yaml
-      - scripts/prepare_staging_plan.py
-      - scripts/collect_staging_acceptance.py
-      - scripts/run_staging_control.py
       - pyproject.toml
       - uv.lock
       - src/trading_advisor_3000/product_plane/data_plane/
@@ -80,6 +84,7 @@ surfaces:
       - scripts/run_historical_data_spark_proof.py
       - scripts/run_historical_data_dagster_proof.py
   app:
+    exclude_prefixes: *acceptance_support
     prefixes:
       - src/trading_advisor_3000/
       - tests/product-plane/
@@ -92,6 +97,12 @@ surfaces:
       - scripts/validate_skills.py
   governance:
     prefixes:
+      - src/trading_advisor_3000/product_plane/common/staging_acceptance.py
+      - src/trading_advisor_3000/product_plane/common/staging_execution.py
+      - src/trading_advisor_3000/product_plane/common/staging_test_fixture.py
+      - src/trading_advisor_3000/product_plane/data_plane/moex/staging_test_fixture.py
+      - tests/product-plane/unit/test_staging_
+      - deployment/docker/dagster-staging/docker-compose.proof.yml
       - AGENTS.md
       - README.md
       - CODEOWNERS

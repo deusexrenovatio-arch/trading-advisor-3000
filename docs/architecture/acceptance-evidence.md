@@ -1,7 +1,7 @@
 # Admission evidence and bounded native acceptance
 
 Change surface: mixed. Impact: contract-change. Decision: accepted user scope,
-2026-10-27; implementation and native activation remain separately unproven.
+2026-11-01; code/control admission and native activation are separate claims.
 
 
 ## Governance-shell owns admission
@@ -9,10 +9,14 @@ Change surface: mixed. Impact: contract-change. Decision: accepted user scope,
 Every PR uses the existing shell surface resolver and PR gate. The existing
 `configs/change_surface_mapping.yaml` declares the required evidence level on
 its contours; `compute_change_surface.py` resolves the strongest matched level.
-Code checks remain mandatory for every PR. Only affected Data/Research source,
-shared snapshot/execution contracts, product data configuration/deployment and
-dependency changes require native evidence. Documentation and test-only changes,
-shell configuration and API-only changes do not acquire a Data/Research requirement.
+Code checks remain mandatory for every PR. Changes to Data/Research computation,
+read/write contracts, core Dagster definitions, shared snapshot contracts, ordinary
+data runtime configuration/deployment and dependencies require native evidence.
+The explicit staging adapters/fixtures and proof-only Compose are delivery support:
+they select code checks and the governance test matrix, including when introduced.
+They do not alter domain calculations. Ordinary Dagster definitions stay unchanged;
+the proof entrypoint composes them with a bounded executor. Documentation, tests,
+shell configuration and API-only changes need no Data/Research calculation.
 Mixed changes retain native admission whenever any affected contour requires it.
 
 The shell validates a generic versioned result envelope: level, status, exact
@@ -82,7 +86,13 @@ Provide a branch command, one CI acceptance job and one PR result check. Configu
 worker roots/image/fixtures once. Ordinary integration must need no agent-led
 assembly, signing, observer, promotion ceremony or incident recovery loop.
 
-Source/config tests and independent review prove only implementation structure.
+The control package is admitted through actual shell selector/CLI/gate execution
+on the frozen Git diff, regression checks and independent review. It does not need
+a Data/Research calculation to introduce those checks. Any actual product source
+change in the same PR still selects native evidence and the data test matrix.
+Operational staging readiness remains pending until separately authorized native
+execution; code admission never asserts that the environment or data route passed.
+Source/config tests and independent review do not prove native operation.
 A real bounded branch pilot and a full source-to-consumer staging run remain
 pending; activation and production readiness cannot be inferred from tests.
 Rollback restores the previous unactivated branch version; operational historical
@@ -120,7 +130,14 @@ Existing quick code checks must pass before spending acceptance.
 Existing `pr-ci` adds one native job on a Windows `ta3000-staging` runner with
 `TA3000_STAGING_PYTHON` and external configuration. The existing hosted-CI opt-in
 is preserved. Draft PRs cannot launch native acceptance even when CI is enabled;
-only code checks run. Moving the PR to ready is a separate runtime-admission step. `pr-lane` requires that job to succeed, downloads
+only code checks run. For native-selected PRs, moving to ready enables the native job. `pr-lane` requires that job to succeed, downloads
 only this workflow attempt's artifact and validates its base/head/merge tree,
 image/input pins, native lineage, QC and fresh consumer. A rerun is blocked before
 launch; there is no old-artifact fallback or automatic recomputation.
+
+Agents can already run code checks with the existing GitHub Actions dispatch:
+`gh workflow run branch-diagnostic.yml --ref <branch>` (repository write access).
+Pushes and PR events also start their existing jobs. Native branch jobs belong on
+the configured staging runner; dispatch does not extend task limits or authorize
+stage activation. No additional CI service or runner installation is required by
+this code change.
