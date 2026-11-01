@@ -19,23 +19,6 @@ Every base and derived output is covered by exactly one `indicator_roll_rules` r
 | `pandas_window_derived_level` | A | `pandas_window_adapter` | rolling/session/week levels use causal `*_0` plus current-bar `A_t` |
 | `derived_relationship_roll_aware` | C | `custom_roll_aware_adapter` | validate price-space compatibility for distances, positions, crosses, angle slopes, movement divergence |
 
-### KST price basis and invalid ROC denominators
-
-KST is a weighted combination of percentage ROC values, so adding a constant to
-its price input changes the result. KST and its signal belong to
-`anchor_sensitive_roll_aware`, using the current bar's known anchor; they must
-not use `oscillator_on_p0`. Native pandas-ta-classic owns the KST/ROC formulas.
-A denominator that is nonfinite, zero, or within the row-local floating-point
-cancellation bound (8 machine epsilons times the price/offset operand scale)
-is masked before ROC reaches rolling means. Its dependent outputs remain NULL
-with `invalid_roc_price_base` in materialization diagnostics. No epsilon is
-substituted into the denominator. Checkpoint compatibility binds calculation
-rules; incompatible states cannot retain an old numeric prefix.
-
-Activation changes KST numerical semantics and needs an explicitly planned
-refresh with a corrected full reference. Historical equality to the former P0
-KST is not an acceptance criterion for these corrected columns.
-
 ## Storage
 
 The governed sidecar tables are:
@@ -169,47 +152,7 @@ python -m trading_advisor_3000.product_plane.research.derived_indicators.adapt_n
 Use `--instruments` / `--timeframes` for an explicitly selected adoption scope.
 Verify an unchanged pair through ordinary `snapshot_materialization` with hard
 failures on formula entrypoints. Changed native inputs must miss both reuse
-paths and retain their requested TF. CF and L2 formula continuation now follows
-the checkpoint/input-prefix contract in
-[indicator-refresh.md](docs/runbooks/app/indicator-refresh.md). Optional L1
-`compute_state_json` and L2 `input_row_hash` remain under the existing row/schema
-and Delta writer owners. The numerical kernel pins the native state adapters;
-public indicator/derived formulas, bar eligibility and CF price-space rules
-retain their accepted meaning. Suffix writes alone never prove bounded compute.
-L1 now retains sparse pre-window anchors in the existing optional state field:
-256-bar stride, 4096-bar retention plus a floor anchor and current final carrier.
-Correction replay must jointly prove native full-result parity and bounded
-formula work. Retention cleanup shares the existing atomic scoped writer and
-widens its predicate together with preserved rows when necessary. This changes
-the private state lifecycle, not the public indicator schema or native owner.
-Missing/incompatible state still requires full validation on the allowed route;
-do not invoke that fallback when full selected-series recomputation is prohibited.
-
-## Sparse checkpoint integration decision (2026-10-26)
-
-Decision: accepted for staged Research code integration; deployment and corrected
-52-series acceptance remain pending. Reconstructs the existing PR232 tail path
-and its correction-replay/KST follow-up; no production adoption has occurred.
-The existing materializers, optional state field and atomic scoped Delta writer
-own the lifecycle. Native formulas remain the full-reference oracle.
-
-Retain stride-256 pre-window states over 4096 bars plus floor/final carriers
-(at most 18 per series). This replaces a final-only checkpoint, which cannot
-replay an older correction. Unlimited history was rejected for storage cost;
-full replay remains the fallback for an absent compatible pre-window state.
-Numerical input/context fingerprints exclude service metadata but include
-native/profile/rule identity; a policy mismatch forbids retaining old values.
-L2 validates changed numerical inputs before selecting its exact write suffix.
-
-The earlier uncorrected run measured about 1.045 GB raw state JSON and 4556 MiB
-L1 Python RSS. Bounded native calls do not bound whole-series read/hash/DTO work.
-Corrected KST whole-chain timing is unmeasured. Revisit retention if measured
-state cost exceeds the accepted workload; do not silently drop recovery checks.
-
-Before adoption, use a separately authorized isolated full reference and explicit
-refresh plan for the new KST contract. Existing identities require full numerical
-replacement/validation through the existing owners; never relabel legacy P0
-results. Before adoption, rollback is code rollback with production untouched.
-Adoption needs its own recovery plan; no cross-contract output rollback is claimed.
-Focused regression and real producer/consumer evidence is recorded in PR232;
-historical benchmark reports retain their original verdicts.
+paths and retain their requested TF. The current CF calculation owner computes
+the full selected series before reducing writes to a changed suffix; suffix
+writes alone do not prove incremental formula continuation. Do not invoke that
+calculation when full selected-series recomputation is prohibited.

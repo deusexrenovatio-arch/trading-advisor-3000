@@ -110,6 +110,47 @@ def chain(tmp_path):
     return canonical, output, research_root, source, target, research, path
 
 
+@pytest.mark.parametrize("change", ["append", "delete", "replace"])
+def test_closed_session_dates_bind_old_and_new_effect_dates(chain, change):
+    canonical, _, _, source, _, _, _ = chain
+    path = canonical / "canonical_closed_session_dates.delta"
+    old_row = {
+        "instrument_id": "FUT_BR",
+        "session_date": datetime(2026, 7, 29).date(),
+        "policy_id": "closed.v1",
+        "source_id": "MOEX",
+        "source_document_hash": "old",
+    }
+    old_table = pa.Table.from_pylist([old_row])
+    write_deltalake(str(path), old_table)
+    previous = storage.capture_table(path)
+    new_row = {**old_row, "session_date": datetime(2026, 7, 31).date()}
+    rows = [new_row] if change != "delete" else []
+    write_deltalake(
+        str(path),
+        pa.Table.from_pylist(rows, schema=old_table.schema),
+        mode="append" if change == "append" else "overwrite",
+    )
+    current = storage.capture_table(path)
+    report = compare_snapshot_tables(
+        source_tables={**source["tables"], "canonical_closed_session_dates": previous},
+        target_tables={**source["tables"], "canonical_closed_session_dates": current},
+        timeframes=["15m"],
+        not_before="2026-07-01T00:00:00Z",
+        spark_session_factory=spark_factory,
+    )
+    effect = report["tables"]["canonical_closed_session_dates"]
+    assert effect["changed_rows"] == (2 if change == "replace" else 1)
+    assert effect["start_ts"] == (
+        "2026-07-31T00:00:00Z" if change == "append" else "2026-07-29T00:00:00Z"
+    )
+    assert report["windows"][0]["end_ts"] == (
+        "2026-07-30T00:00:00Z" if change == "delete" else "2026-08-01T00:00:00Z"
+    )
+    assert report["preserved_prefix_rows"] == 1
+    assert storage.capture_table(path) == current
+
+
 def test_native_diff_bridge_retains_immutable_history_and_admits_scoped_daily(chain):
     canonical, output, research_root, source, target, research, path = chain
     root = canonical / ".data_snapshots"

@@ -23,6 +23,7 @@ EFFECT_COLUMNS = {
     "canonical_bars": "ts",
     "canonical_bar_provenance": "bar_start_ts",
     "canonical_session_calendar": "session_open_ts",
+    "canonical_closed_session_dates": "session_date",
     "canonical_session_intervals": "expected_open_ts",
     "canonical_roll_map": "session_date",
     "canonical_contract_economics": "effective_from_ts",

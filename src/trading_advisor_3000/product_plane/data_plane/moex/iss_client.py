@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import time
@@ -53,6 +54,13 @@ class HistorySecurity:
     volume: int
     numtrades: int
     payload: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
+
+
+@dataclass(frozen=True)
+class FuturesContractSnapshot:
+    securities: tuple[dict[str, Any], ...]
+    trade_date: date
+    source_pages: tuple[dict[str, Any], ...]
 
 
 @dataclass(frozen=True)
@@ -798,6 +806,72 @@ class MoexISSClient:
                 break
             start += len(page)
         return rows
+
+    def fetch_futures_contract_snapshot(self) -> FuturesContractSnapshot:
+        """Keep current parameters bound to the trading day supplied on their ISS pages."""
+        path = "/iss/engines/futures/markets/forts/securities.json"
+        rows, pages = [], []
+        session = None
+        start = 0
+        while True:
+            payload = self._get_json(
+                path,
+                params={
+                    "iss.meta": "off",
+                    "iss.only": "securities,dataversion",
+                    "start": str(start),
+                },
+                event_context={"operation": "futures_contract_snapshot", "page_start": start},
+            )
+            block, version = payload.get("securities"), payload.get("dataversion")
+            if not isinstance(block, dict) or not isinstance(version, dict):
+                raise ValueError("current source session requires securities and dataversion")
+            contexts = _rows_to_dicts(version)
+            if len(contexts) != 1:
+                raise ValueError("current source session requires exactly one dataversion row")
+            context = contexts[0]
+            value = context.get("trade_date")
+            try:
+                trade_date = date.fromisoformat(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("current source session requires a canonical trade_date") from exc
+            if value != trade_date.isoformat() or context.get("trade_session_date", value) != value:
+                raise ValueError("current source session dates conflict or are not canonical")
+            data_version, seqnum = context.get("data_version"), context.get("seqnum")
+            if (
+                type(data_version) is not int
+                or data_version < 0
+                or type(seqnum) is not int
+                or seqnum < 0
+            ):
+                raise ValueError("current source session requires actual data_version and seqnum")
+            key = (trade_date, data_version)
+            if session is not None and key != session:
+                raise ValueError("current source session changed across securities pages")
+            if pages and seqnum < pages[-1]["dataversion"]["seqnum"]:
+                raise ValueError("current source session sequence moved backwards")
+            session = key
+            pages.append(
+                {
+                    "page_start": start,
+                    "dataversion": dict(context),
+                    "securities_sha256": hashlib.sha256(
+                        json.dumps(
+                            block,
+                            sort_keys=True,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                            allow_nan=False,
+                        ).encode()
+                    ).hexdigest(),
+                }
+            )
+            page = _rows_to_dicts(block)
+            rows.extend(page)
+            if not page or not isinstance(payload.get("securities.cursor"), dict):
+                break
+            start += len(page)
+        return FuturesContractSnapshot(tuple(rows), session[0], tuple(pages))
 
     def fetch_futures_indicative_rates(
         self,

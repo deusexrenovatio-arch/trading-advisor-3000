@@ -48,23 +48,6 @@ What this means in practice:
 - successful campaign runs publish global run-stat/ranking indices and strategy notes from the research registry root;
 - runtime consumes projected candidates instead of knowing research internals.
 
-## L1 Continuation State
-
-`NativeCheckpoint` owns private state inside sparse retained L1 rows' optional
-`compute_state_json`; Delta remains the durable writer and pandas-ta-classic
-remains the formula oracle. `native-checkpoint.v3` encodes nonfinite native
-floats recursively as singleton `{"__native_float__":"+inf"}`, `"-inf"`, or
-`"nan"` tokens. Ordinary missing stream values retain their existing JSON null
-representation. This transport does not change public indicator values.
-
-The CF checksum covers strict encoded JSON before decoding. Resume requires
-the current format, native source identity and unchanged input/context prefix.
-Unknown or malformed tokens and old formats require the existing full native
-bootstrap; they must never be silently coerced into finite numbers. Decoding
-does not relax the native continuation checks or mutate saved/live state.
-The owning retention, correction replay and cleanup contract is documented in
-[indicator-refresh.md](docs/runbooks/app/indicator-refresh.md).
-
 ## Strategy Registry Layer
 
 The research strategy registry layer in Delta includes:
