@@ -9,8 +9,12 @@ from typing import Mapping
 
 from deltalake import DeltaTable
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from trading_advisor_3000.product_plane.common.data_snapshots import SnapshotUnavailableError
+from trading_advisor_3000.product_plane.common.snapshot_read_cache import SnapshotReadCache
+from trading_advisor_3000.product_plane.contracts.schema_validation import SchemaValidationError
+from trading_advisor_3000.product_plane.contracts.snapshot_reads import NativeReadRequest
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     _normalize_loaded_rows,
     count_delta_table_rows,
@@ -21,6 +25,11 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     MOEX_HISTORICAL_DATA_ROOT_ENV,
 )
+from trading_advisor_3000.product_plane.data_plane.snapshot_reads import (
+    PinnedNativeSnapshot,
+    read_native_bars,
+)
+from trading_advisor_3000.product_plane.research.snapshot_reads import read_native_frame
 
 DATA_INSPECTOR_ROOT_ENV = "TA3000_DATA_INSPECTOR_ROOT"
 DEFAULT_DATA_ROOT = Path("D:/TA3000-data/trading-advisor-3000-primary-20261011")
@@ -611,9 +620,30 @@ def create_app(
     *,
     data_root: Path | str | None = None,
     env: Mapping[str, str] | None = None,
+    snapshot_reader: PinnedNativeSnapshot | None = None,
+    snapshot_cache: SnapshotReadCache | None = None,
 ) -> FastAPI:
     resolved_data_root = resolve_data_root(data_root, env=env)
     app = FastAPI(title="TA3000 Data Inspector", version="0.2.0")
+
+    @app.post("/api/data-inspector/snapshot-read")
+    def read_snapshot(payload: dict) -> Response:
+        if snapshot_reader is None:
+            raise HTTPException(status_code=503, detail="snapshot reader is not configured")
+        try:
+            request = NativeReadRequest.from_payload(payload, snapshot_reader.namespace)
+            owner = read_native_bars if payload["layer"] == "bars" else read_native_frame
+            result = owner(snapshot_reader, request, cache=snapshot_cache)
+            if result.envelope["status"] == "unavailable":
+                return JSONResponse(status_code=404, content=result.envelope)
+            return Response(
+                content=result.to_ipc(snapshot_reader.namespace),
+                media_type="application/vnd.apache.arrow.stream",
+            )
+        except SchemaValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except SnapshotUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:

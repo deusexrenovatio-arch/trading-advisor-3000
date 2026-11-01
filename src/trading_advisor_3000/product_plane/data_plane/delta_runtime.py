@@ -295,11 +295,24 @@ def _filters_to_dataset_expression(filters: DeltaReadFilters) -> ds.Expression |
 
 
 def _filtered_delta_dataset(table: DeltaTable, filters: DeltaReadFilters) -> ds.Dataset:
-    dataset = table.to_pyarrow_dataset()
     if not filters:
-        return dataset
+        return delta_arrow_dataset(table, predicate_columns=())
     groups = [filters] if isinstance(filters[0], tuple) else filters
-    predicate_columns = {clause[0] for group in groups for clause in group}
+    return delta_arrow_dataset(
+        table, predicate_columns={clause[0] for group in groups for clause in group}
+    )
+
+
+def delta_arrow_dataset(table: DeltaTable, *, predicate_columns: Iterable[str]) -> ds.Dataset:
+    """Arrow scan source for an owner-verified handle, guarding missing Delta stats.
+
+    The caller owns snapshot pins and the actual predicate. Both legacy readers
+    and the snapshot projection use this same active-file/partition primitive.
+    """
+    dataset = table.to_pyarrow_dataset()
+    predicate_columns = set(predicate_columns)
+    if not predicate_columns:
+        return dataset
     partition_columns = set(table.metadata().partition_columns)
     data_columns = predicate_columns - partition_columns
     if not data_columns:
