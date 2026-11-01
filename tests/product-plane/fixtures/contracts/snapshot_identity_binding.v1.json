@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "selector": {
+    "schema_version": 1,
+    "applicability": "snapshot_bound",
+    "namespace": "MOEX",
+    "instrument_id": "SBER@MOEX",
+    "source_context": {
+      "provider": "fixture_terminal",
+      "venue": "MOEX",
+      "market": "shares",
+      "board": "TQBR"
+    },
+    "source_engine": "stock",
+    "price_basis": "source_native",
+    "pins": {
+      "source_manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "report_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "configuration_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "assignments_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "namespace_sha256": "df3acd7bbd151d22c1251b37562b7a17dd69f999598b085e0e30af51b38dcca5",
+      "assignment_version": "synthetic-assignment-v1",
+      "dataset_context_id": "synthetic-context",
+      "table": {
+        "source_path": "fixture://analytical-bars",
+        "table_id": "synthetic-table",
+        "delta_version": 7
+      }
+    }
+  },
+  "asset_id": "SBER",
+  "source_symbol": "SBER",
+  "source_descriptor": {
+    "provider": "fixture_terminal",
+    "venue": "MOEX",
+    "engine": "stock",
+    "market": "shares",
+    "board": "TQBR",
+    "secid": "SBER",
+    "security_id": "fixture:shares:SBER",
+    "legacy_series_id": "fixture:shares:SBER:TQBR:source_native",
+    "legacy_contract_id": null,
+    "price_basis": "source_native"
+  },
+  "source_reference": "fixture://illustrative-source-record",
+  "source_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "observed_at": "2026-10-27T14:23:45Z",
+  "historical_mapping_verified": false
+}

@@ -18,6 +18,12 @@ See [identity decision, keys and compatibility](docs/architecture/product-plane/
 These files prepare a new boundary; they do not replace the runtime contracts or
 amend the release-blocking v1 inventory. Producer/consumer admission is pending.
 
+Native snapshot metadata admission adds `snapshot_identity_selector.v1` and
+`snapshot_identity_binding.v1`, referring to the same `market_identity.v3`
+authority. Market Data verifies source inputs and resolves exact snapshot pins;
+this mode establishes no temporal/PIT applicability. Native future expiry and
+complete specification can remain unknown. Full row adapters remain unadmitted.
+
 | Boundary | Contract set | Status | Notes |
 | --- | --- | --- | --- |
 | Core market/signal/execution DTOs | `canonical_bar.v1`, `signal_candidate.v1`, `runtime_signal.v1`, `signal_event.v1`, `decision_publication.v1`, `order_intent.v1`, `broker_order.v1`, `broker_fill.v1`, `broker_event.v1`, `position_snapshot.v1`, `risk_snapshot.v1` | implemented | Base product-plane contracts remain versioned with fixtures and regression tests. |

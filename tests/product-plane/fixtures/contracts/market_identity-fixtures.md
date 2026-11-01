@@ -13,3 +13,8 @@ a distinct concrete derivative. CF spans two component instruments and observes
 the first as active at bar open. Tests move that observation to the second
 without changing the expanded CF key. Namespace input is a bounded supplied
 snapshot for pure validation, never a new runtime registry.
+
+The snapshot_identity_selector.v1 and snapshot_identity_binding.v1 fixtures are
+also synthetic: repeated-letter hashes, table/context labels and observation
+dates establish no real source or historical applicability. Source-backed
+admission is verified separately against the original pinned pilot artifacts.

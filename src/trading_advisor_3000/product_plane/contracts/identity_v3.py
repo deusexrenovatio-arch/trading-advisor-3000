@@ -8,6 +8,7 @@ Legacy DTOs and their validator are intentionally untouched.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
 import re
@@ -25,6 +26,8 @@ CONTRACTS = {
     "continuous_front_bars.v3.json",
     "instrument_namespace.v1.json",
     "temporal_mapping.v1.json",
+    "snapshot_identity_selector.v1.json",
+    "snapshot_identity_binding.v1.json",
 }
 KEYWORDS = {
     "$schema",
@@ -393,8 +396,11 @@ class _Evaluator:
                     _fail("instrument and CF structural specifications differ")
             if "expiry" in rule:
                 expiry = rule["expiry"]
+                expiry_instant = _get(target, expiry["target"])
+                if expiry_instant is None:
+                    _fail("unknown UTC expiry cannot establish CF eligibility")
                 days = (
-                    _instant(_get(target, expiry["target"])).date()
+                    _instant(expiry_instant).date()
                     - _instant(_get(value, expiry["instant"])).date()
                 ).days
                 policy = _get(value, expiry["policy"])
@@ -489,3 +495,11 @@ def resolve_temporal_mapping(
     if len(selected) != 1:
         _fail("no applicable mapping" if not selected else "ambiguous temporal mapping")
     return copy.deepcopy(selected[0])
+
+
+def identity_input_fingerprint(payload: dict[str, Any]) -> str:
+    """Fingerprint supplied metadata, not a canonical market identity or source hash."""
+    encoded = json.dumps(
+        payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
