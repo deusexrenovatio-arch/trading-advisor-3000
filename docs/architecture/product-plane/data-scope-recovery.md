@@ -90,3 +90,46 @@ Historical PR/native evidence and current code establish the implemented path.
 They do not establish a fresh production recovery, worker-source binding,
 physical tail/duplicate quality or successful next daily publication. Those
 remain separate scoped evidence; no live readiness or speedup is asserted here.
+
+## Restore a dropped renewed economics input
+
+Decision selected 2026-11-01; implementation, deployment and operational acceptance
+require their separate PR/native evidence. The Data owner restores only a missing
+`prepared_raw_moex_contract_securities` reference after the known accepted
+`PASS-NOOP` / `published_economics_covers_target` fallback. Future fallback reports
+carry the native renewal's already validated prepared pin through normal publication.
+
+Existing affected publications use explicit `restore-economics-inputs`, with exact
+expected Data/Research IDs and the completed baseline report. Require the report's
+Data ID/digest/run, accepted fallback and coverage binding, exact raw/prepared/OI
+renewal references, and the prepared table's identity/path/schema/layout matching
+the accepted Research Data anchor. Capture the producer's exact prepared version;
+reject current native drift, another missing/added table, or changed accepted parents.
+The operation defaults to read-only validation; `--publish` creates an immutable
+metadata Data child with the original tables unchanged plus that one restored pin.
+Retain original calculation provenance; record restoration evidence and current
+runtime provenance separately. Existing expected-current CAS owns publication.
+
+This child retains the unbounded downstream scope. It grants no daily compute
+permission. Ordinary native `recover-scope` must then compare the complete restored
+table set against the exact Research anchor before the usual metadata bridge and
+SCOPED Dagster continuation. Research is checked before/after Data CAS; a race
+leaves the published child blocked and requires reconciliation against accepted
+current. Lost acknowledgement requires reading the child before another request.
+Rollback keeps immutable manifests and pins; do not rewind pointers or tables.
+
+Alternatives rejected: dropping the prepared dependency, weakening equal-table-set
+or admission guards, rewriting the bad manifest, or rerunning baseline/full rebuild.
+The additional metadata child and explicit full-segment audit are one-off recovery
+costs; no new writer, registry, scheduler, numerical formula or table schema is added.
+
+## Solution Intent
+
+- Solution Class: target
+- Critical Contour: data-integration-closure
+- Forbidden Shortcuts: baseline rerun, full refresh, immutable manifest rewrite, guessed scope
+- Closure Evidence: failing fallback regression; native restoration/CAS and full-segment recovery tests; production SCOPED CF, accepted Research and pinned readback
+- Shortcut Waiver: none
+
+Use the existing Data publisher and native audit. Restoration repairs the missing
+input description; native comparison remains the sole authority for changed scope.

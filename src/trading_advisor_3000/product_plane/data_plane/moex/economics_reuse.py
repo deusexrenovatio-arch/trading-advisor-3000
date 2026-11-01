@@ -309,6 +309,9 @@ def reuse_published_economics_after_source_unavailable(
     }
     if renewal is not None:
         report["native_history_renewal"] = renewal
+        report["snapshot_inputs"] = {
+            "prepared_raw_moex_contract_securities": renewal_tables["prepared"]
+        }
     _write_json(report_path, report)
     if not coverage_passed:
         missing = ",".join(str(item) for item in coverage["missing_contract_ids"])

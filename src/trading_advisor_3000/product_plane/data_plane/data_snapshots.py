@@ -263,6 +263,147 @@ def accepted_data_snapshot_id(canonical_root: Path) -> str | None:
     return current["snapshot_id"] if current else None
 
 
+def restore_economics_inputs(
+    *,
+    canonical_root,
+    research_root,
+    baseline_report_path,
+    expected_data_id,
+    expected_research_id,
+    publish=False,
+):
+    """Restore one dropped renewal pin; leave scope unbounded for native recovery."""
+    import hashlib
+    import json
+    from uuid import uuid4
+
+    root = Path(canonical_root) / ".data_snapshots"
+    data, research = current_snapshot(root), current_snapshot(Path(research_root))
+    if (
+        not data
+        or not research
+        or data["snapshot_id"] != expected_data_id
+        or research["snapshot_id"] != expected_research_id
+        or len(research["parents"]) != 1
+    ):
+        raise ValueError("restoration accepted parents changed")
+    if any(v not in {"PASS", "PASS-NOOP"} for v in data["quality_checks"].values()) or any(
+        v != "PASS" for v in research["quality_checks"].values()
+    ):
+        raise ValueError("restoration requires accepted QC")
+    source = load_snapshot(root / "manifests" / f"{research['parents'][0]}.json")
+    if any(research["tables"].get(k) != v for k, v in source["tables"].items()):
+        raise ValueError("restoration Research inputs differ from its Data anchor")
+    name = "prepared_raw_moex_contract_securities"
+    if set(source["tables"]) - set(data["tables"]) != {name} or set(data["tables"]) - set(
+        source["tables"]
+    ):
+        raise ValueError("restoration requires only the missing prepared economics input")
+    scope = data["parameters"].get("downstream_scope", {})
+    if scope.get("version") != 2 or scope.get("full_refresh") is not True:
+        raise ValueError("restoration requires unbounded Data scope")
+    report_bytes = Path(baseline_report_path).read_bytes()
+    report = json.loads(report_bytes)
+    binding, economics = report.get("data_snapshot", {}), report.get("economics_refresh", {})
+    if (
+        report.get("run_id") != data["run_id"]
+        or report.get("status") != "PASS"
+        or report.get("publish_decision") != "publish"
+        or binding.get("snapshot_id") != data["snapshot_id"]
+        or binding.get("manifest_sha256") != data["manifest_sha256"]
+        or economics.get("run_id") != data["run_id"]
+        or economics.get("status") != "PASS-NOOP"
+        or economics.get("skipped_reason") != "published_economics_covers_target"
+    ):
+        raise ValueError("restoration requires the exact accepted fallback report")
+    coverage = economics.get("published_coverage", {})
+    accepted_economics = data["tables"].get("canonical_contract_economics", {})
+    if coverage.get("status") != "PASS" or any(
+        coverage.get(k) != accepted_economics.get(k) for k in ("table_path", "delta_version")
+    ):
+        raise ValueError("restoration economics coverage pin differs from Data")
+    refs = economics.get("native_history_renewal", {}).get("tables", {})
+    if set(refs) != {"raw", "prepared", "oi"}:
+        raise ValueError("restoration requires exact raw/prepared/oi renewal references")
+    renewed = {}
+    for key, alias in (
+        ("raw", "raw_moex_contract_securities"),
+        ("prepared", name),
+        ("oi", "raw_moex_daily_open_interest"),
+    ):
+        ref = refs[key]
+        if type(ref.get("delta_version")) is not int or ref["delta_version"] < 0:
+            raise ValueError("invalid restoration renewal version")
+        pin = capture_table(Path(ref["table_path"]), version=ref["delta_version"])
+        if pin["table_id"] != ref["table_id"] or (
+            key != "prepared" and pin != data["tables"].get(alias)
+        ):
+            raise ValueError("restoration renewal pin differs from Data: " + key)
+        renewed[alias] = pin
+    prepared = renewed[name]
+    if any(
+        prepared.get(k) != source["tables"][name].get(k)
+        for k in (
+            "table_path",
+            "table_id",
+            "schema_hash",
+            "layout_version",
+            "partition_columns",
+        )
+    ):
+        raise ValueError("restoration prepared contract differs from Research anchor")
+    if name in data["parameters"].get("economics_stage_inputs", {}):
+        raise ValueError("restoration input is already described")
+    outputs = {k: v for k, v in research["tables"].items() if k not in source["tables"]}
+    tables = {**data["tables"], name: prepared}
+    assert_tables_unchanged(tables)
+    assert_tables_unchanged(outputs)
+    provenance = runtime_provenance()
+    evidence = {
+        "data": _recovery_identity(data),
+        "research": _recovery_identity(research),
+        "baseline_report_sha256": hashlib.sha256(report_bytes).hexdigest(),
+        "restored_input": name,
+        "runtime_provenance": provenance,
+    }
+    manifest = create_snapshot(
+        tables=tables,
+        required_tables=[*data["required_tables"], name],
+        dataset_version=data["dataset_version"],
+        run_id="economics-input-restoration-" + uuid4().hex,
+        code_version="metadata-only-economics-input-restoration.v1",
+        quality_checks={**data["quality_checks"], "input_metadata_restoration": "PASS"},
+        parents=[data["snapshot_id"]],
+        window=data["window"],
+        parameters={
+            **data["parameters"],
+            "input_metadata_restoration": evidence,
+            "economics_stage_inputs": {
+                **data["parameters"].get("economics_stage_inputs", {}),
+                name: prepared,
+            },
+        },
+    )
+    assert_tables_unchanged(tables)
+    assert_tables_unchanged(outputs)
+    if (
+        runtime_provenance() != provenance
+        or _recovery_identity(current_snapshot(root)) != _recovery_identity(data)
+        or _recovery_identity(current_snapshot(Path(research_root))) != _recovery_identity(research)
+    ):
+        raise ValueError("restoration source or accepted parents changed during validation")
+    if publish:
+        path = save_snapshot(root, manifest)
+        publish_snapshot(root, path, expected_current_id=data["snapshot_id"])
+        if _recovery_identity(current_snapshot(Path(research_root))) != _recovery_identity(
+            research
+        ):
+            raise ValueError(
+                "Research changed after restoration Data CAS; reconcile accepted current"
+            )
+    return {"published": publish, "manifest": manifest}
+
+
 def recover_data_scope(
     *,
     canonical_root,
@@ -366,30 +507,48 @@ def main():
     recover = commands.add_parser(
         "recover-scope", help="explicit native audit; no numerical materialization"
     )
-    recover.add_argument("--canonical-root", type=Path, required=True)
-    recover.add_argument("--research-root", type=Path, required=True)
-    recover.add_argument("--not-before", required=True)
-    recover.add_argument("--expected-data-id", required=True)
-    recover.add_argument("--expected-research-id", required=True)
-    recover.add_argument(
-        "--publish",
-        action="store_true",
-        help="publish a metadata-only Data bridge after the native audit",
+    restore = commands.add_parser(
+        "restore-economics-inputs",
+        help="restore the known dropped prepared pin; scope stays blocked",
     )
-    recover.add_argument("--report-path", type=Path)
+    for operation in (recover, restore):
+        operation.add_argument("--canonical-root", type=Path, required=True)
+        operation.add_argument("--research-root", type=Path, required=True)
+        operation.add_argument("--expected-data-id", required=True)
+        operation.add_argument("--expected-research-id", required=True)
+        operation.add_argument("--publish", action="store_true")
+        operation.add_argument("--report-path", type=Path)
+    recover.add_argument("--not-before", required=True)
+    restore.add_argument("--baseline-report-path", type=Path, required=True)
     args = parser.parse_args()
-    result = recover_data_scope(
+    common = dict(
         canonical_root=args.canonical_root,
         research_root=args.research_root,
-        not_before=args.not_before,
         expected_data_id=args.expected_data_id,
         expected_research_id=args.expected_research_id,
         publish=args.publish,
+    )
+    result = (
+        recover_data_scope(**common, not_before=args.not_before)
+        if args.operation == "recover-scope"
+        else restore_economics_inputs(**common, baseline_report_path=args.baseline_report_path)
     )
     if args.report_path:
         from trading_advisor_3000.product_plane.common.data_snapshots import atomic_json
 
         atomic_json(args.report_path, result)
+    if args.operation == "restore-economics-inputs":
+        print(
+            json.dumps(
+                {
+                    "published": result["published"],
+                    "snapshot_id": result["manifest"]["snapshot_id"],
+                    "scope_still_unbounded": True,
+                },
+                sort_keys=True,
+            )
+        )
+        return
     report = result["report"]
     print(
         json.dumps(
