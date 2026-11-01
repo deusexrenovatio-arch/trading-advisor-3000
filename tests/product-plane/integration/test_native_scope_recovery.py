@@ -1,8 +1,10 @@
 """Real native producer -> metadata Data publication -> daily scope consumer."""
 
 import copy
+import json
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pyarrow as pa
 import pytest
@@ -199,6 +201,316 @@ def test_native_diff_bridge_retains_immutable_history_and_admits_scoped_daily(ch
             storage.validate_recovery_bridge(damaged, root=root, research=research)
     with pytest.raises(ValueError, match="parents changed"):
         owner.recover_data_scope(**options, publish=True)
+
+
+@pytest.fixture
+def economics_recovery(tmp_path):
+    canonical, output = tmp_path / "canonical", tmp_path / "research"
+    registry = canonical / ".data_snapshots"
+    paths = {
+        name: canonical / f"{name}.delta"
+        for name in (
+            "canonical_bars",
+            "canonical_contract_economics",
+            "raw_moex_contract_securities",
+            "raw_moex_daily_open_interest",
+            "prepared_raw_moex_contract_securities",
+        )
+    }
+    bars = [
+        {
+            "instrument_id": "FUT_BR",
+            "timeframe": "15m",
+            "ts": datetime(y, 7, 30, tzinfo=UTC),
+            "close": 2.0,
+            "ts_close_year": y,
+        }
+        for y in (2024, 2026)
+    ]
+    write_deltalake(
+        str(paths["canonical_bars"]), pa.Table.from_pylist(bars), partition_by=["ts_close_year"]
+    )
+    for name, path in paths.items():
+        if name != "canonical_bars":
+            write_deltalake(
+                str(path),
+                pa.Table.from_pylist([{"trade_date": datetime(2026, 7, 30).date(), "value": 1}]),
+            )
+
+    def data_manifest(tables, **kwargs):
+        return storage.create_snapshot(
+            tables=tables,
+            required_tables=list(tables),
+            dataset_version="data",
+            run_id="baseline",
+            code_version="test",
+            quality_checks={"baseline": "PASS", "canonical": "PASS", "economics": "PASS-NOOP"},
+            **kwargs,
+        )
+
+    source = data_manifest({k: storage.capture_table(p) for k, p in paths.items()})
+    storage.publish_snapshot(
+        registry, storage.save_snapshot(registry, source), expected_current_id=None
+    )
+    result = output / "accepted_output.delta"
+    write_deltalake(str(result), pa.table({"result": [1.0]}))
+    research_root = snapshot_registry(output, "nightly", "pit_active_front")
+    research = storage.create_snapshot(
+        tables={**source["tables"], "accepted_output": storage.capture_table(result)},
+        required_tables=list(source["tables"]),
+        dataset_version="nightly",
+        run_id="research",
+        code_version="test",
+        quality_checks={"native": "PASS"},
+        parents=[source["snapshot_id"]],
+        parameters={"refresh_scope_version": 1, "timeframes": ["15m"]},
+    )
+    storage.publish_snapshot(
+        research_root, storage.save_snapshot(research_root, research), expected_current_id=None
+    )
+    write_deltalake(
+        str(paths["canonical_bars"]),
+        pa.Table.from_pylist([{**bars[-1], "close": 3.0}]),
+        mode="overwrite",
+        predicate="ts_close_year = 2026",
+    )
+    for name in (
+        "raw_moex_contract_securities",
+        "raw_moex_daily_open_interest",
+        "prepared_raw_moex_contract_securities",
+    ):
+        write_deltalake(
+            str(paths[name]),
+            pa.Table.from_pylist([{"trade_date": datetime(2026, 7, 31).date(), "value": 2}]),
+            mode="append",
+        )
+    tables = {k: storage.capture_table(p) for k, p in paths.items()}
+    prepared = tables.pop("prepared_raw_moex_contract_securities")
+    target = data_manifest(
+        tables,
+        parents=[source["snapshot_id"]],
+        parameters={
+            "runtime_provenance": {"calculation": "original"},
+            "economics_stage_inputs": {},
+            "downstream_scope": {
+                "version": 2,
+                "full_refresh": True,
+                "reason": "unproven_starting_references",
+            },
+        },
+    )
+    storage.publish_snapshot(
+        registry, storage.save_snapshot(registry, target), expected_current_id=source["snapshot_id"]
+    )
+    report = {
+        "run_id": "baseline",
+        "status": "PASS",
+        "publish_decision": "publish",
+        "data_snapshot": {k: target[k] for k in ("snapshot_id", "manifest_sha256")},
+        "economics_refresh": {
+            "run_id": "baseline",
+            "status": "PASS-NOOP",
+            "skipped_reason": "published_economics_covers_target",
+            "published_coverage": {
+                "status": "PASS",
+                **{
+                    k: tables["canonical_contract_economics"][k]
+                    for k in ("table_path", "delta_version")
+                },
+            },
+            "native_history_renewal": {
+                "tables": {
+                    k: {a: v[a] for a in ("table_path", "table_id", "delta_version")}
+                    for k, v in (
+                        ("raw", tables["raw_moex_contract_securities"]),
+                        ("prepared", prepared),
+                        ("oi", tables["raw_moex_daily_open_interest"]),
+                    )
+                }
+            },
+        },
+    }
+    report_path = tmp_path / "baseline-report.json"
+    report_path.write_text(json.dumps(report))
+    return dict(
+        canonical_root=canonical,
+        research_root=research_root,
+        baseline_report_path=report_path,
+        expected_data_id=target["snapshot_id"],
+        expected_research_id=research["snapshot_id"],
+    )
+
+
+def test_restored_input_stays_blocked_until_native_complete_segment_proof(economics_recovery):
+    options = economics_recovery
+    root = options["canonical_root"] / ".data_snapshots"
+    target = storage.current_snapshot(root)
+    files = {p: p.read_bytes() for p in options["canonical_root"].parent.rglob("*") if p.is_file()}
+    dry = owner.restore_economics_inputs(**options)
+    assert not dry["published"] and storage.current_snapshot(root) == target
+    assert files == {
+        p: p.read_bytes() for p in options["canonical_root"].parent.rglob("*") if p.is_file()
+    }
+    restored = owner.restore_economics_inputs(**options, publish=True)["manifest"]
+    assert restored["parents"] == [target["snapshot_id"]]
+    assert all(restored["tables"][k] == v for k, v in target["tables"].items())
+    assert restored["parameters"]["downstream_scope"] == target["parameters"]["downstream_scope"]
+    assert restored["parameters"]["runtime_provenance"] == {"calculation": "original"}
+    resolved = resolve_refresh_scope(
+        data_manifest_path=root / "manifests" / f"{restored['snapshot_id']}.json",
+        materialized_output_dir=options["research_root"].parents[1],
+        dataset_version="nightly",
+        timeframes=["15m"],
+    )
+    assert resolved["outcome"] == "BLOCKED" and resolved["reason"] == "unbounded_data_scope"
+    # The existing native owner, not restoration, grants permission.
+    value = owner.recover_data_scope(
+        canonical_root=options["canonical_root"],
+        research_root=options["research_root"],
+        expected_data_id=restored["snapshot_id"],
+        expected_research_id=options["expected_research_id"],
+        not_before="2026-07-01T00:00:00Z",
+        publish=True,
+        spark_session_factory=spark_factory,
+    )
+    bridge = value["manifest"]
+    assert bridge["tables"] == restored["tables"] and value["report"]["preserved_prefix_rows"] == 1
+    assert len(value["report"]["tables"]) == 5
+    assert all(
+        p.read_bytes() == content for p, content in files.items() if p.parent.name == "manifests"
+    )
+    assert all(storage.capture_table(Path(v["table_path"])) == v for v in bridge["tables"].values())
+    resolved = resolve_refresh_scope(
+        data_manifest_path=root / "manifests" / f"{bridge['snapshot_id']}.json",
+        materialized_output_dir=options["research_root"].parents[1],
+        dataset_version="nightly",
+        timeframes=["15m"],
+    )
+    assert resolved["outcome"] == "SCOPED" and resolved["force_full_refresh"] is False
+    with pytest.raises(ValueError, match="parents changed"):
+        owner.restore_economics_inputs(**options, publish=True)
+
+
+@pytest.mark.parametrize(
+    "defect", ["digest", "coverage", "raw_pin", "prepared_identity", "native_drift"]
+)
+def test_restoration_rejects_unbound_or_drifting_inputs(economics_recovery, defect):
+    options = economics_recovery
+    report = json.loads(options["baseline_report_path"].read_text())
+    economics = report["economics_refresh"]
+    if defect == "digest":
+        report["data_snapshot"]["manifest_sha256"] = "a" * 64
+    if defect == "coverage":
+        economics["published_coverage"]["delta_version"] += 1
+    if defect == "raw_pin":
+        economics["native_history_renewal"]["tables"]["raw"]["delta_version"] -= 1
+    if defect == "prepared_identity":
+        economics["native_history_renewal"]["tables"]["prepared"]["table_id"] = "different"
+    if defect == "native_drift":
+        path = economics["native_history_renewal"]["tables"]["prepared"]["table_path"]
+        write_deltalake(
+            path,
+            pa.Table.from_pylist([{"trade_date": datetime(2026, 8, 1).date(), "value": 3}]),
+            mode="append",
+        )
+    options["baseline_report_path"].write_text(json.dumps(report))
+    root = options["canonical_root"] / ".data_snapshots"
+    before = storage.current_snapshot(root)
+    expected_error = storage.SnapshotUnavailableError if defect == "native_drift" else ValueError
+    with pytest.raises(expected_error):
+        owner.restore_economics_inputs(**options, publish=True)
+    assert storage.current_snapshot(root) == before
+
+
+@pytest.mark.parametrize("defect", ["stale_research", "missing_oi", "extra_input"])
+def test_restoration_rejects_another_anchor_or_table_set(economics_recovery, defect):
+    options = dict(economics_recovery)
+    root = options["canonical_root"] / ".data_snapshots"
+    current = storage.current_snapshot(root)
+    message = "parents changed"
+    if defect == "stale_research":
+        options["expected_research_id"] = "a" * 32
+    else:
+        tables = dict(current["tables"])
+        if defect == "missing_oi":
+            tables.pop("raw_moex_daily_open_interest")
+        else:
+            extra = options["canonical_root"] / "unexpected_input.delta"
+            write_deltalake(str(extra), pa.table({"value": [1]}))
+            tables["unexpected_input"] = storage.capture_table(extra)
+        candidate = storage.create_snapshot(
+            tables=tables,
+            required_tables=list(tables),
+            dataset_version="data",
+            run_id="different-input-set",
+            code_version="test",
+            quality_checks=current["quality_checks"],
+            parents=[current["snapshot_id"]],
+            parameters=current["parameters"],
+        )
+        storage.publish_snapshot(
+            root, storage.save_snapshot(root, candidate), expected_current_id=current["snapshot_id"]
+        )
+        options["expected_data_id"] = candidate["snapshot_id"]
+        message = "only the missing prepared"
+    before = storage.current_snapshot(root)
+    with pytest.raises(ValueError, match=message):
+        owner.restore_economics_inputs(**options, publish=True)
+    assert storage.current_snapshot(root) == before
+
+
+@pytest.mark.parametrize("race", ["data_before_cas", "research_after_cas", "lost_ack"])
+def test_restoration_reconciles_native_publication_races(economics_recovery, monkeypatch, race):
+    options = economics_recovery
+    root = options["canonical_root"] / ".data_snapshots"
+    before = storage.current_snapshot(root)
+    research = storage.current_snapshot(options["research_root"])
+    publish = owner.publish_snapshot
+
+    def competing_manifest(current, *, parents=None):
+        return storage.create_snapshot(
+            tables=current["tables"],
+            required_tables=current["required_tables"],
+            dataset_version=current["dataset_version"],
+            run_id="concurrent",
+            code_version="test",
+            quality_checks=current["quality_checks"],
+            parents=current["parents"] if parents is None else parents,
+            parameters=current["parameters"],
+        )
+
+    def raced_publish(registry, path, **kwargs):
+        if race == "data_before_cas":
+            competing = competing_manifest(before, parents=[before["snapshot_id"]])
+            publish(
+                root,
+                storage.save_snapshot(root, competing),
+                expected_current_id=before["snapshot_id"],
+            )
+        publish(registry, path, **kwargs)
+        if race == "research_after_cas":
+            competing = competing_manifest(research)
+            publish(
+                options["research_root"],
+                storage.save_snapshot(options["research_root"], competing),
+                expected_current_id=research["snapshot_id"],
+            )
+        if race == "lost_ack":
+            raise OSError("lost publication acknowledgement")
+
+    monkeypatch.setattr(owner, "publish_snapshot", raced_publish)
+    with pytest.raises((ValueError, OSError)):
+        owner.restore_economics_inputs(**options, publish=True)
+    current = storage.current_snapshot(root)
+    assert current["snapshot_id"] != before["snapshot_id"]
+    if race == "data_before_cas":
+        assert current["tables"] == before["tables"]
+    else:
+        assert current["parents"] == [before["snapshot_id"]]
+        assert current["parameters"]["downstream_scope"]["full_refresh"] is True
+        assert "prepared_raw_moex_contract_securities" in current["tables"]
+    with pytest.raises(ValueError, match="parents changed"):
+        owner.restore_economics_inputs(**options, publish=True)
 
 
 def test_native_diff_does_not_truncate_a_change_before_operator_bound(chain):

@@ -226,6 +226,19 @@ Activate through the next ordinary scheduled baseline or an existing Dagster
 daily job with a validated SCOPED admission and `force_full_refresh=false`.
 No fake baseline success, cursor rewind, or full refresh is permitted.
 
+If the accepted covered-economics `PASS-NOOP` fallback dropped only
+`prepared_raw_moex_contract_securities`, first use the same Data owner module's
+`restore-economics-inputs` command. Supply `--canonical-root`, `--research-root`,
+`--baseline-report-path`, `--expected-data-id` and `--expected-research-id`.
+It validates the exact completed baseline report, renewal pins, coverage and
+Research anchor; default execution publishes nothing. `--publish` creates an
+immutable metadata child containing the existing table refs plus the restored
+prepared pin. `--report-path` saves its receipt. Calculation provenance stays
+original; restoration provenance is separate. The scope remains unbounded.
+Then run ordinary `recover-scope` against the new expected Data ID before CF.
+After a timeout or post-CAS error, read accepted current and the child receipt;
+do not repeat the stale restoration or infer that publication rolled back.
+
 The composed compatibility receipt v4 admits only the audited fingerprint-engine
 contextvars allowance and complete pair restriction in the sidecar, plus existing
 native source-schema correction. Every other kernel, quality/proof codec,
