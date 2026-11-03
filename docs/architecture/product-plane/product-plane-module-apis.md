@@ -178,6 +178,29 @@ Execution API should answer: "what order action can be sent, what happened to
 it, and what operational proof exists?" It should not become a strategy or
 runtime lifecycle owner.
 
+## Target APIs: Local Trade Workspace
+
+The [accepted Workspace target](docs/architecture/product-plane/trade-workspace/README.md)
+adds Intake, Calculator, Journal and Review alongside the existing API map.
+Its [contracts](docs/architecture/product-plane/trade-workspace/contracts.md) are
+proposals for full integration, not a claim that every route exists on main.
+
+| API / owner | Public boundary | Hidden implementation |
+| --- | --- | --- |
+| Intake | Submit/clarify/read normalized source and provenance | LLM transport, extraction attempts and storage |
+| Calculator | Calculate explicit scenarios; return immutable inputs/results/statuses | Deterministic method and rounding implementation |
+| Journal | Commit/apply change/read exact revision/timeline/receipt | PostgreSQL layout, revision membership, receipt transaction |
+| Review | Explicit request for exact Journal snapshot; read report/history | Fact assembly, fixed profile, LM Studio adapter and attempts |
+| ProductDataAPI | Shared catalogue, contract economics, bounded analysis/chart/evidence/publication context | Public Market/Research readers and pinned storage resolution |
+| Application/lineage read API | Request status and result-to-source read models | Cross-owner composition using public APIs only |
+
+The application passes ProductDataAPI to consumers and calls Journal explicitly;
+Calculator does not save directly. Journal does not launch Review. Execution
+contract and analysis series stay separate; current defaults never rewrite
+saved selections. Partial/missing data stays explicit, without hidden rebuilds.
+User-state persistence does not reuse Runtime `signal.*` tables. Exact source,
+compatibility and rollout evidence remain separate from this target API map.
+
 ## First Implementation Target
 
 The first API to implement after this map is the Strategy/Research Artifact

@@ -85,7 +85,7 @@ adding or revising a choice.
 | Replaceable broker boundary; live input has strict evidence gates | [Execution](docs/architecture/product-plane/execution-flow.md), [status](docs/architecture/product-plane/STATUS.md) | #15/#20/#37. Controlled/stub evidence is distinct from bound real-broker submit/cancel/fill lifecycle. |
 | Bound local reuse; fresh CI and actual behavior proof | [Checks](docs/agent/checks.md) | #207. Green mocks or local cache alone cannot establish native product/runtime readiness. |
 | Independent architecture admission within existing PR lane | [Review policy](docs/agent/architecture-review.md), [ADR 0003](docs/architecture/adr/0003-durable-decision-records.md) | #233 and this change. #201 disabled automatic CodeRabbit reviews; no new lane/registry. |
-| Journal/Trade Workspace remains a separate candidate line | [Accepted product status](docs/architecture/product-plane/STATUS.md) | No merged source/public route in the audited main baseline. Local candidate/WIP is not main integration or deployment proof. |
+| Local Trade Workspace: accepted target, separate implementation delivery | [Workspace decision](docs/architecture/product-plane/trade-workspace/decision.md), [product status](docs/architecture/product-plane/STATUS.md) | User decisions 2026-09-30/10-14 reconstructed in docs 2026-11-04. Main baseline has no Workspace source/public route; pinned local candidates and dirty native Intake remain separate from admission/deployment. |
 
 PR numbers refer to this repository's [pull request history](https://github.com/deusexrenovatio-arch/trading-advisor-3000/pulls?q=is%3Apr).
 Production-target #146 is implementation, alongside five later promotion PRs;

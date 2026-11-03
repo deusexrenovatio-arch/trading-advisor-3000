@@ -54,6 +54,14 @@ Current out of scope:
 - HFT;
 - live execution before validated strategy evidence and Telegram advisory mode.
 
+Local extension accepted 2026-09-30 and consolidated 2026-11-04:
+[Trade Workspace](docs/architecture/product-plane/trade-workspace/README.md)
+adds shared Intake, deterministic Calculator, versioned Journal and fixed Review
+with PostgreSQL, LM Studio and result-to-source lineage. This is a bounded local
+workflow alongside the core direction. [Delivery status](docs/architecture/product-plane/trade-workspace/delivery-and-validation.md)
+separates main, local source candidates, admission and deployment. October data
+observations do not establish current freshness or authorize a hidden rebuild.
+
 ## Historical Evidence
 
 The following surfaces may contain useful evidence, but they are not current truth
