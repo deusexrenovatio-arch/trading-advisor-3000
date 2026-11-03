@@ -31,8 +31,7 @@ Allowed engines are the native Delta/Arrow/Spark read paths used by the Product 
 
 ## Local MCP profile policy
 - `.codex/config.toml` is ignored machine-local state, not a CI input.
-- If local project MCP config exists, `profiles.base.servers` must be exactly
-  `["serena"]`.
+- If local project MCP config exists, `profiles.base.servers` must be empty (`[]`).
 - GitHub, OpenAI docs, data stores, Dagster, graph, browser, office, plugin-eval,
   multi-agent, and memory MCP routes are explicit opt-in profiles or local
   enables only; they are not ordinary-chat defaults.
