@@ -88,3 +88,45 @@ preference. The canonical matrix is
 Agent route shims may reference it, but they must not become the only place
 where Spark, Delta Lake, Dagster, pandas-ta-classic, vectorbt, Optuna, DuckDB,
 or Python ownership is defined.
+
+
+## Repository navigation and Serena retirement
+
+Decision date: 2026-11-04. Change surface: shell.
+Decision status: accepted for this scoped delivery by the user.
+Implementation status: implemented in this change; focused checks and isolated Git
+checkout proof establish the repository behavior. No production deployment is claimed.
+Owner: Delivery Shell navigation and worktree bootstrap.
+
+The main baseline `92160367` mandates Serena for code discovery, enables it in
+base MCP policy and registers new checkouts through a post-checkout hook. This
+adds tool setup and machine-local writes to the ordinary development path. The
+product runtime does not depend on Serena.
+
+The repository retires its Serena configuration, bootstrap entrypoint and
+post-checkout registration hook. Context routing, bounded symbol/caller searches
+with `rg`, source inspection and the existing loop/PR gates remain the accepted
+engineering path. An optional navigation tool is not a prerequisite for it.
+Machine-local MCP configuration remains ignored; its default base server list is
+empty. This change neither edits global/user Serena configuration nor uninstalls
+software or deletes user memories, caches or product data.
+
+Keeping the mandatory tool and registration writer was rejected because the
+existing direct route already supplies source and reference evidence. Merely
+relabelling Serena optional while retaining automatic registration would leave
+the unwanted writer active. No replacement service, index or skill dependency
+is introduced.
+
+Migration removes only repository-owned files and active policy references;
+dated historical evidence remains intact. Workflow invariants reject the
+retired bootstrap/policy route, and context-router tests exercise the remaining
+route. A real isolated Git checkout/worktree proof verifies that repository
+bootstrap no longer creates Serena state while context routing still works.
+Rollback is a normal PR revert of these repository files and policy. It does not
+require runtime restart or data migration. Revisit only if a demonstrated source
+navigation requirement cannot be met by the accepted direct route.
+
+Sources: the user's scoped delivery instruction of 2026-11-04; `AGENTS.md`,
+`docs/agent/runtime.md`, `scripts/context_router.py` and the retired hook/bootstrap
+in baseline `92160367`. The delivery PR records independent review and checks;
+this record does not assert a production deployment.

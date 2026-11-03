@@ -1,6 +1,6 @@
 # Context Map
 
-TA3000 uses a multi-context map. This file routes work to existing source-of-truth docs; it does not replace `AGENTS.md`, hot docs, context cards, or Serena/code inspection.
+TA3000 uses a multi-context map. This file routes work to existing source-of-truth docs; it does not replace `AGENTS.md`, hot docs, context cards, or source inspection.
 
 ## Shell / Governance
 

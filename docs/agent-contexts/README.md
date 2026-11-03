@@ -6,14 +6,14 @@ small search seeds.
 
 Context routing is not only a label. It is the first step before broad reading:
 the agent should run the router, open the primary context card, follow its
-search seeds through Serena when code is involved, and open secondary context
-cards only for files that actually matched them.
+search seeds through targeted source inspection when code is involved, and open
+secondary context cards only for files that actually matched them.
 
 ## Prompt-To-Search Funnel
 1. Classify the request surface and run or consume context router output.
 2. Open the primary context card from `navigation_order`.
 3. Read `Inside This Context` to understand what lives there and what does not.
-4. Use `Search Seeds` as Serena entrypoints for code discovery.
+4. Use `Search Seeds` for targeted symbol, pattern, and reference inspection.
 5. Load secondary context cards only for their matched files or guarded paths.
 6. Record a context footprint when the task crosses more than one context.
 
@@ -51,12 +51,12 @@ Every context card should include:
 - `Owned Paths`: paths that make this context an owner.
 - `Guarded Paths`: nearby paths that require another context or review lens.
 - `Navigation Facets`: sub-areas for small mental routing.
-- `Search Seeds`: first Serena/direct-inspection entrypoints.
+- `Search Seeds`: first paths or symbols for direct inspection.
 - `Navigation Notes`: caveats that prevent over-reading or wrong ownership.
 
 ## Rules
 1. Prefer one primary context per patch.
 2. If multiple contexts are touched, split patch sequence.
 3. Keep cold paths (`plans/`, `memory/`, artifacts, archives, package dump, local tool config) out of default hot retrieval.
-4. For non-trivial code, use the primary context's search seeds as Serena entrypoints before opening whole files.
+4. For non-trivial code, inspect symbols, local patterns, and references from the primary context's search seeds before opening whole files.
 5. Treat `CTX-DOMAIN` as a residual context and confirm that no narrower product-plane context applies.

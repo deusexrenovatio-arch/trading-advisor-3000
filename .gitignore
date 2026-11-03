@@ -22,3 +22,5 @@ artifacts/codex/**/*.parquet
 artifacts/codex/**/*.crc
 artifacts/codex/**/dagster-instance/
 
+# Local navigation tool state
+.serena/
