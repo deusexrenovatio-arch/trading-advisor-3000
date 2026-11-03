@@ -60,3 +60,16 @@ The following contracts are versioned and test-covered, but they are not part of
 ## Research Storage Retirement
 
 Persisted `mtf_*` projections and legacy source hashes are retired. Native strategy timeframe APIs retain their contracts. Migration and rollback: [Continuous Front Indicator Storage](docs/architecture/product-plane/continuous-front-indicator-storage.md).
+
+## Planned Trade Workspace boundaries
+
+The accepted [Workspace contract design](docs/architecture/product-plane/trade-workspace/contracts.md)
+proposes SourceSubmission/NormalizedTradeInput, CalculationBundle,
+TradeWriteBundle/TradeSnapshot/CommitReceipt, DataContext, ReviewEnvelope and
+lineage/read envelopes. These describe the full target; local Journal/Intake
+candidates have narrower executable contracts and separate delivery evidence.
+
+This docs patch adds no executable schemas, fixtures, SQL migrations or changes
+to the release-blocking inventory. Implementation freezes each relevant boundary
+with schema/fixture/compatibility and real producer-to-consumer proof. Existing
+`signal.*` tables remain Runtime-owned; Journal uses its own versioned writer.

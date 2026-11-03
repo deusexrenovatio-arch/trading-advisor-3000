@@ -64,6 +64,39 @@ flowchart LR
     EX --> A
 ```
 
+## Local Trade Workspace branch (accepted target)
+
+[Trade Workspace](docs/architecture/product-plane/trade-workspace/README.md)
+adds a bounded local personal workflow alongside the core product flow.
+Main implementation and local candidate status remain separate in
+[STATUS](docs/architecture/product-plane/STATUS.md).
+
+```mermaid
+flowchart LR
+    UI["Local frontend"] --> APP["Application API / durable requests"]
+    APP --> I["Shared Intake"]
+    APP --> C["Deterministic Calculator"]
+    APP --> J["Versioned Journal / PostgreSQL"]
+    APP --> R["Fixed Review"]
+    I --> AI["Replaceable LM Studio adapter"]
+    R --> AI
+    C --> DATA["ProductDataAPI"]
+    R --> DATA
+    APP --> DATA
+    DATA --> OWN["Public Market / Research APIs"]
+    APP --> LIN["Result-to-source read API"]
+    LIN --> J
+    LIN --> R
+    LIN --> DATA
+```
+
+Application commands coordinate Intake → Calculator → Journal and explicit
+Review of a saved revision. Notes/facts can reach Journal without calculation.
+The facade exposes published analytical products; it does not own new market
+storage or launch materialization. User records do not produce broker orders.
+Strict live-data policy and all existing publication/admission gates remain.
+Detailed boundaries: [module design](docs/architecture/product-plane/journal-module-design.md).
+
 ## Responsibility Split
 
 | Surface | Owns | Must not do |

@@ -10,6 +10,7 @@ Read these first:
 - [native-runtime-ownership.md](docs/architecture/product-plane/native-runtime-ownership.md) - architecture rule for Spark, Delta Lake, Dagster, pandas-ta-classic, vectorbt, Optuna, DuckDB, and Python ownership.
 - [product-plane-module-charters.md](docs/architecture/product-plane/product-plane-module-charters.md) - target modular structure for Contracts, Market Data Foundation, Research Data Factory, Strategy Factory, Runtime Plane, and Execution Plane.
 - [product-plane-module-apis.md](docs/architecture/product-plane/product-plane-module-apis.md) - public communication contract between those deep modules and the enforcement path for removing tolerated storage bridges.
+- [trade-workspace/README.md](docs/architecture/product-plane/trade-workspace/README.md) - accepted local Intake/Calculator/Journal/Review target, PostgreSQL, LM Studio and lineage; [delivery status](docs/architecture/product-plane/trade-workspace/delivery-and-validation.md) distinguishes local candidates from main and deployment.
 - [research-plane-platform.md](docs/architecture/product-plane/research-plane-platform.md) - stable map of the current research-plane primary path.
 - [futures-backtest-money-authority.md](docs/architecture/product-plane/futures-backtest-money-authority.md) - simulation/ledger monetary ownership and metric-basis limits.
 - [semantic-compute-contract.md](docs/architecture/product-plane/semantic-compute-contract.md) - numerical identity, exact provenance and bounded adaptation.
