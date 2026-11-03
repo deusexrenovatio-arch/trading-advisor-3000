@@ -10,6 +10,11 @@ LIVE_POLICY_FILES = (
     ".github/workflows/nightly.yml",
     ".github/workflows/dashboard-refresh.yml",
     "AGENTS.md",
+    "CONTEXT-MAP.md",
+    "docs/agent-contexts/README.md",
+    "docs/agent-contexts/CTX-ARCHITECTURE.md",
+    "docs/architecture/README.md",
+    "docs/workflows/context-budget.md",
     "configs/change_surface_mapping.yaml",
     "docs/DEV_WORKFLOW.md",
     "docs/agent/checks.md",
@@ -17,6 +22,7 @@ LIVE_POLICY_FILES = (
     "docs/agent/runtime.md",
     "docs/runbooks/governance-remediation.md",
     "scripts/context_router.py",
+    "scripts/run_boring_checks.py",
     "scripts/run_loop_gate.py",
     "scripts/run_pr_gate.py",
     "scripts/validate_pr_size.py",
@@ -25,6 +31,9 @@ LIVE_POLICY_FILES = (
 )
 
 FORBIDDEN_POLICY_TEXT = (
+    "Serena",
+    ".serena/",
+    "serena_worktree_bootstrap.py",
     "--skip-session-check",
     "--require-session-check",
     "--session-handoff-path",
@@ -112,8 +121,19 @@ def test_hot_docs_pin_local_mcp_default_policy() -> None:
     text = (ROOT / "docs" / "agent" / "runtime.md").read_text(encoding="utf-8")
 
     assert "`.codex/config.toml` is ignored machine-local state" in text
-    assert '`["serena"]`' in text
+    assert "`profiles.base.servers` must be empty (`[]`)" in text
     assert "not ordinary-chat defaults" in text
+
+
+def test_retired_navigation_bootstrap_stays_removed() -> None:
+    for relative_path in (
+        ".serena/project.yml",
+        "scripts/serena_worktree_bootstrap.py",
+    ):
+        assert not (ROOT / relative_path).exists(), relative_path
+    hook = ROOT / ".githooks" / "post-checkout"
+    if hook.exists():
+        assert "serena" not in hook.read_text(encoding="utf-8").casefold()
 
 
 def test_pr_ci_has_single_required_pr_context_and_size_gate() -> None:

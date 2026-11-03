@@ -11,7 +11,7 @@
    - `memory/{decisions,incidents,patterns}/`
 3. Regenerate compatibility outputs via `python scripts/sync_state_layout.py`.
 4. Use `context_router.py` to produce a context footprint before loading broad context.
-5. For code tasks, start from the primary card's search seeds and use Serena for exact symbols and references.
+5. For code tasks, start from the primary card's search seeds and use targeted source inspection and `rg` for exact symbols and references.
 6. Treat generated artifacts, local tool config, archives, plans, and memory as cold unless explicitly needed.
 7. When cold or broad context is needed, log a Context Expansion Reason before opening it.
 

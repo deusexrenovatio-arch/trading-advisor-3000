@@ -93,7 +93,7 @@ def test_generated_artifacts_stay_cold_by_default() -> None:
 
 def test_cold_only_changes_have_no_implicit_intent_fallback() -> None:
     result = route_files(
-        ["artifacts/codex/run/stdout.log", ".serena/project.yml"],
+        ["artifacts/codex/run/stdout.log", "plans/items/example.yaml"],
     )
     assert result["primary_context"] is None
     assert result["contexts"] == []

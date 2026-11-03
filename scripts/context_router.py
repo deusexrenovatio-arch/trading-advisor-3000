@@ -42,7 +42,6 @@ STOP_WORDS = {
     "with",
 }
 COLD_CONTEXT_PREFIXES: tuple[str, ...] = (
-    ".serena/",
     "artifacts/",
     "plans/",
     "memory/",
@@ -87,7 +86,6 @@ CONTEXTS: tuple[ContextSpec, ...] = (
             "docs/agent-contexts/CTX-OPS.md",
             "docs/workflows/",
             "docs/runbooks/",
-            ".serena/",
             "src/trading_advisor_3000/agents.md",
             "scripts/",
             "tests/process/",

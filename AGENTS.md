@@ -58,13 +58,12 @@ Business and trading logic remain out of scope for shell control-plane surfaces.
 - Before broad repository reading on a non-trivial task, run context routing or consume its current result:
   `python scripts/context_router.py --from-git --format text`.
 - Read the primary context card in `docs/agent-contexts/`, then follow `navigation_order` only as far as the matched files require.
-- Use each context card's `Inside This Context` and `Search Seeds` sections to choose where Serena should start.
-- For non-trivial code changes or new code inside an existing subsystem, Serena is the mandatory first route for code discovery, local pattern learning, impact analysis, and reference checks before editing or adding code.
-- Use Serena for symbol overview, symbol lookup, nearby implementation patterns, references, rename/refactor planning, and precise implementation proof before broad text scans, whole-file reads, or multi-file code dumps.
+- Use each context card's `Inside This Context` and `Search Seeds` sections to choose where code discovery should start.
+- For non-trivial code changes or new code inside an existing subsystem, inspect relevant symbols, local patterns, impact, and references before editing or adding code.
+- Use targeted source inspection and `rg` for symbol lookup, nearby implementation patterns, references, rename/refactor planning, and precise implementation proof before broad reads or multi-file code dumps.
 - Before expanding beyond the primary context route into memory, current diff, logs, generated artifacts, live process state, Graphify, web docs, or broad file reads, leave a short Context Expansion Reason: what uncertainty is being resolved, which source/tool will answer it, why the current route is insufficient, and when to stop expanding.
-- For new isolated files, first use Serena to inspect the closest existing module or pattern unless the task is truly standalone.
-- Direct search/read fallback is allowed only for docs-only work, generated/artifact paths, config/non-code-only tasks, tiny already-localized edits, unsupported file types, or Serena unavailability.
-- If Serena is skipped or unavailable on a code task, state the fallback reason briefly and continue with the lightest reliable tools.
+- For new isolated files, first inspect the closest existing module or pattern unless the task is truly standalone.
+- Keep direct searches and reads bounded to the matched context and relevant symbols.
 
 ## Ordinary Chat Routing
 - Ordinary chat uses a short route: classify the surface and semantic risk,
@@ -99,7 +98,7 @@ Domain docs use a multi-context layout through `CONTEXT-MAP.md`; the map points 
 ### Phase 1 baseline
 1. Read hot docs.
 2. Confirm change surface and keep domain logic out of shell files.
-3. For non-trivial code work, start code discovery through Serena before broad scans or implementation.
+3. For non-trivial code work, start with targeted symbol, pattern, and reference inspection before broad scans or implementation.
 4. Implement one small patch set.
 5. Run checks from `docs/agent/checks.md`.
 6. Prepare PR-oriented change summary.
