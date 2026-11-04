@@ -909,3 +909,109 @@ def test_oi_scope_binds_typed_evidence_and_both_native_paths(tmp_path, mutation)
         report={"oi_support_scope": proof}, tables={name: after}, previous_tables={name: before}
     )
     assert (name in scope["covered_tables"]) is (mutation is None)
+
+
+@pytest.mark.parametrize("deferred", [False, True])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "before",
+        "after",
+        "snapshot_input",
+        "missing_before",
+        "money",
+        "unknown_scope",
+        "input_bool",
+        "output_bool",
+        "generic_window",
+        "native_gap",
+        "jump",
+        "wrong_noop",
+        "missing_native_previous",
+    ],
+)
+def test_canonical_parameter_renewal_requires_bound_money_effects(tmp_path, deferred, mutation):
+    from trading_advisor_3000.product_plane.data_plane.data_snapshots import _downstream_scope
+
+    name = "canonical_contract_parameters"
+    before = {
+        "table_path": str(tmp_path / (name + ".delta")),
+        "table_id": "parameters",
+        "delta_version": 0,
+    }
+    after = {**before, "delta_version": 1}
+    money = {
+        key: {"table_path": str(tmp_path / (key + ".delta")), "table_id": key, "delta_version": 3}
+        for key in (
+            "canonical_contract_economics",
+            "canonical_fx_rates",
+            "canonical_asset_risk_parameters",
+        )
+    }
+    renewal = {
+        "parameter_input_reference": dict(before),
+        "tables": {"prepared": {**after, "previous_delta_version": 0, "changed_rows": 1}},
+    }
+    economics = {
+        "status": "PASS-NOOP" if deferred else "PASS",
+        "snapshot_inputs": {name: dict(after)},
+        "native_history_renewal": renewal,
+        "output_references": dict(money),
+        "downstream_scope": {"version": 1, "full_refresh": False},
+    }
+    if deferred:
+        economics.update(
+            refresh_status="DEFERRED",
+            published_coverage={
+                "status": "PASS",
+                "table_reference": dict(money["canonical_contract_economics"]),
+            },
+        )
+    previous = {name: before, **money}
+    if mutation == "before":
+        renewal["parameter_input_reference"]["delta_version"] = 99
+    elif mutation == "after":
+        renewal["tables"]["prepared"]["table_id"] = "foreign"
+    elif mutation == "snapshot_input":
+        economics["snapshot_inputs"][name]["delta_version"] = 99
+    elif mutation == "missing_before":
+        previous.pop(name)
+    elif mutation == "money":
+        if deferred:
+            economics["published_coverage"]["table_reference"]["delta_version"] = 99
+        else:
+            economics["output_references"].pop("canonical_fx_rates")
+    elif mutation == "unknown_scope":
+        if deferred:
+            economics["published_coverage"]["status"] = "BLOCKED"
+        else:
+            economics["downstream_scope"]["full_refresh"] = True
+    elif mutation == "input_bool":
+        renewal["parameter_input_reference"]["delta_version"] = False
+    elif mutation == "output_bool":
+        renewal["tables"]["prepared"]["delta_version"] = True
+    elif mutation in {"native_gap", "jump"}:
+        post = 8 if mutation == "native_gap" else 2
+        after["delta_version"] = post
+        economics["snapshot_inputs"][name]["delta_version"] = post
+        renewal["tables"]["prepared"].update(
+            delta_version=post, previous_delta_version=post - 1 if mutation == "native_gap" else 0
+        )
+    elif mutation == "wrong_noop":
+        renewal["tables"]["prepared"]["changed_rows"] = 0
+    elif mutation == "missing_native_previous":
+        renewal["tables"]["prepared"].pop("previous_delta_version")
+    report = {"economics_refresh": economics}
+    if mutation == "generic_window":
+        economics["status"] = "BLOCKED"
+        report.update(
+            cf_catch_up={"windows": [{"instrument_id": "BR", "timeframe": "15m"}]},
+            windowed_input_references={name: after},
+        )
+    scope = _downstream_scope(
+        report=report,
+        tables={name: after, **money},
+        previous_tables=previous,
+    )
+    assert (name in scope["covered_tables"]) is (mutation is None)

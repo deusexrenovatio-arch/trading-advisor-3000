@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Economics Data scope transition v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "source",
+    "cutover",
+    "target_tables_sha256",
+    "intent_id",
+    "binding_sha256",
+    "row_counts",
+    "differences",
+    "runtime_provenance",
+    "report_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "snapshot_id",
+        "manifest_sha256"
+      ],
+      "properties": {
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "cutover": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "snapshot_id",
+        "manifest_sha256"
+      ],
+      "properties": {
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 32,
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "minLength": 64,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "target_tables_sha256": {
+      "type": "string",
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "intent_id": {
+      "type": "string",
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "binding_sha256": {
+      "type": "string",
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "row_counts": {
+      "type": "object",
+      "required": [
+        "parameters",
+        "raw",
+        "economics"
+      ],
+      "properties": {
+        "parameters": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "raw": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "economics": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "differences": {
+      "type": "integer",
+      "const": 0
+    },
+    "runtime_provenance": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "report_sha256": {
+      "type": "string",
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false
+}
