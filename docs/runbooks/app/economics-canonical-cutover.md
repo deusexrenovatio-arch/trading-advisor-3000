@@ -83,3 +83,50 @@ route. It refuses rollback over later writer commits/publications. Verify the
 old complete snapshot/route and restore the previously running controls. Do not
 automatically deploy the former binary: its publisher cannot distinguish the
 retained inactive canonical candidate. Never delete Delta history for rollback.
+
+## Complete the Data to Research transition
+
+After promotion of the reviewed scope fix, keep the original three controls
+quiesced and prove no owning runs are active. The original cutover plan remains
+frozen; its `apply`, `verify` and table rollback retain their source-release
+restriction. The new scope audit accepts that immutable plan only while its
+accepted v6 calculation policy remains identical.
+
+For a previously activated cutover lacking the typed downstream transition,
+audit the exact initial Data snapshot first; the default publishes nothing:
+
+```sh
+python scripts/run_moex_economics_cutover.py repair-scope --plan /ta3000-data/moex-historical/canonical/economics/.production-cutover/plan.json --expected-data-id <initial-cutover-id>
+```
+
+The native audit compares complete parameters/origins and the original RAW
+projection, requires identical remaining Data references and unchanged working
+pins. Add `--publish` to create its immutable metadata-only child. It changes
+neither Delta tables nor the original cutover/accepted Research manifests.
+`data_economics_scope_transition.v1` inside `downstream_scope` binds the exact
+proved zero-effect edge. New initial cutovers already emit this report.
+
+Retain the response and `research-scope-intent.json`. After a lost response,
+repeat the same command/ID; an already selected owned child returns
+`PASS-NOOP` with its original identity. A saved manifest with a missing intent
+is a conflict, not permission to issue a new UUID. Do not remove checkpoints.
+An advanced Data snapshot or unpublished producer commit requires a new bounded
+diagnosis; this operator never skips an unknown descendant.
+
+Evaluate the existing daily admission against accepted current Data. `NOOP`
+means the retained Research already covers the numerical inputs; `SCOPED`
+permits only its returned windows with `force_full_refresh=false`. Any `BLOCKED`
+reason remains a blocker. Validate the scheduled config and both sensor handoffs
+before restoring exactly the controls that were previously running. Activation
+does not fabricate a baseline-success event or rewind sensor cursors.
+
+If necessary before later publications/writes, metadata-only rollback selects
+the original cutover and retains both the repair and numerical history:
+
+```sh
+python scripts/run_moex_economics_cutover.py rollback-scope --plan /ta3000-data/moex-historical/canonical/economics/.production-cutover/plan.json --expected-data-id <repair-child-id>
+```
+
+This rollback intentionally restores the prior blocked Research boundary.
+Keep controls quiesced until forward repair is verified. It refuses later
+publications or changed physical pins; do not use table rollback as a substitute.

@@ -52,6 +52,36 @@ production publication was written during these proofs.
 Native image: `sha256:5ada9f4ddf8b4ac149fab285f3e23ce5cffc02f5c6b5274ddb4191106d0f0ca1`.
 Evidence directory: `.tmp/economics-production-cutover-20261104/`.
 Full copied-history result: `.tmp/ec-linux-shadow/full-cutover-final-proof.json`.
+
+## Data to Research scope proof, 2026-11-05
+
+The initial activation did not prove the Research admission boundary. A fresh
+native check found `BLOCKED: data_table_set_changed`; this follow-up adds a typed
+zero-effect transition and native-renewal parameter coverage without changing
+the accepted v6 money policy or generic scope-recovery contract.
+
+The actual initial production Data pins are exercised through a read-only data
+mount with separate writable registry/cutover-metadata/lock overlays. The real
+accepted Research manifest is read unchanged. Thus producer publication and
+rollback affect only isolated metadata; all numerical reads use exact production
+Delta versions, not rewritten table IDs or fabricated source records.
+
+Native Spark audit: 124,347 complete parameter/origin rows and original RAW
+projections agree; 124,256 economics rows retain the same reference. Every other
+Data reference stays identical. The ordinary daily admission changes from
+`BLOCKED` to `NOOP`, with zero numerical rebuild. Retry returns the same issued
+child; metadata rollback returns the original boundary, and reapplication selects
+the same child again. Original manifests and Delta histories remain unchanged.
+
+Independent earlier copied-economics proof also compares all history and
+reconciles an identical-input retry. Unit/native regressions cover lost intent
+after manifest save, lost CAS acknowledgement, a changed candidate envelope,
+unknown/native version gaps, unrelated descendants and producer writes.
+
+Evidence: `.tmp/economics-handoff-20261105/native-overlay.json`,
+`.tmp/economics-handoff-20261105/native-producer.json`, native test and gate logs
+beside those receipts. Isolated proof does not itself claim production promotion
+or the result of a later scheduled run; those require fresh deployed readback.
 Full producer comparison: `producer-parity.json` in the evidence directory;
 source acquisition failure: `shadow-renewal.log`.
 

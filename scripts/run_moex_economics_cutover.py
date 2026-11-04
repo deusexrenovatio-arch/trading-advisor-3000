@@ -13,7 +13,9 @@ from trading_advisor_3000.product_plane.common.data_snapshots import atomic_json
 from trading_advisor_3000.product_plane.data_plane.moex.economics_cutover import (
     apply_cutover,
     plan_cutover,
+    repair_downstream_scope,
     rollback_cutover,
+    rollback_downstream_scope,
     verify_cutover,
 )
 
@@ -29,6 +31,17 @@ def main():
     plan.add_argument("--acceptance", type=Path, required=True)
     plan.add_argument("--release-sha", required=True)
     plan.add_argument("--release-record", type=Path, required=True)
+    scope = commands.add_parser(
+        "repair-scope", help="native zero-effect scope audit; optional metadata publication"
+    )
+    scope.add_argument("--plan", type=Path, required=True)
+    scope.add_argument("--expected-data-id", required=True)
+    scope.add_argument("--publish", action="store_true")
+    undo_scope = commands.add_parser(
+        "rollback-scope", help="metadata-only rollback before descendants or producer writes"
+    )
+    undo_scope.add_argument("--plan", type=Path, required=True)
+    undo_scope.add_argument("--expected-data-id", required=True)
     for name in ("apply", "verify", "rollback", "status"):
         command = commands.add_parser(name)
         command.add_argument("--plan", type=Path, required=True)
@@ -65,17 +78,24 @@ def main():
         result = plan_cutover(args.data_root, args.acceptance, code_version=args.release_sha)
     elif args.command == "status":
         result = json.loads((args.plan.parent / "status.json").read_text())
+    elif args.command == "rollback-scope":
+        result = rollback_downstream_scope(args.plan, expected_data_id=args.expected_data_id)
     else:
         from trading_advisor_3000.spark_jobs.canonical_bars_job import _create_spark_session
 
         spark = _create_spark_session("economics-production-cutover", "local[2]")
         try:
-            operation = {
-                "apply": apply_cutover,
-                "verify": verify_cutover,
-                "rollback": rollback_cutover,
-            }[args.command]
-            result = operation(args.plan, spark)
+            if args.command == "repair-scope":
+                result = repair_downstream_scope(
+                    args.plan, spark, expected_data_id=args.expected_data_id, publish=args.publish
+                )
+            else:
+                operation = {
+                    "apply": apply_cutover,
+                    "verify": verify_cutover,
+                    "rollback": rollback_cutover,
+                }[args.command]
+                result = operation(args.plan, spark)
         finally:
             spark.stop()
     print(json.dumps(result, default=str))

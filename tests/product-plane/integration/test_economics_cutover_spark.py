@@ -129,7 +129,7 @@ def _process(path, root, *, phase="apply", crash=""):
 import os,sys,json
 from pathlib import Path
 from trading_advisor_3000.product_plane.data_plane.moex.economics_cutover import (
- apply_cutover,verify_cutover,rollback_cutover,
+ apply_cutover,verify_cutover,rollback_cutover,repair_downstream_scope,
 )
 from trading_advisor_3000.spark_jobs.canonical_bars_job import _create_spark_session
 def event(name):
@@ -138,6 +138,9 @@ s=_create_spark_session('native-canonical-cutover','local[2]')
 try:
  if sys.argv[2]=='apply':r=apply_cutover(Path(sys.argv[1]),s,on_commit=event)
  elif sys.argv[2]=='rollback':r=rollback_cutover(Path(sys.argv[1]),s)
+ elif sys.argv[2]=='repair':
+  p=Path(sys.argv[1]);expected=json.loads((p.parent/'candidate-intent.json').read_text())['snapshot_id']
+  r=repair_downstream_scope(p,s,expected_data_id=expected,publish=True,on_commit=event)
  else:r=verify_cutover(Path(sys.argv[1]),s)
 finally:s.stop()
 print('CUTOVER_RESULT='+json.dumps(r))
@@ -234,6 +237,114 @@ def test_native_cutover_recovers_publishes_complete_snapshot_and_rolls_back(tmp_
     assert all(restored[k] == v for k, v in plan["sources"]["raw"].items() if k != "delta_version")
     assert _process(path, tmp_path, phase="rollback")["status"] == "rolled_back"
     assert capture_table(Path(initial["table_path"])) == initial
+
+
+def test_native_scope_transition_retains_identity_and_rejects_changed_envelope(
+    tmp_path, monkeypatch
+):
+    from trading_advisor_3000.product_plane.common.data_snapshots import (
+        SnapshotUnavailableError,
+        _hash,
+    )
+    from trading_advisor_3000.product_plane.research.data_snapshots import snapshot_registry
+    from trading_advisor_3000.product_plane.research.refresh_scope import resolve_refresh_scope
+
+    _configure_windows_spark_runtime(tmp_path, monkeypatch)
+    path, previous, plan = _fixture(tmp_path)
+    _process(path, tmp_path)
+    registry = tmp_path / "canonical/moex/baseline-4y-current/.data_snapshots"
+    initial = current_snapshot(registry)
+    research = create_snapshot(
+        tables=previous["tables"],
+        required_tables=previous["required_tables"],
+        dataset_version="fixture",
+        run_id="accepted-research",
+        code_version="fixture",
+        quality_checks={"fixture": "PASS"},
+        parameters={"refresh_scope_version": 1, "timeframes": ["1d"]},
+        parents=[previous["snapshot_id"]],
+    )
+    materialized = tmp_path / "research"
+    research_registry = snapshot_registry(materialized, "fixture", "pit_active_front")
+    publish_snapshot(
+        research_registry, save_snapshot(research_registry, research), expected_current_id=None
+    )
+    assert (
+        resolve_refresh_scope(
+            data_manifest_path=registry / "manifests" / (initial["snapshot_id"] + ".json"),
+            materialized_output_dir=materialized,
+            dataset_version="fixture",
+            timeframes=["1d"],
+        )["outcome"]
+        == "NOOP"
+    )
+    _process(path, tmp_path, phase="repair", crash="scope_saved")
+    assert current_snapshot(registry) == initial
+    intent_path = path.parent / "research-scope-intent.json"
+    intent_bytes = intent_path.read_bytes()
+    candidate = json.loads(intent_bytes)
+    intent_path.unlink()
+    with pytest.raises(ValueError, match="lost its issued identity"):
+        cutover._issued_scope_candidate(plan, path.parent, registry)
+    intent_path.write_bytes(intent_bytes)
+    for field, value in (
+        ("run_id", "foreign"),
+        ("code_version", "foreign"),
+        ("dataset_version", "foreign"),
+        ("required_tables", ["canonical_contract_parameters"]),
+        ("window", {"foreign": True}),
+        ("parameters", {**candidate["parameters"], "foreign": True}),
+    ):
+        changed = {**candidate, field: value}
+        changed["manifest_sha256"] = _hash(
+            {k: v for k, v in changed.items() if k != "manifest_sha256"}
+        )
+        with pytest.raises(ValueError, match="envelope changed"):
+            cutover.validate_economics_scope_transition(changed, root=registry)
+    _process(path, tmp_path, phase="repair", crash="scope_published")
+    assert current_snapshot(registry) == candidate
+    retry = _process(path, tmp_path, phase="repair")
+    assert retry["status"] == "PASS-NOOP" and retry["manifest"] == candidate
+    assert (
+        cutover.rollback_downstream_scope(path, expected_data_id=candidate["snapshot_id"])["status"]
+        == "rolled_back"
+    )
+    assert (
+        cutover.rollback_downstream_scope(path, expected_data_id=candidate["snapshot_id"])["status"]
+        == "PASS-NOOP"
+    )
+    assert current_snapshot(registry) == initial
+    publish_snapshot(
+        registry,
+        registry / "manifests" / (candidate["snapshot_id"] + ".json"),
+        expected_current_id=initial["snapshot_id"],
+    )
+    child = create_snapshot(
+        tables=candidate["tables"],
+        required_tables=candidate["required_tables"],
+        dataset_version="fixture",
+        run_id="later",
+        code_version="fixture",
+        quality_checks={"fixture": "PASS"},
+        parents=[candidate["snapshot_id"]],
+    )
+    publish_snapshot(
+        registry, save_snapshot(registry, child), expected_current_id=candidate["snapshot_id"]
+    )
+    with pytest.raises(ValueError, match="later publication"):
+        cutover.rollback_downstream_scope(path, expected_data_id=candidate["snapshot_id"])
+    publish_snapshot(
+        registry,
+        registry / "manifests" / (candidate["snapshot_id"] + ".json"),
+        expected_current_id=child["snapshot_id"],
+    )
+    write_delta_table_rows(
+        table_path=tmp_path / "canonical/unrelated.delta",
+        columns={"value": "double"},
+        rows=[{"value": 124}],
+    )
+    with pytest.raises(SnapshotUnavailableError):
+        cutover.rollback_downstream_scope(path, expected_data_id=candidate["snapshot_id"])
 
 
 def test_native_cutover_aborts_own_raw_commit_before_publication(tmp_path, monkeypatch):

@@ -124,6 +124,19 @@ def test_canonical_clone_rejects_changed_admission(tmp_path, monkeypatch, change
         continuation.validate_contract_parameter_evidence(rules, evidence)
 
 
+def test_scope_intent_scan_preserves_native_manifest_size(tmp_path):
+    from trading_advisor_3000.product_plane.data_plane.moex.economics_cutover import (
+        _issued_scope_candidate,
+    )
+
+    registry = tmp_path / "registry"
+    (registry / "manifests").mkdir(parents=True)
+    (registry / "manifests/unrelated.json").write_text(
+        json.dumps({"run_id": "unrelated", "metadata": "x" * 70000})
+    )
+    assert _issued_scope_candidate({"intent_id": "test"}, tmp_path, registry) is None
+
+
 def test_release_record_rejects_untracked_executable_source(tmp_path, monkeypatch):
     import importlib.util
     import subprocess

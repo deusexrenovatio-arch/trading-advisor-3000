@@ -460,6 +460,13 @@ def _paths(plan):
 
 
 def _load_plan(path):
+    plan = _load_accepted_plan(path)
+    if plan.get("runtime_source_sha256") != runtime_provenance()["source_sha256"]:
+        raise ValueError("cutover release source changed; retain the frozen implementation")
+    return plan
+
+
+def _load_accepted_plan(path):
     plan = _read(path)
     if plan.get("kind") != KIND or _hash(
         {k: v for k, v in plan.items() if k != "intent_id"}
@@ -467,8 +474,6 @@ def _load_plan(path):
         raise ValueError("cutover intent changed")
     if plan.get("calculation_policy") != calculation_policy():
         raise ValueError("accepted calculation policy/code changed")
-    if plan.get("runtime_source_sha256") != runtime_provenance()["source_sha256"]:
-        raise ValueError("cutover release source changed; retain the frozen implementation")
     root, _, directory, _ = _paths(plan)
     if not root.is_absolute() or Path(path).resolve() != directory / "plan.json":
         raise ValueError("cutover plan path differs from its owning root")
@@ -602,10 +607,14 @@ def apply_cutover(plan_path, spark, *, on_commit=None):
                 "economics_production_parity": "PASS",
                 "canonical_parameter_origins": "PASS",
                 "original_raw_projection": "PASS",
+                "economics_scope_transition": "PASS",
             },
             parents=[old["snapshot_id"]],
             parameters={
                 **old["parameters"],
+                "downstream_scope": _transition_scope(
+                    plan, old, tables, _read(canonical / BINDING)
+                ),
                 "economics_canonical_binding": (canonical / BINDING).as_posix(),
                 "economics_validation_basis": "accepted_production_baseline",
                 "economics_cutover_intent": plan["intent_id"],
@@ -645,40 +654,10 @@ def verify_cutover(plan_path, spark):
             raise ValueError("selected publication is not a proven cutover descendant")
         seen.add(cursor["snapshot_id"])
         cursor = load_snapshot(snapshot_root / "manifests" / (cursor["parents"][0] + ".json"))
-    binding = load_canonical_binding(
-        canonical / BINDING,
-        {
-            "prepared_input_table_id": plan["sources"]["parameters"]["table_id"],
-            "prepared_input_version": plan["sources"]["parameters"]["delta_version"],
-            "regimes_sha256": plan["policy"]["bounded-parameter-regimes.json"],
-            "dated_official_tc_evidence_sha256": plan["policy"]["dated-official-tc-evidence.json"],
-        },
-    )["canonical_binding"]
-    ref = intent["tables"][PARAMETERS]
-    if binding["canonical"] != ref or binding["owner"]["intent_id"] != plan["intent_id"]:
-        raise ValueError("selected initial parameters differ from their accepted binding")
-    source = _table(spark, plan["sources"]["parameters"])
-    expected = _parameter_frame(source, plan["sources"]["parameters"], binding["owner"])
-    _equal(expected, _table(spark, ref))
-    _equal(_original_raw(_table(spark, plan["sources"]["raw"])), _table(spark, binding["raw"]))
-    if (
-        capture_table(Path(plan["sources"]["parameters"]["table_path"]))
-        != plan["sources"]["parameters"]
-    ):
-        raise ValueError("frozen legacy parameters advanced after cutover")
-    old = load_snapshot(snapshot_root / "manifests" / (plan["previous_snapshot_id"] + ".json"))
-    for name, before in old["tables"].items():
-        if (
-            Path(before["table_path"]).resolve()
-            not in {
-                Path(plan["sources"][role]["table_path"]).resolve()
-                for role in ("raw", "parameters")
-            }
-            and intent["tables"].get(name) != before
-        ):
-            raise ValueError("unrelated published table changed during initial cutover")
+    _verify_initial_cutover(plan, intent, spark)
     if any(value not in {"PASS", "PASS-NOOP"} for value in current["quality_checks"].values()):
         raise ValueError("selected publication lacks accepted QC")
+    ref = intent["tables"][PARAMETERS]
     selected_ref = current["tables"].get(PARAMETERS)
     if (
         selected_ref is None
@@ -730,6 +709,276 @@ def verify_cutover(plan_path, spark):
     }
     atomic_json(directory / "status.json", result)
     return result
+
+
+def _verify_initial_cutover(plan, intent, spark):
+    _, canonical, _, snapshot_root = _paths(plan)
+    binding = load_canonical_binding(
+        canonical / BINDING,
+        {
+            "prepared_input_table_id": plan["sources"]["parameters"]["table_id"],
+            "prepared_input_version": plan["sources"]["parameters"]["delta_version"],
+            "regimes_sha256": plan["policy"]["bounded-parameter-regimes.json"],
+            "dated_official_tc_evidence_sha256": plan["policy"]["dated-official-tc-evidence.json"],
+        },
+    )["canonical_binding"]
+    ref = intent["tables"][PARAMETERS]
+    if binding["canonical"] != ref or binding["owner"]["intent_id"] != plan["intent_id"]:
+        raise ValueError("selected initial parameters differ from their accepted binding")
+    source = _table(spark, plan["sources"]["parameters"])
+    expected = _parameter_frame(source, plan["sources"]["parameters"], binding["owner"])
+    _equal(expected, _table(spark, ref))
+    _equal(_original_raw(_table(spark, plan["sources"]["raw"])), _table(spark, binding["raw"]))
+    if (
+        capture_table(Path(plan["sources"]["parameters"]["table_path"]))
+        != plan["sources"]["parameters"]
+    ):
+        raise ValueError("frozen legacy parameters advanced after cutover")
+    old = load_snapshot(snapshot_root / "manifests" / (plan["previous_snapshot_id"] + ".json"))
+    if old["manifest_sha256"] != plan["previous_manifest_sha256"]:
+        raise ValueError("cutover source manifest changed")
+    if intent["tables"] != _transition_tables(plan, old, binding):
+        raise ValueError("cutover changed unrelated tables or aliases")
+    for name, before in old["tables"].items():
+        if (
+            Path(before["table_path"]).resolve()
+            not in {
+                Path(plan["sources"][role]["table_path"]).resolve()
+                for role in ("raw", "parameters")
+            }
+            and intent["tables"].get(name) != before
+        ):
+            raise ValueError("unrelated published table changed during initial cutover")
+    return binding
+
+
+def _transition_tables(plan, source, binding):
+    legacy = {
+        name for name, ref in source["tables"].items() if ref == plan["sources"]["parameters"]
+    }
+    if not legacy or source["tables"].get("raw_moex_contract_securities") != plan["sources"]["raw"]:
+        raise ValueError("cutover source roles differ from the accepted pins")
+    return {
+        **{name: ref for name, ref in source["tables"].items() if name not in legacy},
+        PARAMETERS: binding["canonical"],
+        "raw_moex_contract_securities": binding["raw"],
+    }
+
+
+def _snapshot_identity(manifest):
+    return {key: manifest[key] for key in ("snapshot_id", "manifest_sha256")}
+
+
+def _scope_from_transition(report, tables):
+    return {
+        "version": 2,
+        "full_refresh": False,
+        "windows": [],
+        "effective_intervals": [],
+        "covered_tables": {
+            name: {key: ref[key] for key in ("table_id", "delta_version")}
+            for name, ref in tables.items()
+        },
+        "economics_cutover": report,
+    }
+
+
+def _transition_scope(plan, source, tables, binding, *, cutover=None):
+    report = {
+        "schema_version": 1,
+        "source": _snapshot_identity(source),
+        "cutover": _snapshot_identity(cutover) if cutover is not None else None,
+        "target_tables_sha256": _hash(tables),
+        "intent_id": plan["intent_id"],
+        "binding_sha256": binding["binding_sha256"],
+        "row_counts": {
+            "parameters": binding["canonical"]["row_count"],
+            "raw": binding["raw"]["row_count"],
+            "economics": plan["sources"]["economics"]["row_count"],
+        },
+        "differences": 0,
+        "runtime_provenance": runtime_provenance(),
+    }
+    report["report_sha256"] = _hash(report)
+    return _scope_from_transition(report, tables)
+
+
+def _validate_repair_envelope(candidate, issued, scope):
+    ignored = {"snapshot_id", "created_at_utc", "manifest_sha256"}
+    expected = {key: value for key, value in issued.items() if key not in ignored}
+    expected.update(
+        run_id=issued["run_id"] + ":research-scope",
+        code_version="economics-scope-transition.v1",
+        parents=[issued["snapshot_id"]],
+        quality_checks={**issued["quality_checks"], "economics_scope_transition": "PASS"},
+        parameters={**issued["parameters"], "downstream_scope": scope},
+    )
+    if {key: value for key, value in candidate.items() if key not in ignored} != expected:
+        raise ValueError("issued scope repair envelope changed")
+
+
+def _issued_scope_candidate(plan, directory, registry):
+    path = directory / "research-scope-intent.json"
+    candidate = load_snapshot(path) if path.exists() else None
+    issued = [
+        load_snapshot(path)
+        for path in (registry / "manifests").glob("*.json")
+        if json.loads(path.read_text(encoding="utf-8")).get("run_id")
+        == plan["intent_id"] + ":research-scope"
+    ]
+    if candidate is None and issued:
+        raise ValueError("saved scope repair lost its issued identity intent")
+    if candidate is not None and any(item != candidate for item in issued):
+        raise ValueError("scope repair has conflicting issued identities")
+    return candidate
+
+
+def validate_economics_scope_transition(manifest, *, root):
+    """Discharge only the native-proved zero-effect economics migration edge."""
+    from trading_advisor_3000.product_plane.contracts.schema_validation import (
+        load_schema,
+        validate_schema,
+    )
+
+    scope = manifest["parameters"]["downstream_scope"]
+    report = scope["economics_cutover"]
+    schema = Path(__file__).parents[2] / "contracts/schemas/data_economics_scope_transition.v1.json"
+    validate_schema(load_schema(schema), report)
+    if report["report_sha256"] != _hash({k: v for k, v in report.items() if k != "report_sha256"}):
+        raise ValueError("economics scope report changed")
+    if PARAMETERS not in manifest["tables"]:
+        raise ValueError("economics scope lacks canonical parameters")
+    canonical = Path(manifest["tables"][PARAMETERS]["table_path"]).parent
+    plan = _load_accepted_plan(canonical / ".production-cutover/plan.json")
+    _, _, directory, registry = _paths(plan)
+    if Path(root).resolve() != registry.resolve():
+        raise ValueError("economics scope registry differs from its owning root")
+    issued = _issued_candidate(plan, directory, registry)
+    source = load_snapshot(registry / "manifests" / (plan["previous_snapshot_id"] + ".json"))
+    edge = manifest
+    if report["cutover"] is not None:
+        edge = load_snapshot(registry / "manifests" / (report["cutover"]["snapshot_id"] + ".json"))
+        if (
+            _snapshot_identity(edge) != report["cutover"]
+            or manifest["parents"] != [edge["snapshot_id"]]
+            or manifest["tables"] != edge["tables"]
+        ):
+            raise ValueError("economics scope repair changed its target")
+        _validate_repair_envelope(manifest, edge, scope)
+    binding = _read(canonical / BINDING)
+    binding = load_canonical_binding(
+        canonical / BINDING,
+        {
+            "prepared_input_table_id": plan["sources"]["parameters"]["table_id"],
+            "prepared_input_version": plan["sources"]["parameters"]["delta_version"],
+            "regimes_sha256": plan["policy"]["bounded-parameter-regimes.json"],
+            "dated_official_tc_evidence_sha256": plan["policy"]["dated-official-tc-evidence.json"],
+        },
+    )["canonical_binding"]
+    if (
+        issued is None
+        or edge != issued
+        or edge["parents"] != [source["snapshot_id"]]
+        or source["manifest_sha256"] != plan["previous_manifest_sha256"]
+        or report["source"] != _snapshot_identity(source)
+        or report["intent_id"] != plan["intent_id"]
+        or report["binding_sha256"] != binding["binding_sha256"]
+        or report["target_tables_sha256"] != _hash(manifest["tables"])
+        or manifest["tables"] != _transition_tables(plan, source, binding)
+        or report["row_counts"]
+        != {
+            "parameters": binding["canonical"]["row_count"],
+            "raw": binding["raw"]["row_count"],
+            "economics": plan["sources"]["economics"]["row_count"],
+        }
+        or scope != _scope_from_transition(report, manifest["tables"])
+        or manifest["quality_checks"].get("economics_scope_transition") != "PASS"
+        or any(
+            value not in {"PASS", "PASS-NOOP"}
+            for item in (source, edge, manifest)
+            for value in item["quality_checks"].values()
+        )
+    ):
+        raise ValueError("economics scope transition differs from its accepted edge")
+    for item in (source, edge):
+        for ref in item["tables"].values():
+            open_pinned_table(ref)
+    return source
+
+
+def repair_downstream_scope(plan_path, spark, *, expected_data_id, publish=False, on_commit=None):
+    """Native audit plus optional immutable metadata child; never rewrite history."""
+    from trading_advisor_3000.product_plane.common.data_snapshots import assert_tables_unchanged
+
+    plan = _load_accepted_plan(plan_path)
+    _, canonical, directory, registry = _paths(plan)
+    with economics_writer_lock(canonical):
+        issued = _issued_candidate(plan, directory, registry)
+        if issued is None or issued["snapshot_id"] != expected_data_id:
+            raise ValueError("scope repair requires its exact initial cutover ID")
+        selected = current_snapshot(registry)
+        intent_path = directory / "research-scope-intent.json"
+        candidate = _issued_scope_candidate(plan, directory, registry)
+        if candidate is not None and selected == candidate:
+            validate_economics_scope_transition(candidate, root=registry)
+            assert_tables_unchanged(candidate["tables"])
+            return {"status": "PASS-NOOP", "published": True, "manifest": candidate}
+        if selected != issued:
+            raise ValueError("scope repair refuses an advanced or unrelated publication")
+        assert_tables_unchanged(issued["tables"])
+        provenance = runtime_provenance()
+        binding = _verify_initial_cutover(plan, issued, spark)
+        source = load_snapshot(registry / "manifests" / (plan["previous_snapshot_id"] + ".json"))
+        scope = _transition_scope(plan, source, issued["tables"], binding, cutover=issued)
+        if candidate is None:
+            candidate = create_snapshot(
+                tables=issued["tables"],
+                required_tables=issued["required_tables"],
+                dataset_version=issued["dataset_version"],
+                run_id=plan["intent_id"] + ":research-scope",
+                code_version="economics-scope-transition.v1",
+                quality_checks={**issued["quality_checks"], "economics_scope_transition": "PASS"},
+                parents=[issued["snapshot_id"]],
+                parameters={**issued["parameters"], "downstream_scope": scope},
+                window=issued["window"],
+            )
+        elif candidate["parameters"]["downstream_scope"] != scope:
+            raise ValueError("issued scope repair differs from this audit release")
+        validate_economics_scope_transition(candidate, root=registry)
+        assert_tables_unchanged(issued["tables"])
+        if runtime_provenance() != provenance or current_snapshot(registry) != issued:
+            raise ValueError("scope repair code or selected Data changed during audit")
+        if publish:
+            atomic_json(intent_path, candidate, immutable=True)
+            path = save_snapshot(registry, candidate)
+            if on_commit:
+                on_commit("scope_saved")
+            publish_snapshot(registry, path, expected_current_id=expected_data_id)
+            if on_commit:
+                on_commit("scope_published")
+        return {"status": "PASS", "published": publish, "manifest": candidate}
+
+
+def rollback_downstream_scope(plan_path, *, expected_data_id):
+    from trading_advisor_3000.product_plane.common.data_snapshots import assert_tables_unchanged
+
+    plan = _load_accepted_plan(plan_path)
+    _, canonical, directory, registry = _paths(plan)
+    with economics_writer_lock(canonical):
+        candidate = _issued_scope_candidate(plan, directory, registry)
+        issued = _issued_candidate(plan, directory, registry)
+        if candidate is None or candidate["snapshot_id"] != expected_data_id:
+            raise ValueError("scope rollback requires its exact issued repair ID")
+        validate_economics_scope_transition(candidate, root=registry)
+        assert_tables_unchanged(candidate["tables"])
+        current = current_snapshot(registry)
+        if current == issued:
+            return {"status": "PASS-NOOP", "snapshot_id": issued["snapshot_id"]}
+        if current != candidate:
+            raise ValueError("scope rollback refuses a later publication")
+        path = registry / "manifests" / (issued["snapshot_id"] + ".json")
+        publish_snapshot(registry, path, expected_current_id=expected_data_id)
+        return {"status": "rolled_back", "snapshot_id": issued["snapshot_id"]}
 
 
 @_exclusive
