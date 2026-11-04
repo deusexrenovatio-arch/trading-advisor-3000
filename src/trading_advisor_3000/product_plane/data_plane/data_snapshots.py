@@ -181,6 +181,66 @@ def _downstream_scope(
         )
     ):
         covered[name] = {key: actual[key] for key in ("table_id", "delta_version")}
+    name = "canonical_contract_parameters"
+    covered.pop(name, None)
+    before, actual = (previous_tables or {}).get(name), tables.get(name)
+    renewal = economics.get("native_history_renewal") or {}
+    output = (renewal.get("tables") or {}).get("prepared") or {}
+    money_names = {
+        "canonical_contract_economics",
+        "canonical_fx_rates",
+        "canonical_asset_risk_parameters",
+    }
+    calculated = (
+        economics.get("status") == "PASS"
+        and type(economics_scope.get("version")) is int
+        and economics_scope.get("version") == 1
+        and economics_scope.get("full_refresh") is False
+        and all(
+            tables.get(key) and economics.get("output_references", {}).get(key) == tables[key]
+            for key in money_names
+        )
+    )
+    retained = economics.get("published_coverage") or {}
+    money = tables.get("canonical_contract_economics")
+    deferred = (
+        economics.get("status") == "PASS-NOOP"
+        and economics.get("refresh_status") == "DEFERRED"
+        and retained.get("status") == "PASS"
+        and money
+        and money == (previous_tables or {}).get("canonical_contract_economics")
+        and retained.get("table_reference") == money
+    )
+    if (
+        before
+        and actual
+        and renewal.get("parameter_input_reference") == before
+        and type((renewal.get("parameter_input_reference") or {}).get("delta_version")) is int
+        and type(output.get("delta_version")) is int
+        and type(output.get("previous_delta_version")) is int
+        and output["previous_delta_version"] == before["delta_version"]
+        and type(output.get("changed_rows")) is int
+        and output["changed_rows"] >= 0
+        and economics.get("snapshot_inputs", {}).get(name) == actual
+        and all(
+            output.get(key) == actual.get(key)
+            for key in ("table_path", "table_id", "delta_version")
+        )
+        and all(
+            before.get(key) == actual.get(key)
+            for key in (
+                "table_path",
+                "table_id",
+                "schema_hash",
+                "layout_version",
+                "partition_columns",
+            )
+        )
+        and type(actual.get("delta_version")) is int
+        and actual["delta_version"] == before["delta_version"] + int(output["changed_rows"] > 0)
+        and (calculated or deferred)
+    ):
+        covered[name] = {key: actual[key] for key in ("table_id", "delta_version")}
     return {
         "version": 2,
         "full_refresh": False,

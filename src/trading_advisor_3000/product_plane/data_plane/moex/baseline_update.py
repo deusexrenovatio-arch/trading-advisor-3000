@@ -959,6 +959,12 @@ def refresh_moex_contract_economics(
     if verified is not None:
         bind_contract_parameter_input(sources["raw_contract_specs_path"], verified)
     renewal_report = None
+    parameter_input_reference = (
+        capture_table(sources["raw_contract_specs_path"])
+        if economics_history_refresh
+        and sources["raw_contract_specs_path"].stem == "canonical_contract_parameters"
+        else None
+    )
     if economics_history_refresh:
         current_snapshot = client.fetch_futures_contract_snapshot()
         current_securities = list(current_snapshot.securities)
@@ -1017,6 +1023,8 @@ def refresh_moex_contract_economics(
             "source_hash": renewal.source_hash,
             "current_crosscheck": renewal.current_crosscheck,
         }
+        if parameter_input_reference is not None:
+            renewal_report["parameter_input_reference"] = parameter_input_reference
     try:
         raw_refresh_report = _write_iss_economics_raw_tables(
             client=client,

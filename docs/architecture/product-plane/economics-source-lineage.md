@@ -128,3 +128,65 @@ on identical frozen inputs for the entire affected output, including historical
 recalibration. Prove the next bounded renewal and identical-input retry on the
 new route. Publish/read back the complete production snapshot, then restore
 normal Dagster ownership and verify the active release, mounts and route.
+
+## Data to Research scope transition (2026-11-05)
+
+Decision admission: independent checkpoints in the existing PR review evidence.
+Implementation and deployment require separate proof. Surface: product-plane; architectural impact:
+contract-change. Solution intent: target, within the accepted v6 migration.
+
+The initial cutover preserved the old downstream scope while changing the
+prepared parameter alias to canonical parameters and restoring RAW. Research's
+daily admission correctly rejects that unproved table/contract transition.
+The existing scope-recovery report requires an unchanged physical table set and
+schema, so it cannot represent this migration without changing its meaning.
+
+Reuse the existing cutover owner, Spark equality primitives, immutable Data
+manifests and CAS publisher. Add one typed `data_economics_scope_transition.v1`
+report inside the existing downstream scope. New cutovers issue it after their
+native writes and equality checks, before creating the initial manifest. For an
+already published cutover, the operator audits that exact issued cutover and its
+previous Data snapshot, then optionally publishes a metadata-only child with
+the same complete table refs as the cutover. Native
+proof compares all accepted parameter columns and origin metadata, restores the
+original RAW projection, and requires every other reference (including all money
+outputs) to remain identical. This proves zero Research numerical effect.
+
+The report binds the previous manifest identity, exact target-table digest,
+cutover intent, canonical binding, row counts, zero differences and audit runtime.
+A repair also binds the original cutover manifest identity. The initial report
+never embeds its own enclosing manifest hash. There is no caller-supplied
+proof admission, new registry, table writer or numerical rebuild. The existing
+cutover writer still requires its frozen release; the new audit may run from a
+reviewed later release only with the identical accepted calculation policy.
+
+The Research resolver validates the report and exact physical pins, then skips
+only the named zero-effect cutover segment to its previous Data snapshot.
+Older backlog and later ordinary descendants retain their normal scope checks.
+All other table additions, removals, schema changes or uncovered changes still
+block. The transition does not rebind or rewrite accepted Research snapshots.
+
+Publication requires the exact initial cutover to be selected and all working
+pins unchanged. A stale expected Data ID, advanced producer, unrelated child or
+changed report conflicts. Lost acknowledgements reconcile the selected child;
+retry returns that exact child. Source history, the original candidate, code
+receipt and prior manifests remain immutable. A concurrent Research advance
+cannot enlarge this zero-effect transition; normal ancestry/admission checks
+still apply. Rollback selects the original cutover only before a later child or
+producer write, while controls remain quiesced; otherwise use forward repair.
+
+Ordinary native renewals must also cover `canonical_contract_parameters`.
+The Data owner binds the exact previous parameter reference to the renewal's
+input reference, exact parameter output and snapshot input.
+It admits coverage only when the full economics producer supplies bounded
+effects and all three bound money outputs, or when validated source-unavailable
+reuse keeps the exact previous economics reference. Parameters remain lineage
+inputs; Research executes against the published money outputs. Unknown renewal,
+unbound output or unproved fallback remains uncovered and blocks.
+
+Proof: a regression reproduces the current rejection before the patch; native
+Spark produces the transition from actual copied history; daily admission reads
+that output without full refresh. Negative checks mutate pins, schema, money,
+report/parent identity and later uncovered changes. Verify retry after Data CAS,
+complete source/output readback, normal-renewal coverage, required CI and the
+deployed Dagster route before restoring the original controls.

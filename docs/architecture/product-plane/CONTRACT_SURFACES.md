@@ -47,6 +47,10 @@ The following contracts are versioned and test-covered, but they are not part of
 - `research_run_summary.v1`
 - `data_scope_recovery.v1`: exact native Data segment proof, retained historical prefix,
   immutable bridge publication; [operational boundary](../../runbooks/app/data-research-snapshot-publication.md#explicit-scope-recovery).
+- `data_economics_scope_transition.v1`: the native-proved zero-effect prepared to
+  canonical economics transition, exact source/target pins and immutable metadata
+  repair; [operator route](docs/runbooks/app/economics-canonical-cutover.md#complete-the-data-to-research-transition).
+  Research consumes its validator through the public `data_plane.canonical` API.
 - `research_refresh_admission.v1`: explicit daily/rebuild operation; native input and parent pins;
   NOOP/SCOPED/BLOCKED; original/effective windows and declared domain. One JSON schema,
   fixture and contract test. Existing Dagster config/checkpoints and Research manifest

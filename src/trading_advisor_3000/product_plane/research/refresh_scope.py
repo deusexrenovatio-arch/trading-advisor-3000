@@ -187,7 +187,19 @@ def resolve_refresh_scope(
                 return {**blocked, "reason": "unbounded_data_scope"}
             if len(cursor["parents"]) != 1:
                 return {**blocked, "reason": "missing_data_ancestry"}
-            if "recovery" in scope:
+            economics_transition = "economics_cutover" in scope
+            if economics_transition:
+                from trading_advisor_3000.product_plane.data_plane.canonical import (
+                    validate_economics_scope_transition,
+                )
+
+                try:
+                    if "recovery" in scope:
+                        raise ValueError("ambiguous scope transition")
+                    parent = validate_economics_scope_transition(cursor, root=root)
+                except (ValueError, OSError, SnapshotUnavailableError) as error:
+                    return {**blocked, "reason": f"invalid_economics_transition:{error}"}
+            elif "recovery" in scope:
                 from trading_advisor_3000.product_plane.common.data_snapshots import (
                     validate_recovery_bridge,
                 )
@@ -198,7 +210,7 @@ def resolve_refresh_scope(
                     return {**blocked, "reason": f"invalid_scope_recovery:{error}"}
             else:
                 parent = load_snapshot(root / "manifests" / f"{cursor['parents'][0]}.json")
-            if compatibility:
+            if compatibility and not economics_transition:
                 if set(cursor["tables"]) != set(parent["tables"]):
                     return {**blocked, "reason": "data_table_set_changed"}
                 for name, reference in cursor["tables"].items():
@@ -217,6 +229,8 @@ def resolve_refresh_scope(
                     open_pinned_table(reference)
                     open_pinned_table(previous)
             for name in cursor["tables"].keys() | parent["tables"].keys():
+                if economics_transition:
+                    continue
                 if not (
                     name.startswith("canonical_")
                     or name == "raw_moex_history"
