@@ -106,6 +106,27 @@ flowchart LR
     INTENT --> WIRE --> BROKER --> REC
 ```
 
+## Local Trade Workspace extension
+
+[Workspace decision](docs/architecture/product-plane/trade-workspace/decision.md)
+adds a local personal workflow beside the research/signal/execution chain. It is
+an accepted target, with local source candidates tracked separately in STATUS.
+Detailed ownership remains in [module design](docs/architecture/product-plane/journal-module-design.md).
+
+| Component | Owns | Boundary |
+| --- | --- | --- |
+| Shared Intake | Source material, candidate fields, clarification and provenance | No money math or alternate Journal writer |
+| Calculator | Deterministic scenarios, native levels, risk/quantity/margin estimates | Public ProductDataAPI inputs; authoritative committed bundle belongs to Journal |
+| Journal | Facts, plans, immutable revisions, saved bundles and command receipts | PostgreSQL transaction; no Delta reads, model calls, outbox or automatic Review |
+| Review | Fixed report profile, pinned facts, constrained local interpretation and report history | Exact Journal revision; does not change facts or recalculate Calculator rules |
+| Application layer | Explicit calls, durable request lifecycle and bounded read composition | No private cross-module writes or duplicated domain rules |
+
+One ProductDataAPI facade composes public Market/Research catalogue, economics,
+analysis and evidence readers. It creates no second market truth. Frontend and
+lineage use public APIs. PostgreSQL owns user state; existing native runtimes
+retain data/compute ownership and strict live-data policy. Broker orders and
+signals from Journal remain outside this extension.
+
 ## Boundary Principle
 
 Do not define modules by execution order alone. Define them by the design

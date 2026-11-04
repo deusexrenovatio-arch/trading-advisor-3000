@@ -683,3 +683,163 @@ def test_raw_producer_chain_rejects_interleaved_unknown_commit(tmp_path):
     write_deltalake(str(path), pa.table({"value": [2]}), mode="overwrite")
     assert not _raw_change_scope(path, before, changed=True)["proven"]
     assert not _raw_change_scope(path, before, changed=False)["proven"]
+
+
+def test_canonical_renewal_retains_snapshot_and_exact_raw_origin(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from deltalake import DeltaTable
+
+    from trading_advisor_3000.product_plane.common.data_snapshots import capture_table
+    from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
+    from trading_advisor_3000.product_plane.data_plane.moex import native_history_refresh as refresh
+    from trading_advisor_3000.product_plane.data_plane.schemas.delta import (
+        historical_data_delta_schema_manifest,
+    )
+
+    schema = historical_data_delta_schema_manifest()
+    raw_path, path, oi_path = (
+        tmp_path / name for name in ("raw.delta", "canonical.delta", "oi.delta")
+    )
+    raw_columns = {
+        **schema["raw_moex_contract_securities"]["columns"],
+        "enrichment_provenance_json": "string",
+    }
+    prepared_columns = schema["canonical_contract_parameters"]["columns"]
+    oi_columns = {
+        key: raw_columns[key]
+        for key in (
+            "moex_secid",
+            "source_id",
+            "source_url",
+            "source_document_id",
+            "source_document_hash",
+            "fetched_at_utc",
+            "engine",
+            "market",
+            "board",
+            "trade_date",
+            "assetcode",
+            "raw_payload_json",
+        )
+    }
+    oi_columns.update(
+        dict.fromkeys(
+            (
+                "internal_id",
+                "source_open_interest_text",
+                "observation_status",
+                "observation_frequency",
+                "availability_status",
+                "source_delta_path",
+                "parent_raw_snapshot_sha256",
+                "materialization_run_id",
+            ),
+            "string",
+        )
+    )
+    oi_columns.update(
+        open_interest="long",
+        available_at_utc="timestamp",
+        source_delta_version="int",
+        materialized_at_utc="timestamp",
+    )
+    for target, columns in (
+        (raw_path, raw_columns),
+        (path, prepared_columns),
+        (oi_path, oi_columns),
+    ):
+        write_delta_table_rows(table_path=target, columns=columns, rows=[])
+    verified = {
+        "prepared_input_table_id": DeltaTable(str(path)).metadata().id,
+        "canonical_binding": {"binding_sha256": "accepted"},
+        "dated_official_tc_evidence_sha256": "dated",
+        "regimes_sha256": "regimes",
+    }
+    real_delta = DeltaTable
+    identities = {
+        raw_path: "ae9e49f9-9e8f-405d-9e07-0a2079eee691",
+        oi_path: "026176bf-9d3b-4192-adcf-559cd33f7c93",
+    }
+    monkeypatch.setattr(refresh, "validate_contract_parameter_evidence", lambda *args: verified)
+    monkeypatch.setattr(refresh, "bind_contract_parameter_input", lambda *args: 0)
+
+    def identity_table(p, **kwargs):
+        table = real_delta(p, **kwargs)
+        if Path(p) in identities:
+            original_metadata = table.metadata
+            table.metadata = lambda: SimpleNamespace(
+                id=identities[Path(p)], partition_columns=original_metadata().partition_columns
+            )
+        return table
+
+    monkeypatch.setattr(refresh, "DeltaTable", identity_table)
+    official = dict(
+        SECID="NGX6",
+        ASSETCODE="NG",
+        BOARDID="RFUD",
+        TRADEDATE="2026-10-23",
+        SHORTNAME="NG-11.26",
+        OPENPOSITION=991522,
+        SETTLEPRICE=3.125,
+    )
+    description = dict(
+        SECID="NGX6",
+        ASSETCODE="NG",
+        BOARDID="RFUD",
+        MINSTEP=0.001,
+        LOTVOLUME=100.0,
+        STEPPRICE=8.0,
+        IMTIME="2026-10-23 07:00:04",
+        LASTTRADEDATE="2026-11-25",
+        LASTDELDATE="2026-11-25",
+    )
+    snapshot = _snapshot([description], "2026-10-23")
+    fx = [
+        dict(
+            secid="USD/RUB", tradedate="2026-10-22", tradetime="19:00:00", clearing="mc", rate=80.0
+        ),
+        dict(
+            secid="USD/RUB", tradedate="2026-10-23", tradetime="19:00:00", clearing="tc", rate=81.0
+        ),
+    ]
+    kwargs = dict(
+        client=SimpleNamespace(
+            fetch_history_board_securities=lambda **kw: [SimpleNamespace(payload=official)]
+        ),
+        raw_contract_specs_path=raw_path,
+        prepared_path=path,
+        daily_open_interest_path=oi_path,
+        trade_dates=[date(2026, 10, 23)],
+        base_rules=(_ng_rule(),),
+        base_evidence=object(),
+        current_snapshot=snapshot,
+        dated_fx_rows=fx,
+        run_id="canonical-renewal",
+    )
+    refresh.refresh_native_history_support(**kwargs)
+    raw_ref = capture_table(raw_path)
+    prepared = real_delta(str(path)).to_pyarrow_table().to_pylist()[0]
+    assert set(prepared) == set(prepared_columns)
+    assert "snapshot_metadata_json" not in prepared
+    assert prepared["min_step"] == 0.001 and prepared["lot_volume"] == 100
+    assert prepared["source_validation_status"] == "CALCULATED_WITH_ACCEPTED_MODEL"
+    assert prepared["execution_admissible"] is True
+    origin = json.loads(prepared["calculation_origin_json"])
+    assert origin["source_table"] == raw_ref
+    assert origin["key"] == dict(
+        source_id=refresh.HISTORY_SOURCE, board="RFUD", moex_secid="NGX6", trade_date="2026-10-23"
+    )
+    assert origin["source_document_hash"] == refresh._hash(official)
+    assert origin["description_hash"] == refresh._hash(description)
+    records = real_delta(str(raw_path)).to_pyarrow_table().to_pylist()
+    observed = next(row for row in records if row["source_id"] == refresh.HISTORY_SOURCE)
+    assert observed["min_step"] is None and observed["lot_volume"] is None
+    retained = next(row for row in records if row["source_id"] == "moex_iss_futures_securities")
+    assert json.loads(retained["raw_payload_json"]) == description
+    assert json.loads(retained["snapshot_metadata_json"]) == list(snapshot.source_pages)
+    refresh.refresh_native_history_support(**kwargs)
+    assert capture_table(raw_path) == raw_ref
+    assert real_delta(str(path)).version() == 1

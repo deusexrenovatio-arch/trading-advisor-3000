@@ -6,7 +6,7 @@ Provide a predictable and enforceable workflow for governance-first delivery in 
 ## Canonical ordinary loop
 1. Read hot docs (`docs/agent/*`).
 2. Confirm the change surface (`shell`, `product-plane`, or `mixed`), keep domain logic out of shell control-plane files, and keep the same surface declaration in PR metadata.
-3. For non-trivial code changes or new code inside an existing subsystem, start with Serena for code discovery, local pattern learning, impact analysis, and reference checks before broad scans, whole-file reads, or implementation.
+3. For non-trivial code changes or new code inside an existing subsystem, start with targeted source inspection and `rg` for symbols, local patterns, impact, and references before broad scans or implementation.
 4. Use the minimal context route that owns the current artifact or risk.
 5. If the diff matches a critical contour, keep the claim explicit: target, staged, or fallback, with matching evidence in the PR.
 6. Run loop gate: `python scripts/run_loop_gate.py --from-git --git-ref HEAD --snapshot-mode changed-files --profile none`.
@@ -24,11 +24,6 @@ policy's semantic threshold rather than PR size. Keep review evidence in the exi
 task/PR body. Loop diagnostics do not imply design admission; PR gate enforces
 fresh review evidence for the selected scope. Hosted post-merge nightly reuses
 checks as hygiene, not a second architecture admission.
-
-## Worktree setup
-New worktrees run `scripts/serena_worktree_bootstrap.py` from the tracked `post-checkout` hook when the target commit contains the hook. If a worktree was created from an older commit or the hook was skipped, run:
-
-`py -3.11 scripts/serena_worktree_bootstrap.py --worktree "<worktree-root>"`
 
 ## Gate order
 Default order: `loop gate -> pr gate -> nightly gate -> dashboard refresh`.
@@ -199,7 +194,7 @@ Operator details live in
 5. Product-plane work must stay inside isolated app paths unless a governance change is explicit.
 6. Critical contour tasks must not claim target closure with scaffold, sample, smoke, or synthetic evidence.
 7. Every PR must declare `shell`, `product-plane`, or `mixed`, with boundary rationale when `mixed`.
-8. Semantic navigation should reduce context and risk. Serena is the mandatory first route for non-trivial code discovery, but not a heavy CI gate; fallback must be narrow and explicitly explained.
+8. Code navigation should reduce context and risk. Use bounded symbol, pattern, and reference inspection before broad source reads.
 9. Broad architecture context belongs to Architecture Orientation Routing, not the general coding loop.
 
 ## Change management policy

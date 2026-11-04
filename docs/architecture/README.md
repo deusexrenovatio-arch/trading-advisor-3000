@@ -64,7 +64,7 @@ adding or revising a choice.
 | --- | --- | --- |
 | Shell/product separation; hide decisions behind module APIs | [Surfaces](docs/architecture/repository-surfaces.md), [module APIs](docs/architecture/product-plane/product-plane-module-apis.md) | #2, #23–32 namespace cutover; #128 deep modules. Folder migration alone does not close tolerated API bridges. |
 | Direct reproducible delivery; remove session machinery | [Workflow](docs/DEV_WORKFLOW.md) | #9–19/#39–51 built governed sessions; #122–127 retired default package/intake/session runtime; #174 direct workflow. |
-| Tools/memory guide navigation; actual owners retain authority | [Entrypoint](docs/agent/entrypoint.md) | #44 MemPalace → #107 removal; #123–124 reset; #174 removed global skill dependency. Available Serena-first routing remains. |
+| Tools/memory guide navigation; actual owners retain authority | [Entrypoint](docs/agent/entrypoint.md) | #44 MemPalace → #107 removal; #123–124 reset; #174 removed global skill dependency. Code discovery uses bounded source inspection; optional tools stay explicit. |
 | Native owners avoid competing writers and Python history scans | [Native ownership](docs/architecture/product-plane/native-runtime-ownership.md) | #72, #108–115, #145–149. Importing a library alone proves no owning execution path. |
 | Materialize reusable L0/L1/L2 outside strategy loops | [Research platform](docs/architecture/product-plane/research-plane-platform.md) | #48, #63–66. Closed #57–59 are predecessors, not delivered changes. |
 | Exchange/session semantics separate from physical UTC layout | [Sessions](docs/runbooks/app/canonical-session-delivery.md), [clock](docs/runbooks/app/moscow-clock-delivery.md) | #61/#114/#117–118/#171/#181/#183; UTC layout #186. Session/date and close-year carriers have different meanings. |
@@ -85,7 +85,7 @@ adding or revising a choice.
 | Replaceable broker boundary; live input has strict evidence gates | [Execution](docs/architecture/product-plane/execution-flow.md), [status](docs/architecture/product-plane/STATUS.md) | #15/#20/#37. Controlled/stub evidence is distinct from bound real-broker submit/cancel/fill lifecycle. |
 | Bound local reuse; fresh CI and actual behavior proof | [Checks](docs/agent/checks.md) | #207. Green mocks or local cache alone cannot establish native product/runtime readiness. |
 | Independent architecture admission within existing PR lane | [Review policy](docs/agent/architecture-review.md), [ADR 0003](docs/architecture/adr/0003-durable-decision-records.md) | #233 and this change. #201 disabled automatic CodeRabbit reviews; no new lane/registry. |
-| Journal/Trade Workspace remains a separate candidate line | [Accepted product status](docs/architecture/product-plane/STATUS.md) | No merged source/public route in the audited main baseline. Local candidate/WIP is not main integration or deployment proof. |
+| Local Trade Workspace: accepted target, separate implementation delivery | [Workspace decision](docs/architecture/product-plane/trade-workspace/decision.md), [product status](docs/architecture/product-plane/STATUS.md) | User decisions 2026-09-30/10-14 reconstructed in docs 2026-11-04. Main baseline has no Workspace source/public route; pinned local candidates and dirty native Intake remain separate from admission/deployment. |
 
 PR numbers refer to this repository's [pull request history](https://github.com/deusexrenovatio-arch/trading-advisor-3000/pulls?q=is%3Apr).
 Production-target #146 is implementation, alongside five later promotion PRs;

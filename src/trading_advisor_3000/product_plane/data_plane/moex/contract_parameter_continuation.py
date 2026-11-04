@@ -18,6 +18,7 @@ class MoexContractParameterEvidence:
     bundle_id: str
     regimes_path: Path
     dated_official_tc_path: Path
+    canonical_binding_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -151,7 +152,7 @@ def validate_contract_parameter_evidence(
         samples += rows
     if samples != 674:
         raise ValueError("dated official profile sample sum differs from receipt")
-    return {
+    result = {
         "bundle_id": evidence.bundle_id,
         "regimes_sha256": rules_sha,
         "dated_official_tc_evidence_sha256": dated_sha,
@@ -160,6 +161,11 @@ def validate_contract_parameter_evidence(
         "receipt_dated_official_rows": samples,
         "inference_not_daily_official": True,
     }
+    if evidence.canonical_binding_path is not None:
+        from .economics_cutover import load_canonical_binding
+
+        result = load_canonical_binding(evidence.canonical_binding_path, result)
+    return result
 
 
 def bind_contract_parameter_input(table_path: Path, verified: dict[str, object]) -> int:

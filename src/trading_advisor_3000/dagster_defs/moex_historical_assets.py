@@ -405,6 +405,11 @@ def _baseline_economics_options(config: Mapping[str, object]) -> dict[str, objec
                 **evidence_config,
                 "regimes_path": Path(str(evidence_config["regimes_path"])),
                 "dated_official_tc_path": Path(str(evidence_config["dated_official_tc_path"])),
+                **(
+                    {"canonical_binding_path": Path(str(evidence_config["canonical_binding_path"]))}
+                    if evidence_config.get("canonical_binding_path")
+                    else {}
+                ),
             }
         )
         rules = json.loads(evidence.regimes_path.read_text(encoding="utf-8"))
