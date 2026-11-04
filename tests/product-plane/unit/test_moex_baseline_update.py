@@ -547,13 +547,16 @@ def test_baseline_update_can_refresh_money_math_side_tables_before_canonical_rou
     )
 
 
-@pytest.mark.parametrize("economics_history_refresh", [False, True])
+@pytest.mark.parametrize(
+    ("economics_history_refresh", "canonical_route"), [(False, False), (True, False), (True, True)]
+)
 @pytest.mark.parametrize("target_session_date", ["2026-07-11", "2026-07-12"])
 def test_baseline_update_reuses_covered_published_economics_when_source_is_temporarily_empty(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     target_session_date: str,
     economics_history_refresh: bool,
+    canonical_route: bool,
 ) -> None:
     raw_table_path, canonical_bars_path, canonical_provenance_path = _write_empty_baseline(tmp_path)
     changed_windows = [
@@ -595,8 +598,38 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
     write_delta_table_rows(table_path=oi_path, rows=[{"count": 1}], columns={"count": "long"})
     write_delta_table_rows(table_path=oi_path, rows=[{"count": 2}], columns={"count": "long"})
     renewed_oi = baseline_module.capture_table(oi_path)
-    prepared_path = tmp_path / "prepared" / "raw_moex_contract_securities.delta"
+    prepared_path = (
+        canonical_economics_root / "canonical_contract_parameters.delta"
+        if canonical_route
+        else tmp_path / "prepared" / "raw_moex_contract_securities.delta"
+    )
     write_delta_table_rows(table_path=prepared_path, rows=[{"count": 1}], columns={"count": "long"})
+    if canonical_route:
+        from trading_advisor_3000.product_plane.common.data_snapshots import (
+            create_snapshot,
+            publish_snapshot,
+            save_snapshot,
+        )
+
+        previous_tables = {
+            "canonical_contract_parameters": baseline_module.capture_table(prepared_path),
+            "canonical_contract_economics": baseline_module.capture_table(economics_table_path),
+        }
+        previous = create_snapshot(
+            tables=previous_tables,
+            required_tables=list(previous_tables),
+            dataset_version="fixture",
+            run_id="previous",
+            code_version="fixture",
+            quality_checks={"fixture": "PASS"},
+        )
+        snapshot_root = canonical_bars_path.parent / ".data_snapshots"
+        publish_snapshot(
+            snapshot_root, save_snapshot(snapshot_root, previous), expected_current_id=None
+        )
+        write_delta_table_rows(
+            table_path=prepared_path, rows=[{"count": 2}], columns={"count": "long"}
+        )
     prepared_reference = baseline_module.capture_table(prepared_path)
     renewal = {
         "tables": {
@@ -669,11 +702,22 @@ def test_baseline_update_reuses_covered_published_economics_when_source_is_tempo
     if economics_history_refresh:
         assert report["economics_refresh"]["native_history_renewal"] == renewal
         assert (
-            report["economics_refresh"]["snapshot_inputs"]["prepared_raw_moex_contract_securities"]
+            report["economics_refresh"]["snapshot_inputs"][
+                "canonical_contract_parameters"
+                if canonical_route
+                else "prepared_raw_moex_contract_securities"
+            ]
             == prepared_reference
         )
         published = baseline_module.current_snapshot(canonical_bars_path.parent / ".data_snapshots")
-        assert published["tables"]["prepared_raw_moex_contract_securities"] == prepared_reference
+        assert (
+            published["tables"][
+                "canonical_contract_parameters"
+                if canonical_route
+                else "prepared_raw_moex_contract_securities"
+            ]
+            == prepared_reference
+        )
     assert report["status"] == "PASS"
     assert report["economics_refresh"]["status"] == "PASS-NOOP"
     assert report["economics_refresh"]["refresh_status"] == "DEFERRED"
@@ -3468,3 +3512,44 @@ def test_unreported_native_commit_cannot_be_certified_by_next_raw_noop(
     )
     assert scope["outcome"] == "BLOCKED" and scope["reason"] == "unbounded_data_scope"
     assert storage.current_snapshot(registry)["snapshot_id"] == research["snapshot_id"]
+
+
+def test_reuse_refuses_unpublished_economics_even_when_physical_coverage_is_valid(tmp_path):
+    from trading_advisor_3000.product_plane.common.data_snapshots import (
+        SnapshotUnavailableError,
+        capture_table,
+        create_snapshot,
+        publish_snapshot,
+        save_snapshot,
+    )
+    from trading_advisor_3000.product_plane.data_plane.moex.economics_reuse import (
+        EconomicsSourceUnavailable,
+        reuse_published_economics_after_source_unavailable,
+    )
+
+    root = tmp_path / "canonical/economics"
+    table = root / "canonical_contract_economics.delta"
+    _write_contract_economics_table(table, contract_ids=("BRM6",))
+    reference = capture_table(table)
+    manifest = create_snapshot(
+        tables={"canonical_contract_economics": reference},
+        required_tables=["canonical_contract_economics"],
+        dataset_version="fixture",
+        run_id="published",
+        code_version="fixture",
+        quality_checks={"fixture": "PASS"},
+    )
+    registry = root.parent / "moex/baseline-4y-current/.data_snapshots"
+    publish_snapshot(registry, save_snapshot(registry, manifest), expected_current_id=None)
+    _write_contract_economics_table(table, contract_ids=("BRM6",))
+    with pytest.raises(SnapshotUnavailableError, match="selected publication"):
+        reuse_published_economics_after_source_unavailable(
+            canonical_economics_root=root,
+            evidence_dir=tmp_path / "evidence",
+            run_id="reuse",
+            source_error=EconomicsSourceUnavailable(
+                target_session_date="2026-07-11",
+                required_contract_ids=("BRM6",),
+                missing_sources=("rms_limits",),
+            ),
+        )

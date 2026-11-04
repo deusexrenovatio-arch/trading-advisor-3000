@@ -226,6 +226,13 @@ def publish_data_snapshot(
         if expected_current_id
         else {}
     )
+    parameter_input = (report["economics_refresh"].get("snapshot_inputs") or {}).get(
+        "canonical_contract_parameters"
+    ) or previous_tables.get("canonical_contract_parameters")
+    if parameter_input:
+        tables["canonical_contract_parameters"] = parameter_input
+    else:
+        tables.pop("canonical_contract_parameters", None)
     manifest = create_snapshot(
         tables=tables,
         required_tables=required,

@@ -6,6 +6,7 @@ import hashlib
 import json
 import sys
 from collections.abc import Sequence
+from contextlib import ExitStack
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -21,6 +22,9 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 )
 from trading_advisor_3000.product_plane.data_plane.moex.economics import (
     moex_economics_store_contract,
+)
+from trading_advisor_3000.product_plane.data_plane.moex.economics_cutover import (
+    economics_writer_lock,
 )
 from trading_advisor_3000.product_plane.data_plane.moex.iss_client import MoexISSClient
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
@@ -449,212 +453,226 @@ def main() -> None:
         field_name="--canonical-economics-root",
         default_subdir="canonical/economics",
     )
-    evidence_root = resolve_external_root(
-        args.evidence_root,
-        repo_root=ROOT,
-        field_name="--evidence-root",
-        default_subdir=f"baseline-update/{run_id}/economics-refresh",
-    )
-
-    fetched_at_utc = _utc_now_iso()
-    request_log_path = evidence_root / "moex-request-log.jsonl"
-    request_latest_path = evidence_root / "moex-request.latest.json"
-    client = MoexISSClient(
-        **_moex_client_kwargs(args),
-        request_event_hook=lambda payload: _append_request_event(
-            jsonl_path=request_log_path,
-            latest_path=request_latest_path,
-            payload=payload,
-        ),
-    )
-    contracts = []
-    if args.contracts_jsonl.strip():
-        contract_payloads = _read_jsonl(Path(args.contracts_jsonl))
-        for current_date in trade_dates:
-            contracts.extend(
-                _raw_contract_rows(
-                    payload_rows=_payloads_for_trade_date(
-                        contract_payloads,
-                        trade_date=current_date,
-                        source_label="contracts",
-                        allow_undated_single_day=len(trade_dates) == 1,
-                    ),
-                    trade_date=current_date,
-                    fetched_at_utc=fetched_at_utc,
+    owned_roots = {canonical_root, raw_root.parent.parent / "canonical/economics"}
+    with ExitStack() as locks:
+        for owned_root in sorted(owned_roots, key=str):
+            locks.enter_context(economics_writer_lock(owned_root))
+        for owned_root in owned_roots:
+            if any(
+                (owned_root / marker).exists()
+                for marker in (
+                    "canonical_contract_parameters.delta",
+                    "accepted-production-baseline.json",
+                    ".production-cutover",
                 )
+            ):
+                raise SystemExit("Canonical economics is owned by the Dagster baseline updater")
+        evidence_root = resolve_external_root(
+            args.evidence_root,
+            repo_root=ROOT,
+            field_name="--evidence-root",
+            default_subdir=f"baseline-update/{run_id}/economics-refresh",
+        )
+
+        fetched_at_utc = _utc_now_iso()
+        request_log_path = evidence_root / "moex-request-log.jsonl"
+        request_latest_path = evidence_root / "moex-request.latest.json"
+        client = MoexISSClient(
+            **_moex_client_kwargs(args),
+            request_event_hook=lambda payload: _append_request_event(
+                jsonl_path=request_log_path,
+                latest_path=request_latest_path,
+                payload=payload,
+            ),
+        )
+        contracts = []
+        if args.contracts_jsonl.strip():
+            contract_payloads = _read_jsonl(Path(args.contracts_jsonl))
+            for current_date in trade_dates:
+                contracts.extend(
+                    _raw_contract_rows(
+                        payload_rows=_payloads_for_trade_date(
+                            contract_payloads,
+                            trade_date=current_date,
+                            source_label="contracts",
+                            allow_undated_single_day=len(trade_dates) == 1,
+                        ),
+                        trade_date=current_date,
+                        fetched_at_utc=fetched_at_utc,
+                    )
+                )
+        else:
+            if len(trade_dates) > 1:
+                raise SystemExit(
+                    "MOEX ISS contract securities is a current-snapshot endpoint; "
+                    "multi-day or historical economics backfill requires --contracts-jsonl "
+                    "with one or more date-stamped contract snapshots"
+                )
+            contracts = _raw_contract_rows(
+                payload_rows=client.fetch_futures_contract_securities(),
+                trade_date=trade_date,
+                fetched_at_utc=fetched_at_utc,
             )
-    else:
-        if len(trade_dates) > 1:
-            raise SystemExit(
-                "MOEX ISS contract securities is a current-snapshot endpoint; "
-                "multi-day or historical economics backfill requires --contracts-jsonl "
-                "with one or more date-stamped contract snapshots"
+
+        if args.fx_jsonl.strip():
+            fx_payloads = []
+            all_fx_payloads = _read_jsonl(Path(args.fx_jsonl))
+            for current_date in trade_dates:
+                fx_payloads.extend(
+                    _payloads_for_trade_date(
+                        all_fx_payloads,
+                        trade_date=current_date,
+                        source_label="fx rates",
+                        allow_undated_single_day=len(trade_dates) == 1,
+                    )
+                )
+        else:
+            fx_payloads = client.fetch_futures_indicative_rates(
+                date_from=trade_dates[0],
+                date_till=trade_dates[-1],
             )
-        contracts = _raw_contract_rows(
-            payload_rows=client.fetch_futures_contract_securities(),
+        fx = _raw_fx_rows(
+            payload_rows=fx_payloads,
             trade_date=trade_date,
             fetched_at_utc=fetched_at_utc,
         )
-
-    if args.fx_jsonl.strip():
-        fx_payloads = []
-        all_fx_payloads = _read_jsonl(Path(args.fx_jsonl))
-        for current_date in trade_dates:
-            fx_payloads.extend(
-                _payloads_for_trade_date(
-                    all_fx_payloads,
-                    trade_date=current_date,
-                    source_label="fx rates",
-                    allow_undated_single_day=len(trade_dates) == 1,
+        if args.rms_source == "iss":
+            limits = []
+            staticparams = []
+            for current_date in trade_dates:
+                limits.extend(
+                    _raw_rms_limits_rows(
+                        payload_rows=client.fetch_futures_rms_limits(trade_date=current_date),
+                        trade_date=current_date,
+                        fetched_at_utc=fetched_at_utc,
+                    )
                 )
-            )
-    else:
-        fx_payloads = client.fetch_futures_indicative_rates(
-            date_from=trade_dates[0],
-            date_till=trade_dates[-1],
+                staticparams.extend(
+                    _raw_rms_staticparams_rows(
+                        payload_rows=client.fetch_futures_rms_staticparams(trade_date=current_date),
+                        trade_date=current_date,
+                        fetched_at_utc=fetched_at_utc,
+                    )
+                )
+        else:
+            if not args.rms_limits_jsonl or not args.rms_staticparams_jsonl:
+                raise SystemExit(
+                    "--rms-limits-jsonl and --rms-staticparams-jsonl are required "
+                    "when --rms-source jsonl"
+                )
+            limits = []
+            staticparams = []
+            limit_payloads = _read_jsonl(Path(args.rms_limits_jsonl))
+            static_payloads = _read_jsonl(Path(args.rms_staticparams_jsonl))
+            for current_date in trade_dates:
+                limits.extend(
+                    _risk_rows_from_jsonl(
+                        rows=_payloads_for_trade_date(
+                            limit_payloads,
+                            trade_date=current_date,
+                            source_label="rms limits",
+                            allow_undated_single_day=len(trade_dates) == 1,
+                        ),
+                        table_name="raw_moex_rms_limits",
+                        trade_date=current_date,
+                        fetched_at_utc=fetched_at_utc,
+                        source_id="ncc_derivatives_limits_import",
+                    )
+                )
+                staticparams.extend(
+                    _risk_rows_from_jsonl(
+                        rows=_payloads_for_trade_date(
+                            static_payloads,
+                            trade_date=current_date,
+                            source_label="rms staticparams",
+                            allow_undated_single_day=len(trade_dates) == 1,
+                        ),
+                        table_name="raw_moex_rms_staticparams",
+                        trade_date=current_date,
+                        fetched_at_utc=fetched_at_utc,
+                        source_id="ncc_derivatives_staticparams_import",
+                    )
+                )
+
+        raw_paths = {
+            "raw_moex_contract_securities": raw_root / "raw_moex_contract_securities.delta",
+            "raw_moex_indicative_fx_rates": raw_root / "raw_moex_indicative_fx_rates.delta",
+            "raw_moex_rms_limits": raw_root / "raw_moex_rms_limits.delta",
+            "raw_moex_rms_staticparams": raw_root / "raw_moex_rms_staticparams.delta",
+        }
+        raw_write_modes = {}
+        raw_write_modes["raw_moex_contract_securities"] = _write_raw_table_for_mode(
+            table_path=raw_paths["raw_moex_contract_securities"],
+            table_name="raw_moex_contract_securities",
+            rows=contracts,
+            trade_date=trade_date,
+            mode=args.mode,
+            allow_bootstrap_overwrite=args.allow_bootstrap_overwrite,
         )
-    fx = _raw_fx_rows(
-        payload_rows=fx_payloads,
-        trade_date=trade_date,
-        fetched_at_utc=fetched_at_utc,
-    )
-    if args.rms_source == "iss":
-        limits = []
-        staticparams = []
-        for current_date in trade_dates:
-            limits.extend(
-                _raw_rms_limits_rows(
-                    payload_rows=client.fetch_futures_rms_limits(trade_date=current_date),
-                    trade_date=current_date,
-                    fetched_at_utc=fetched_at_utc,
-                )
-            )
-            staticparams.extend(
-                _raw_rms_staticparams_rows(
-                    payload_rows=client.fetch_futures_rms_staticparams(trade_date=current_date),
-                    trade_date=current_date,
-                    fetched_at_utc=fetched_at_utc,
-                )
-            )
-    else:
-        if not args.rms_limits_jsonl or not args.rms_staticparams_jsonl:
-            raise SystemExit(
-                "--rms-limits-jsonl and --rms-staticparams-jsonl are required "
-                "when --rms-source jsonl"
-            )
-        limits = []
-        staticparams = []
-        limit_payloads = _read_jsonl(Path(args.rms_limits_jsonl))
-        static_payloads = _read_jsonl(Path(args.rms_staticparams_jsonl))
-        for current_date in trade_dates:
-            limits.extend(
-                _risk_rows_from_jsonl(
-                    rows=_payloads_for_trade_date(
-                        limit_payloads,
-                        trade_date=current_date,
-                        source_label="rms limits",
-                        allow_undated_single_day=len(trade_dates) == 1,
-                    ),
-                    table_name="raw_moex_rms_limits",
-                    trade_date=current_date,
-                    fetched_at_utc=fetched_at_utc,
-                    source_id="ncc_derivatives_limits_import",
-                )
-            )
-            staticparams.extend(
-                _risk_rows_from_jsonl(
-                    rows=_payloads_for_trade_date(
-                        static_payloads,
-                        trade_date=current_date,
-                        source_label="rms staticparams",
-                        allow_undated_single_day=len(trade_dates) == 1,
-                    ),
-                    table_name="raw_moex_rms_staticparams",
-                    trade_date=current_date,
-                    fetched_at_utc=fetched_at_utc,
-                    source_id="ncc_derivatives_staticparams_import",
-                )
-            )
+        raw_write_modes["raw_moex_indicative_fx_rates"] = _write_raw_table_for_mode(
+            table_path=raw_paths["raw_moex_indicative_fx_rates"],
+            table_name="raw_moex_indicative_fx_rates",
+            rows=fx,
+            trade_date=trade_date,
+            mode=args.mode,
+            allow_bootstrap_overwrite=args.allow_bootstrap_overwrite,
+        )
+        raw_write_modes["raw_moex_rms_limits"] = _write_raw_table_for_mode(
+            table_path=raw_paths["raw_moex_rms_limits"],
+            table_name="raw_moex_rms_limits",
+            rows=limits,
+            trade_date=trade_date,
+            mode=args.mode,
+            allow_bootstrap_overwrite=args.allow_bootstrap_overwrite,
+        )
+        raw_write_modes["raw_moex_rms_staticparams"] = _write_raw_table_for_mode(
+            table_path=raw_paths["raw_moex_rms_staticparams"],
+            table_name="raw_moex_rms_staticparams",
+            rows=staticparams,
+            trade_date=trade_date,
+            mode=args.mode,
+            allow_bootstrap_overwrite=args.allow_bootstrap_overwrite,
+        )
 
-    raw_paths = {
-        "raw_moex_contract_securities": raw_root / "raw_moex_contract_securities.delta",
-        "raw_moex_indicative_fx_rates": raw_root / "raw_moex_indicative_fx_rates.delta",
-        "raw_moex_rms_limits": raw_root / "raw_moex_rms_limits.delta",
-        "raw_moex_rms_staticparams": raw_root / "raw_moex_rms_staticparams.delta",
-    }
-    raw_write_modes = {}
-    raw_write_modes["raw_moex_contract_securities"] = _write_raw_table_for_mode(
-        table_path=raw_paths["raw_moex_contract_securities"],
-        table_name="raw_moex_contract_securities",
-        rows=contracts,
-        trade_date=trade_date,
-        mode=args.mode,
-        allow_bootstrap_overwrite=args.allow_bootstrap_overwrite,
-    )
-    raw_write_modes["raw_moex_indicative_fx_rates"] = _write_raw_table_for_mode(
-        table_path=raw_paths["raw_moex_indicative_fx_rates"],
-        table_name="raw_moex_indicative_fx_rates",
-        rows=fx,
-        trade_date=trade_date,
-        mode=args.mode,
-        allow_bootstrap_overwrite=args.allow_bootstrap_overwrite,
-    )
-    raw_write_modes["raw_moex_rms_limits"] = _write_raw_table_for_mode(
-        table_path=raw_paths["raw_moex_rms_limits"],
-        table_name="raw_moex_rms_limits",
-        rows=limits,
-        trade_date=trade_date,
-        mode=args.mode,
-        allow_bootstrap_overwrite=args.allow_bootstrap_overwrite,
-    )
-    raw_write_modes["raw_moex_rms_staticparams"] = _write_raw_table_for_mode(
-        table_path=raw_paths["raw_moex_rms_staticparams"],
-        table_name="raw_moex_rms_staticparams",
-        rows=staticparams,
-        trade_date=trade_date,
-        mode=args.mode,
-        allow_bootstrap_overwrite=args.allow_bootstrap_overwrite,
-    )
+        session_calendar_path = (
+            Path(args.canonical_session_calendar_path).resolve()
+            if args.canonical_session_calendar_path.strip()
+            else None
+        )
 
-    session_calendar_path = (
-        Path(args.canonical_session_calendar_path).resolve()
-        if args.canonical_session_calendar_path.strip()
-        else None
-    )
-
-    report = run_moex_contract_economics_spark_job(
-        raw_contract_specs_path=raw_paths["raw_moex_contract_securities"],
-        raw_fx_rates_path=raw_paths["raw_moex_indicative_fx_rates"],
-        raw_rms_limits_path=raw_paths["raw_moex_rms_limits"],
-        raw_rms_staticparams_path=raw_paths["raw_moex_rms_staticparams"],
-        output_dir=canonical_root,
-        allow_calibrated_latest_margin=args.allow_calibrated_latest_margin,
-        margin_calibration_as_of_date=args.margin_calibration_as_of_date,
-        canonical_session_calendar_path=session_calendar_path,
-        run_id=run_id,
-        report_path=evidence_root / "contract-economics-report.json",
-    )
-    report["update_mode"] = args.mode
-    report["date_window"] = {
-        "date_from": trade_dates[0].isoformat(),
-        "date_till": trade_dates[-1].isoformat(),
-        "trade_dates": [item.isoformat() for item in trade_dates],
-    }
-    report["source_modes"] = {
-        "contracts": "jsonl" if args.contracts_jsonl.strip() else "moex_iss_current_snapshot",
-        "fx": "jsonl" if args.fx_jsonl.strip() else "moex_iss_date_range",
-        "rms": args.rms_source,
-    }
-    report["moex_request_policy"] = _moex_client_kwargs(args)
-    report["moex_request_log_path"] = request_log_path.as_posix()
-    report["moex_request_latest_path"] = request_latest_path.as_posix()
-    if len(trade_dates) > 1:
-        report["source_limitations"] = [
-            "historical multi-day economics requires date-stamped contract snapshots; "
-            "MOEX ISS contract securities is not used for multi-day contract backfill"
-        ]
-    report["raw_write_modes"] = raw_write_modes
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+        report = run_moex_contract_economics_spark_job(
+            raw_contract_specs_path=raw_paths["raw_moex_contract_securities"],
+            raw_fx_rates_path=raw_paths["raw_moex_indicative_fx_rates"],
+            raw_rms_limits_path=raw_paths["raw_moex_rms_limits"],
+            raw_rms_staticparams_path=raw_paths["raw_moex_rms_staticparams"],
+            output_dir=canonical_root,
+            allow_calibrated_latest_margin=args.allow_calibrated_latest_margin,
+            margin_calibration_as_of_date=args.margin_calibration_as_of_date,
+            canonical_session_calendar_path=session_calendar_path,
+            run_id=run_id,
+            report_path=evidence_root / "contract-economics-report.json",
+        )
+        report["update_mode"] = args.mode
+        report["date_window"] = {
+            "date_from": trade_dates[0].isoformat(),
+            "date_till": trade_dates[-1].isoformat(),
+            "trade_dates": [item.isoformat() for item in trade_dates],
+        }
+        report["source_modes"] = {
+            "contracts": "jsonl" if args.contracts_jsonl.strip() else "moex_iss_current_snapshot",
+            "fx": "jsonl" if args.fx_jsonl.strip() else "moex_iss_date_range",
+            "rms": args.rms_source,
+        }
+        report["moex_request_policy"] = _moex_client_kwargs(args)
+        report["moex_request_log_path"] = request_log_path.as_posix()
+        report["moex_request_latest_path"] = request_latest_path.as_posix()
+        if len(trade_dates) > 1:
+            report["source_limitations"] = [
+                "historical multi-day economics requires date-stamped contract snapshots; "
+                "MOEX ISS contract securities is not used for multi-day contract backfill"
+            ]
+        report["raw_write_modes"] = raw_write_modes
+        print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

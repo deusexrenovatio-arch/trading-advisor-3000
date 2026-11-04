@@ -36,6 +36,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.economics import (
     moex_economics_store_contract,
 )
 
+from .economics_cutover import serialize_economics_refresh
 from .economics_reuse import (
     EconomicsSourceUnavailable,
     reuse_published_economics_after_source_unavailable,
@@ -886,6 +887,7 @@ def _validate_economics_options(options: Mapping[str, object]) -> None:
     )
 
 
+@serialize_economics_refresh
 def refresh_moex_contract_economics(
     *,
     client: MoexISSClient,
@@ -937,6 +939,19 @@ def refresh_moex_contract_economics(
         if not path.is_absolute():
             raise ValueError("baseline economics source paths must be absolute")
         sources[key] = path
+    canonical_parameters = canonical_economics_root / "canonical_contract_parameters.delta"
+    if canonical_parameters.exists():
+        from .native_history_refresh import registered_history_refresh_kwargs
+
+        active = registered_history_refresh_kwargs(canonical_economics_root.parent.parent)
+        expected = active.get("economics_source_paths", {}).get("raw_contract_specs_path")
+        if (
+            expected is not None
+            and sources["raw_contract_specs_path"].resolve() != expected.resolve()
+        ):
+            raise ValueError(
+                "stale economics source route; reload registered updater configuration"
+            )
     verified = validate_contract_parameter_evidence(
         options.get("additional_contract_parameter_regimes", ()),
         options.get("contract_parameter_evidence"),
@@ -1018,7 +1033,9 @@ def refresh_moex_contract_economics(
     inputs = {
         (
             "prepared_raw_moex_contract_securities"
-            if key == "raw_contract_specs_path" and verified
+            if key == "raw_contract_specs_path"
+            and verified
+            and path.stem != "canonical_contract_parameters"
             else path.stem
         ): capture_table(
             path,

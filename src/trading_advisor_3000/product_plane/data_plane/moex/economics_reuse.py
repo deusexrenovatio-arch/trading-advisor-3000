@@ -10,9 +10,9 @@ from trading_advisor_3000.product_plane.common.data_snapshots import (
     SnapshotUnavailableError,
     assert_tables_unchanged,
     capture_table,
+    current_snapshot,
 )
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
-    delta_table_version,
     has_delta_log,
     read_filtered_delta_table_rows,
 )
@@ -129,6 +129,16 @@ def _published_contract_economics_coverage(
             "blocked_reason": "canonical_contract_economics_missing",
         }
 
+    reference = capture_table(table_path)
+    published = current_snapshot(
+        canonical_economics_root.parent / "moex/baseline-4y-current/.data_snapshots"
+    )
+    if (
+        published is not None
+        and published["tables"].get("canonical_contract_economics") != reference
+    ):
+        raise SnapshotUnavailableError("reused economics differs from its selected publication")
+
     rows = read_filtered_delta_table_rows(
         table_path,
         filters=[
@@ -231,6 +241,7 @@ def _published_contract_economics_coverage(
             continue
         covered_rows.append(row)
 
+    assert_tables_unchanged({"reused_economics": reference})
     coverage_status = "PASS" if not missing_contract_ids and not invalid_contracts else "BLOCKED"
     return {
         **base_report,
@@ -239,7 +250,9 @@ def _published_contract_economics_coverage(
         "covered_contracts": len(covered_rows),
         "missing_contract_ids": missing_contract_ids,
         "invalid_contracts": invalid_contracts,
-        "delta_version": delta_table_version(table_path),
+        "delta_version": reference["delta_version"],
+        "table_reference": reference,
+        "published_snapshot_id": published["snapshot_id"] if published else None,
         "economics_session_dates": sorted(
             {str(row.get("economics_session_date") or "")[:10] for row in covered_rows}
         ),
@@ -310,7 +323,12 @@ def reuse_published_economics_after_source_unavailable(
     if renewal is not None:
         report["native_history_renewal"] = renewal
         report["snapshot_inputs"] = {
-            "prepared_raw_moex_contract_securities": renewal_tables["prepared"]
+            (
+                "canonical_contract_parameters"
+                if Path(renewal_tables["prepared"]["table_path"]).stem
+                == "canonical_contract_parameters"
+                else "prepared_raw_moex_contract_securities"
+            ): renewal_tables["prepared"]
         }
     _write_json(report_path, report)
     if not coverage_passed:
