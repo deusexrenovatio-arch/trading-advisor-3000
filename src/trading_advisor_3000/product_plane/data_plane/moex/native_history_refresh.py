@@ -558,6 +558,8 @@ def refresh_native_history_support(
                 raw_payload_json=json.dumps(payload, ensure_ascii=False, sort_keys=True),
                 enrichment_provenance_json=None,
             )
+            if "snapshot_metadata_json" in columns["raw"]:
+                raw["snapshot_metadata_json"] = None
             provenance = dict(
                 original_history_hash=raw["source_document_hash"],
                 original_source_id=HISTORY_SOURCE,
@@ -579,7 +581,7 @@ def refresh_native_history_support(
                 provenance["archived_description"] = archived_description
             prepared_hash = _hash(provenance)
             prepared = dict(
-                raw,
+                {key: value for key, value in raw.items() if key in columns["prepared"]},
                 source_id=PREPARED_SOURCE,
                 source_document_id=f"prepared-specification:{prepared_hash}",
                 source_document_hash=prepared_hash,
@@ -589,6 +591,14 @@ def refresh_native_history_support(
                 last_del_date=description.get("LASTDELDATE"),
                 enrichment_provenance_json=_json(provenance),
             )
+            if "calculation_origin_json" in columns["prepared"]:
+                if "canonical_binding" not in verified:
+                    raise ValueError("canonical calculation requires its accepted clone binding")
+                prepared.update(
+                    calculation_origin_json=None,
+                    source_validation_status="CALCULATED_WITH_ACCEPTED_MODEL",
+                    execution_admissible=True,
+                )
             oi = {key: raw[key] for key in columns["oi"] if key in raw}
             oi.update(
                 internal_id=f"FUT_{asset}",
@@ -621,13 +631,78 @@ def refresh_native_history_support(
     if set(observed) != set(admitted):
         raise ValueError("actual history date lacks exact datedTC; no support writes")
     rows["prepared"] = [row for row in rows["prepared"] if row["trade_date"] <= max(admitted)]
+    if "canonical_binding" in verified:
+        if "snapshot_metadata_json" not in columns["raw"]:
+            raise ValueError("canonical renewal requires original snapshot metadata in RAW")
+        for payload in current_snapshot.securities:
+            if payload.get("ASSETCODE") not in rules:
+                continue
+            if not payload.get("BOARDID"):
+                raise ValueError("current snapshot lacks original board identity")
+            snapshot = dict.fromkeys(columns["raw"])
+            snapshot.update(
+                source_id="moex_iss_futures_securities",
+                source_url="https://iss.moex.com/iss/engines/futures/markets/forts/securities.json",
+                source_document_id=f"snapshot:{payload['SECID']}:{current_snapshot.trade_date.isoformat()}",
+                source_document_hash=_hash(payload),
+                fetched_at_utc=fetched_at,
+                engine="futures",
+                market="forts",
+                board=payload["BOARDID"],
+                moex_secid=payload["SECID"],
+                trade_date=current_snapshot.trade_date.isoformat(),
+                assetcode=payload["ASSETCODE"],
+                contract_shortname=payload.get("SHORTNAME"),
+                raw_payload_json=_json(payload),
+                snapshot_metadata_json=_json(current_snapshot.source_pages),
+            )
+            for field, key in (
+                ("last_trade_date", "LASTTRADEDATE"),
+                ("last_del_date", "LASTDELDATE"),
+                ("min_step", "MINSTEP"),
+                ("lot_volume", "LOTVOLUME"),
+                ("official_step_price", "STEPPRICE"),
+                ("official_initial_margin", "INITIALMARGIN"),
+                ("last_settle_price", "LASTSETTLEPRICE"),
+            ):
+                snapshot[field] = payload.get(key)
+            rows["raw"].append(snapshot)
     for name in rows:
         if any(set(row) != set(columns[name]) for row in rows[name]):
             raise ValueError(f"native {name} support row differs from owning schema")
-    source_hash = _hash(sorted(row["source_document_hash"] for row in rows["raw"]))
+    source_hash = _hash(
+        sorted(
+            row["source_document_hash"] for row in rows["raw"] if row["source_id"] == HISTORY_SOURCE
+        )
+    )
     raw_ref = write_changed_support_rows(
         raw_contract_specs_path, rows["raw"], columns=columns["raw"]
     )
+    if "canonical_binding" in verified:
+        from trading_advisor_3000.product_plane.common.data_snapshots import capture_table
+
+        raw_origin = capture_table(raw_contract_specs_path, version=raw_ref["delta_version"])
+        for row in rows["prepared"]:
+            provenance = json.loads(row["enrichment_provenance_json"])
+            row["calculation_origin_json"] = _json(
+                dict(
+                    kind="calculated_with_accepted_model",
+                    source_table=raw_origin,
+                    key={
+                        "source_id": HISTORY_SOURCE,
+                        "board": row["board"],
+                        "moex_secid": row["moex_secid"],
+                        "trade_date": row["trade_date"],
+                    },
+                    source_document_hash=provenance["original_history_hash"],
+                    description_hash=provenance["description_hash"],
+                    archived_description=provenance.get("archived_description"),
+                    method_version="moex_contract_economics_v6",
+                    canonical_binding_sha256=verified["canonical_binding"]["binding_sha256"],
+                    regimes_sha256=verified["regimes_sha256"],
+                    dated_official_tc_evidence_sha256=verified["dated_official_tc_evidence_sha256"],
+                )
+            )
     scopes_sha = _hash(sorted({(row["moex_secid"], row["internal_id"]) for row in rows["oi"]}))
     for row in rows["oi"]:
         row.update(
@@ -668,16 +743,42 @@ def refresh_native_history_support(
 
 def registered_history_refresh_kwargs(root: Path) -> dict:
     """Existing Evidence shape; accepted prepared roots fail closed after activation."""
+    from trading_advisor_3000.product_plane.common.data_snapshots import current_snapshot
+
+    from .economics_cutover import BINDING, PARAMETERS
+
     prepared_dir = root / "provenance/prepared/economics"
     prepared = prepared_dir / "raw_moex_contract_securities.delta"
+    canonical = root / "canonical/economics"
+    target = canonical / (PARAMETERS + ".delta")
+    binding_path = None
+    if (target / "_delta_log").exists():
+        published = current_snapshot(root / "canonical/moex/baseline-4y-current/.data_snapshots")
+        selected = (published or {}).get("tables", {}).get(PARAMETERS)
+        if selected:
+            if (
+                Path(selected["table_path"]).resolve() != target.resolve()
+                or selected["table_id"] != DeltaTable(str(target)).metadata().id
+            ):
+                raise ValueError("selected canonical parameter route identity differs")
+            prepared_dir, prepared, binding_path = canonical, target, canonical / BINDING
+        else:
+            state_path = canonical / ".production-cutover/status.json"
+            state = json.loads(state_path.read_text()) if state_path.exists() else {}
+            if state.get("status") != "rolled_back":
+                raise ValueError("unpublished canonical parameters require cutover completion")
     if not (prepared / "_delta_log").is_dir():
         return {}
-    if DeltaTable(str(prepared)).metadata().id != "d550b9e4-e3d6-40dc-93f0-fc0e420e3b43":
+    if (
+        binding_path is None
+        and DeltaTable(str(prepared)).metadata().id != "d550b9e4-e3d6-40dc-93f0-fc0e420e3b43"
+    ):
         raise ValueError("registered native prepared input is not the accepted table")
     evidence = MoexContractParameterEvidence(
         "bounded-tail-20261010-v1",
         prepared_dir / "bounded-parameter-regimes.json",
         prepared_dir / "dated-official-tc-evidence.json",
+        canonical_binding_path=binding_path,
     )
     rules = tuple(
         MoexContractParameterRegime(**row) for row in json.loads(evidence.regimes_path.read_text())
@@ -695,6 +796,7 @@ def registered_history_refresh_kwargs(root: Path) -> dict:
             bundle_id=evidence.bundle_id,
             regimes_path=str(evidence.regimes_path),
             dated_official_tc_path=str(evidence.dated_official_tc_path),
+            **({"canonical_binding_path": str(binding_path)} if binding_path else {}),
         ),
         allow_calibrated_latest_margin=True,
         margin_calibration_as_of_date=date(2026, 8, 14),

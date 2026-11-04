@@ -4,7 +4,7 @@ from trading_advisor_3000.product_plane.common.table_layout import default_file_
 
 
 def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
-    return {
+    manifest = {
         "raw_market_backfill": {
             "format": "delta",
             "partition_by": ["contract_id", "timeframe"],
@@ -108,6 +108,7 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
                 "official_initial_margin": "double",
                 "last_settle_price": "double",
                 "raw_payload_json": "string",
+                "snapshot_metadata_json": "string",
             },
         },
         "raw_moex_indicative_fx_rates": {
@@ -399,3 +400,24 @@ def historical_data_delta_schema_manifest() -> dict[str, dict[str, object]]:
             },
         },
     }
+    manifest["canonical_contract_parameters"] = {
+        "format": "delta",
+        "partition_by": [],
+        "constraints": [
+            "non_empty(source_id)",
+            "non_empty(moex_secid)",
+            "non_empty(source_validation_status)",
+        ],
+        "columns": {
+            **{
+                key: value
+                for key, value in manifest["raw_moex_contract_securities"]["columns"].items()
+                if key != "snapshot_metadata_json"
+            },
+            "enrichment_provenance_json": "string",
+            "calculation_origin_json": "string",
+            "source_validation_status": "string",
+            "execution_admissible": "boolean",
+        },
+    }
+    return manifest

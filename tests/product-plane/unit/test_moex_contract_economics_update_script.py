@@ -424,3 +424,53 @@ def test_economics_direct_run_requires_paired_date_and_rejects_datetime(tmp_path
             margin_calibration_as_of_date=datetime(2026, 8, 14),
         )
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    ("marker", "owned_family"),
+    [
+        ("canonical_contract_parameters.delta", "canonical"),
+        ("accepted-production-baseline.json", "canonical"),
+        (".production-cutover/plan.json", "canonical"),
+        (".production-cutover/plan.json", "raw"),
+        ("locked", "raw"),
+    ],
+)
+def test_standalone_update_cannot_bypass_owned_canonical_migration(
+    tmp_path, monkeypatch, marker, owned_family
+):
+    from contextlib import nullcontext
+
+    module = _load_update_script()
+    raw = tmp_path / "working/raw/economics"
+    canonical = tmp_path / "output/canonical/economics"
+    owned = canonical if owned_family == "canonical" else raw.parent.parent / "canonical/economics"
+    if marker != "locked":
+        target = owned / marker
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.touch()
+    monkeypatch.setattr(
+        module,
+        "resolve_external_root",
+        lambda value, **kw: (
+            raw
+            if kw["default_subdir"] == "raw/economics"
+            else canonical
+            if kw["default_subdir"] == "canonical/economics"
+            else tmp_path / "evidence"
+        ),
+    )
+    monkeypatch.setattr(
+        module,
+        "MoexISSClient",
+        lambda **kw: pytest.fail("acquisition preceded canonical ownership refusal"),
+    )
+    monkeypatch.setattr(sys, "argv", ["tool", "--mode", "update"])
+    with module.economics_writer_lock(owned) if marker == "locked" else nullcontext():
+        with pytest.raises(
+            ValueError if marker == "locked" else SystemExit,
+            match="another economics writer" if marker == "locked" else "Dagster baseline updater",
+        ):
+            module.main()
+    assert not (tmp_path / "evidence").exists()
+    assert not raw.exists()
