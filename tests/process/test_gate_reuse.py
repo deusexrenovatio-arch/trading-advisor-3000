@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -162,10 +163,13 @@ def test_pr_gate_forwards_force_fresh_flag():
     assert "--no-reuse" in command
 
 
-def test_pr_ci_cancellation_is_bound_to_workflow_and_pr():
+def test_pr_ci_serializes_frozen_acceptance_per_workflow_and_pr():
     workflow = (SCRIPTS.parent / ".github/workflows/ci.yml").read_text()
     assert "group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}" in workflow
-    assert "cancel-in-progress: true" in workflow
+    assert yaml.safe_load(workflow)["concurrency"] == {
+        "group": "${{ github.workflow }}-pr-${{ github.event.pull_request.number }}",
+        "cancel-in-progress": False,
+    }
     assert "scripts/run_pr_gate.py" in workflow
 
 
