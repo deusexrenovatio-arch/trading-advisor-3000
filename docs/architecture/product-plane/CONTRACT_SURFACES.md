@@ -22,7 +22,11 @@ Native snapshot metadata admission adds `snapshot_identity_selector.v1` and
 `snapshot_identity_binding.v1`, referring to the same `market_identity.v3`
 authority. Market Data verifies source inputs and resolves exact snapshot pins;
 this mode establishes no temporal/PIT applicability. Native future expiry and
-complete specification can remain unknown. Full row adapters remain unadmitted.
+complete specification can remain unknown. The bounded opt-in read slice adds
+`snapshot_read_request.v1` and `snapshot_read_projection.v1` under the same
+authority: Arrow bars/L0/L1/L2, original schema/types/masks and explicit snapshot
+pins. This does not admit full canonical Q, CF or historical/PIT resolution.
+See the [read projection runbook](docs/runbooks/app/snapshot-read-projection.md).
 
 | Boundary | Contract set | Status | Notes |
 | --- | --- | --- | --- |

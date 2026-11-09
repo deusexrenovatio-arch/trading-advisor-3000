@@ -110,6 +110,12 @@ Market Data API should answer: "which market data product is authoritative,
 fresh, and usable?" It should not expose how canonical data was physically
 assembled.
 
+Opt-in snapshot inspection: `data_plane.snapshot_reads.PinnedNativeSnapshot`
+verifies a supplied source-backed pin bundle; `read_native_bars` accepts the
+shared `NativeReadRequest` and returns `ArrowReadResult`. It exposes an explicit
+bounded projection with unverified Q, never a full canonical/PIT claim. See
+[request and readback](docs/runbooks/app/snapshot-read-projection.md).
+
 ## API: Research Data
 
 | Field | Decision |
@@ -126,6 +132,11 @@ assembled.
 Research Data API should answer: "which research frame can a strategy safely
 consume?" It should not ask strategy code to recompute indicators or understand
 materialization internals.
+
+`research.snapshot_reads.read_native_frame` owns bounded native L0/L1/L2 reads
+through that public Market identity/pin boundary and explicit Research version
+selectors. The existing DataInspector can opt into both public readers. Cache
+and physical predicates remain implementation details; no materialization occurs.
 
 ## API: Strategy Factory
 

@@ -18,6 +18,7 @@ from report_product_plane_module_imports import (  # noqa: E402
     REVIEW_REQUIRED,
     RUNTIME_PLANE,
     STRATEGY_FACTORY,
+    classify_import,
     collect_import_records,
 )
 
@@ -83,6 +84,13 @@ def test_inventory_classifies_research_data_to_stage_timings_as_public_api(
     assert record.origin_module == RESEARCH_DATA_FACTORY
     assert record.target_module == RUNTIME_PLANE
     assert record.classification == PUBLIC_API
+
+
+def test_snapshot_reads_public_boundary_does_not_admit_internal_submodules() -> None:
+    public = "trading_advisor_3000.product_plane.data_plane.snapshot_reads"
+    for module, expected in [(public, PUBLIC_API), (public + ".internal", REVIEW_REQUIRED)]:
+        classification, _ = classify_import(RESEARCH_DATA_FACTORY, MARKET_DATA_FOUNDATION, module)
+        assert classification == expected
 
 
 def test_product_plane_module_import_inventory_cli_json_runs() -> None:

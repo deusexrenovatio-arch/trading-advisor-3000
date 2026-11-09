@@ -100,7 +100,9 @@ The old temporal resolver and legacy JSON fixtures remain compatible. Synthetic
 tests prove specified rejection and metadata invariants; the real proof verifies
 source associations and physical metadata pins. Neither proves bar value/type/
 NULL preservation, row grain, joins, caches or a real old-reader snapshot roundtrip.
-Those remain the separate stage-2 read-slice work. No writer migration, ingestion,
+The separate [bounded read slice](docs/runbooks/app/snapshot-read-projection.md) now supplies those
+checks without upgrading this metadata mode into canonical Q or PIT admission.
+No writer migration, ingestion,
 compute, execution or production readiness follows from metadata admission.
 
 Rollback: remove this opt-in admission route/use previous consumer. No data repair.
