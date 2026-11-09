@@ -154,8 +154,9 @@ separate real namespace proof: the pinned source-backed producer at `5277abbf`
 replays existing original MOEX metadata/report/assignments, emits its namespace,
 and the current public namespace evaluator consumes the unchanged SBER/IMOEX
 records and required assets. Readback is exact and repeatable; contradictory
-asset FKs and index execution reject. The full emitted namespace rejects because
-this foundation does not yet admit the future's unknown expiry/specification.
+asset FKs and index execution reject. At foundation head `fe8d0e06`, the full emitted namespace rejected because
+unknown future expiry/specification was not yet admitted; the separate snapshot
+amendment below admits those unknown native facts without establishing CF scope.
 The producer source, original input hashes and current consumer/schema hashes
 are pinned in `integration-20261109/pr1-real-namespace.py` and `.json` under the
 task evidence root `D:/CodexHome/visualizations/2026/10/31/01a19403-e9da-7011-bc5b-51fbe3ea3be9`.
@@ -165,3 +166,77 @@ for `canonical_bar.v3`, continuous front, full Q and bitemporal applicability
 remain BLOCKED/unadmitted until the separate proof above exists. No such payload
 is fabricated for foundation acceptance. This is real producer/consumer evidence
 for the limited boundary, not an exception to the contract-change gate.
+
+## Native snapshot identity admission
+
+Decision status: independently reviewed design. Implementation status: staged
+metadata route; [scoped proof and limits](docs/runbooks/app/identity-snapshot-admission.md).
+
+Decision amendment: explicit opt-in snapshot-bound metadata admission, verification
+only. Contracts owns the shared schema; Market Data owns the source-backed
+constructor and public resolver. This does not accept full row adapters, historical
+mapping/PIT, execution, publication or production. Native adoption is bounded to
+one supplied snapshot and exact source context; no runtime mapping is changed.
+
+`temporal_mapping.v1` and `resolve_temporal_mapping` retain both known/valid axes.
+They never dispatch snapshot bindings. New thin selector/binding schemas refer to
+`market_identity.v3` definitions; no parallel DTO meaning or mutable registry.
+A closed selector requires snapshot_bound applicability, namespace, concrete
+instrument_id, source context, engine, price basis and complete pins. Temporal
+parameters and CF selectors are invalid. Pins bind source manifest, report,
+configuration, assignment file/version, namespace, dataset context and the
+report's original table path plus physical table UUID/exact Delta version.
+The closed binding adds asset_id, source_symbol, a closed legacy source descriptor,
+source reference/hash, observed_at and historical_mapping_verified=false.
+Schema constraints bind its SECID/context/engine/price basis and namespace FK.
+Legacy source IDs occur only as explicitly named compatibility evidence.
+
+The Market Data source-backed constructor verifies original input bytes against
+explicit expected hashes, manifest descriptor/envelope hashes, inner raw payload
+hashes and the selected concrete assignment. It checks complete descriptor and
+raw-board engine/market/board association, source type/SECID and source IDs.
+It verifies the pinned invocation receipt's logical-to-host root binding,
+report/config/source/registry coherence, and the report's exact Delta version and
+expected physical UUID. Original manifests/references are retained, never rewritten.
+Configuration SHA256 hashes exact original source context_json UTF-8 bytes with
+no newline/reserialization; its dataset_context_id must match the report.
+Namespace SHA256 uses sorted compact UTF-8 JSON with no NaN. Source file hashes
+cover original bytes. Raw payload verification reuses the acquisition byte rule:
+sorted JSON, ensure_ascii=False, default separators, allow_nan=False, newline.
+The pure public resolver consumes trusted admitted inputs, schema-validates and
+matches every selector pin; zero or multiple candidates fail closed. Pure pin
+equality alone is not source verification. Returned metadata is a defensive copy.
+
+For native futures, null expiry means unknown UTC instant and null specification
+means an unconfirmed complete canonical specification. Observed lifetime dates,
+lot size and delivery facts remain source evidence; no midnight expiry or missing
+CF terms are invented. CF active/component references require known complete
+specification and expiry for each referenced instrument; otherwise controlled
+contract rejection. Unrelated unknown futures do not invalidate valid CF refs.
+Old merged v1/v2 schemas and fixtures retain their original bytes and meanings.
+
+Initial sourced example adopts only SBER TQBR, IMOEX SNDX and SRZ6 RFUD/forts from
+the explicitly supplied r7 pilot assignments, namespace
+`ta3000:pilot:identity-v2-r7-20261031`. Those IDs are pilot assignments, not official
+exchange IDs. SBER and SRZ6 share the confirmed ordinary-share underlying; index
+remains reference-only. Execution eligibility is false. Unknown economics,
+complete future specification/expiry and historical applicability remain unknown.
+No source-native Q/recipe or CF equivalence is inferred by identity admission.
+
+Validation: pre-change unknown native-future expiry/spec rejection; focused
+schema/resolver/constructor regressions for altered pins, descriptor association,
+ambiguous/absent mapping, PIT rejection and CF unknown-reference boundaries.
+Actual proof uses existing original source metadata, assignments, report/config,
+receipt and Delta metadata -> constructor -> public resolver -> schema validation
+and repeatability. No market/research output is written. Tests using synthetic
+fixtures do not establish exchange facts or replace this real metadata proof.
+Full stage-2 bar/L0/L1/L2 adapters still require sourced Q/recipes and independent
+value/type/NULL/grain roundtrip; this metadata decision does not admit them.
+
+Alternatives rejected: invented time intervals, lifetime/retrieval as historical
+knowledge, midnight expiry, whole old CF-registry reuse, bypassing namespace
+validation or introducing a parallel registry/schema owner. Cost is bounded
+metadata validation and Delta metadata reads, with no analytical compute.
+Rollback removes the unused admission route; old readers/data need no recovery.
+Removal/revisit: replace this explicit snapshot mode only after sourced temporal
+facts are accepted; never silently upgrade existing bindings into PIT claims.

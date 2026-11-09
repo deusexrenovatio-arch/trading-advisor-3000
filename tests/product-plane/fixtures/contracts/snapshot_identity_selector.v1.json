@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "applicability": "snapshot_bound",
+  "namespace": "MOEX",
+  "instrument_id": "SBER@MOEX",
+  "source_context": {
+    "provider": "fixture_terminal",
+    "venue": "MOEX",
+    "market": "shares",
+    "board": "TQBR"
+  },
+  "source_engine": "stock",
+  "price_basis": "source_native",
+  "pins": {
+    "source_manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "report_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "configuration_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "assignments_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "namespace_sha256": "df3acd7bbd151d22c1251b37562b7a17dd69f999598b085e0e30af51b38dcca5",
+    "assignment_version": "synthetic-assignment-v1",
+    "dataset_context_id": "synthetic-context",
+    "table": {
+      "source_path": "fixture://analytical-bars",
+      "table_id": "synthetic-table",
+      "delta_version": 7
+    }
+  }
+}

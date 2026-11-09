@@ -304,11 +304,12 @@
           "if": {"properties": {"kind": {"const": "future"}}, "required": ["kind"]},
           "then": {
             "properties": {
-              "instrument_role": {"const": "derivative"},
-              "specification": {"$ref": "market_identity.v3.json#/$defs/specification"},
-              "expiry": {"type": "string", "format": "utc-instant"}
+              "instrument_role": {"const": "derivative"}
             },
-            "x-equal": [["size_variant", "specification.size_variant"]]
+            "allOf": [{
+              "if": {"properties": {"specification": {"type": "object"}}, "required": ["specification"]},
+              "then": {"x-equal": [["size_variant", "specification.size_variant"]]}
+            }]
           }
         },
         {
@@ -714,6 +715,279 @@
       "x-intervals": [["valid_from", "valid_to"], ["recorded_from", "recorded_to"]],
       "x-resolution-match": ["namespace", "source_symbol", "source_context", "relation", "target.kind"],
       "x-resolution-time": {"valid": ["valid_from", "valid_to"], "known": ["recorded_from", "recorded_to"]}
+    },
+    "snapshot_table_pin": {
+      "type": "object",
+      "properties": {
+        "source_path": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "table_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "delta_version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "source_path",
+        "table_id",
+        "delta_version"
+      ],
+      "additionalProperties": false
+    },
+    "snapshot_pins": {
+      "type": "object",
+      "properties": {
+        "source_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "report_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "configuration_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "assignments_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "namespace_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "assignment_version": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "dataset_context_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "table": {
+          "$ref": "market_identity.v3.json#/$defs/snapshot_table_pin"
+        }
+      },
+      "required": [
+        "source_manifest_sha256",
+        "report_sha256",
+        "configuration_sha256",
+        "assignments_sha256",
+        "namespace_sha256",
+        "assignment_version",
+        "dataset_context_id",
+        "table"
+      ],
+      "additionalProperties": false
+    },
+    "snapshot_selector": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "applicability": {
+          "const": "snapshot_bound"
+        },
+        "namespace": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "instrument_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "source_context": {
+          "$ref": "market_identity.v3.json#/$defs/context"
+        },
+        "source_engine": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "price_basis": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "pins": {
+          "$ref": "market_identity.v3.json#/$defs/snapshot_pins"
+        }
+      },
+      "required": [
+        "schema_version",
+        "applicability",
+        "namespace",
+        "instrument_id",
+        "source_context",
+        "source_engine",
+        "price_basis",
+        "pins"
+      ],
+      "additionalProperties": false,
+      "x-namespace": "namespace",
+      "x-relations": [
+        {
+          "select": "instrument_id",
+          "collection": "instruments",
+          "key": "instrument_id",
+          "match": [
+            [
+              "source_context.venue",
+              "venue"
+            ],
+            [
+              "source_context.market",
+              "market"
+            ],
+            [
+              "source_context.board",
+              "board"
+            ]
+          ]
+        }
+      ]
+    },
+    "snapshot_descriptor": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "venue": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "engine": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "market": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "board": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "secid": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "security_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "legacy_series_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "price_basis": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "legacy_contract_id": {
+          "oneOf": [
+            {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            {
+              "const": null
+            }
+          ]
+        }
+      },
+      "required": [
+        "provider",
+        "venue",
+        "engine",
+        "market",
+        "board",
+        "secid",
+        "security_id",
+        "legacy_series_id",
+        "price_basis",
+        "legacy_contract_id"
+      ],
+      "additionalProperties": false
+    },
+    "snapshot_binding": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "selector": {
+          "$ref": "market_identity.v3.json#/$defs/snapshot_selector"
+        },
+        "asset_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "source_symbol": {
+          "$ref": "market_identity.v3.json#/$defs/text",
+          "pattern": "^(?!FUT_)"
+        },
+        "source_descriptor": {
+          "$ref": "market_identity.v3.json#/$defs/snapshot_descriptor"
+        },
+        "source_reference": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "source_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "utc-instant"
+        },
+        "historical_mapping_verified": {
+          "const": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "selector",
+        "asset_id",
+        "source_symbol",
+        "source_descriptor",
+        "source_reference",
+        "source_hash",
+        "observed_at",
+        "historical_mapping_verified"
+      ],
+      "additionalProperties": false,
+      "x-equal": [
+        [
+          "source_symbol",
+          "source_descriptor.secid"
+        ],
+        [
+          "selector.source_engine",
+          "source_descriptor.engine"
+        ],
+        [
+          "selector.price_basis",
+          "source_descriptor.price_basis"
+        ],
+        [
+          "selector.source_context.provider",
+          "source_descriptor.provider"
+        ],
+        [
+          "selector.source_context.venue",
+          "source_descriptor.venue"
+        ],
+        [
+          "selector.source_context.market",
+          "source_descriptor.market"
+        ],
+        [
+          "selector.source_context.board",
+          "source_descriptor.board"
+        ]
+      ],
+      "x-relations": [
+        {
+          "select": "selector.instrument_id",
+          "collection": "instruments",
+          "key": "instrument_id",
+          "match": [
+            [
+              "asset_id",
+              "asset_id"
+            ]
+          ]
+        }
+      ]
     }
   },
   "$ref": "#/$defs/definition"
