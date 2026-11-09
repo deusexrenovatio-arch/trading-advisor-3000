@@ -113,6 +113,45 @@ def chain(tmp_path):
 
 
 @pytest.mark.parametrize("change", ["append", "delete", "replace"])
+def test_contract_parameters_use_trade_date_in_both_diff_directions(chain, change):
+    canonical, _, _, source, _, _, _ = chain
+    path = canonical / "canonical_contract_parameters.delta"
+    old_row = {
+        "moex_secid": "BRX6",
+        "trade_date": datetime(2026, 7, 29).date(),
+        "fetched_at_utc": datetime(2026, 8, 5, tzinfo=UTC),
+        "source_document_hash": "old",
+    }
+    old_table = pa.Table.from_pylist([old_row])
+    write_deltalake(str(path), old_table)
+    previous = storage.capture_table(path)
+    new_row = {**old_row, "trade_date": datetime(2026, 7, 31).date()}
+    write_deltalake(
+        str(path),
+        pa.Table.from_pylist([] if change == "delete" else [new_row], schema=old_table.schema),
+        mode="append" if change == "append" else "overwrite",
+    )
+    current = storage.capture_table(path)
+    report = compare_snapshot_tables(
+        source_tables={**source["tables"], "canonical_contract_parameters": previous},
+        target_tables={**source["tables"], "canonical_contract_parameters": current},
+        timeframes=["15m"],
+        not_before="2026-07-01T00:00:00Z",
+        spark_session_factory=spark_factory,
+    )
+    effect = report["tables"]["canonical_contract_parameters"]
+    assert effect["changed_rows"] == (2 if change == "replace" else 1)
+    assert effect["start_ts"] == (
+        "2026-07-31T00:00:00Z" if change == "append" else "2026-07-29T00:00:00Z"
+    )
+    assert effect["end_ts"] == (
+        "2026-07-29T00:00:00Z" if change == "delete" else "2026-07-31T00:00:00Z"
+    )
+    assert report["preserved_prefix_rows"] == 1
+    assert storage.capture_table(path) == current
+
+
+@pytest.mark.parametrize("change", ["append", "delete", "replace"])
 def test_closed_session_dates_bind_old_and_new_effect_dates(chain, change):
     canonical, _, _, source, _, _, _ = chain
     path = canonical / "canonical_closed_session_dates.delta"

@@ -101,7 +101,10 @@ def _changed_window_dates(changed_windows: list[dict[str, object]]) -> tuple[dat
     for window in changed_windows:
         start = _parse_datetime(window.get("window_start_utc"), field_name="window_start_utc")
         end = _parse_datetime(window.get("window_end_utc"), field_name="window_end_utc")
-        effective_end = end - timedelta(seconds=1) if end > start else end
+        # ISS W1 end labels the last included date, even at midnight.
+        effective_end = end
+        if end > start and window.get("source_timeframe") != "1w":
+            effective_end -= timedelta(seconds=1)
         dates.extend(
             [start.astimezone(MOSCOW_TZ).date(), effective_end.astimezone(MOSCOW_TZ).date()]
         )
