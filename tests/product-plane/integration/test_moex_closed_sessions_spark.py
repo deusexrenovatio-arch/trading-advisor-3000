@@ -410,8 +410,10 @@ def test_real_daily_calendar_covers_weekly_canonical_consumer(spark, tmp_path):
     assert produced["canonical_closed_session_dates_path"] == closed.as_posix()
     assert produced["closed_calendar_rows"] == 2
     source, selected, _, _ = _inputs(spark, tmp_path)
-    source = source.withColumn("ts_open", F.to_timestamp(F.lit("2026-10-18T21:00:00Z"))).withColumn(
-        "ts_close", F.to_timestamp(F.lit("2026-10-25T21:00:00Z"))
+    source = (
+        source.withColumn("source_provider", F.lit("moex_iss"))
+        .withColumn("ts_open", F.to_timestamp(F.lit("2026-10-18T21:00:00Z")))
+        .withColumn("ts_close", F.to_timestamp(F.lit("2026-10-25T21:00:00Z")))
     )
     try:
         bars, provenance, report = job._build_session_bounded_outputs(

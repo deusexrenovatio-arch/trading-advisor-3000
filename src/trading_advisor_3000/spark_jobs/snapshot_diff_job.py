@@ -34,6 +34,7 @@ EFFECT_COLUMNS = {
     "raw_moex_session_schedule": "trade_date",
     "raw_moex_contract_securities": "trade_date",
     "prepared_raw_moex_contract_securities": "trade_date",
+    "canonical_contract_parameters": "trade_date",
     "raw_moex_indicative_fx_rates": "trade_date",
     "raw_moex_rms_limits": "trade_date",
     "raw_moex_rms_staticparams": "trade_date",

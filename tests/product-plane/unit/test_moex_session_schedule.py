@@ -196,6 +196,54 @@ def test_reconstructed_session_schedule_uses_static_rule_catalog_without_client(
     assert "fixture public source" in raw_rows[0]["raw_payload_json"]
 
 
+@pytest.mark.parametrize(
+    "timeframe,source_interval,last_date",
+    [
+        ("1w", 7, "2026-11-08"),
+        ("1w", 10080, "2026-11-08"),
+        ("1d", 24, "2026-11-07"),
+        ("1m", 1, "2026-11-07"),
+    ],
+)
+def test_schedule_covers_weekly_end_label_but_keeps_other_windows_exclusive(
+    tmp_path: Path, timeframe: str, source_interval: int, last_date: str
+) -> None:
+    catalog_path = _rule_catalog(tmp_path / "rules.json", effective_from="2026-11-02")
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    catalog["rules"][0].update(effective_to="2026-11-08", weekdays=[1, 2, 3, 4, 5, 6, 7])
+    catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+    intervals_path = tmp_path / "canonical_session_intervals.delta"
+
+    report = materialize_reconstructed_session_schedule_for_changed_windows(
+        changed_windows=[
+            {
+                "internal_id": instrument,
+                "moex_secid": secid,
+                "source_timeframe": timeframe,
+                "source_interval": source_interval,
+                "window_start_utc": "2026-11-01T21:00:00Z",
+                "window_end_utc": "2026-11-07T21:00:00Z",
+            }
+            for instrument, secid in (("FUT_NG", "NGZ6"), ("FUT_WHEAT", "W4Z6"))
+        ],
+        mappings=[],
+        raw_schedule_path=tmp_path / "raw_moex_session_schedule.delta",
+        canonical_session_intervals_path=intervals_path,
+        rule_catalog_path=catalog_path,
+        allow_candle_inference=False,
+        fetched_at_utc="2026-11-07T23:00:00Z",
+    )
+
+    rows = read_delta_table_rows(intervals_path, limit=100)
+    assert report["date_till"] == last_date
+    assert max(row["session_date"] for row in rows) == last_date
+    assert {
+        (row["instrument_id"], row["expected_open_ts"])
+        for row in rows
+        if row["session_date"] == last_date
+    } == {("FUT_NG", f"{last_date}T06:00:00Z"), ("FUT_WHEAT", f"{last_date}T06:00:00Z")}
+
+
 def test_reconstructed_session_schedule_deduplicates_contract_chain_intervals(
     tmp_path: Path,
 ) -> None:
