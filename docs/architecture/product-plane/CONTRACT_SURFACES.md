@@ -11,6 +11,13 @@ This document tracks release-blocking boundary contracts that are versioned in c
 
 ## Release-Blocking Boundary Inventory
 
+Staged opt-in identity contracts: `canonical_bar.v3`,
+`continuous_front_bars.v3`, `instrument_namespace.v1`, `temporal_mapping.v1`.
+Shared authority: `market_identity.v3`; pure evaluator: `contracts/identity_v3.py`.
+See [identity decision, keys and compatibility](docs/architecture/product-plane/market-identity.md).
+These files prepare a new boundary; they do not replace the runtime contracts or
+amend the release-blocking v1 inventory. Producer/consumer admission is pending.
+
 | Boundary | Contract set | Status | Notes |
 | --- | --- | --- | --- |
 | Core market/signal/execution DTOs | `canonical_bar.v1`, `signal_candidate.v1`, `runtime_signal.v1`, `signal_event.v1`, `decision_publication.v1`, `order_intent.v1`, `broker_order.v1`, `broker_fill.v1`, `broker_event.v1`, `position_snapshot.v1`, `risk_snapshot.v1` | implemented | Base product-plane contracts remain versioned with fixtures and regression tests. |

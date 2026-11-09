@@ -1,0 +1,720 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/market_identity.v3.json",
+  "title": "MarketIdentityV3",
+  "$defs": {
+    "text": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+    "instant": {"type": "string", "format": "utc-instant"},
+    "text_fact": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {"state": {"const": "known"}, "value": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}},
+          "required": ["state", "value"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"state": {"enum": ["unknown", "not_applicable"]}, "value": {"const": null}},
+          "required": ["state", "value"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "number_fact": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {"state": {"const": "known"}, "value": {"type": "number", "exclusiveMinimum": 0}},
+          "required": ["state", "value"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"state": {"enum": ["unknown", "not_applicable"]}, "value": {"const": null}},
+          "required": ["state", "value"],
+          "additionalProperties": false
+        }
+      ],
+      "allOf": [{"properties": {"state": {"enum": ["known", "unknown"]}}}]
+    },
+    "size_variant": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {"state": {"const": "known"}, "value": {"enum": ["standard", "mini", "micro"]}},
+          "required": ["state", "value"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {"state": {"enum": ["unknown", "not_applicable"]}, "value": {"const": null}},
+          "required": ["state", "value"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "recipe": {
+      "type": "object",
+      "properties": {
+        "method": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "version": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}
+      },
+      "required": ["method", "version"],
+      "additionalProperties": false
+    },
+    "q": {
+      "type": "object",
+      "properties": {
+        "source": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "namespace": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "venue": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "market": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "board": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "price_basis": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "price_currency": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "price_unit": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "quantity_unit": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "aggregation": {"$ref": "market_identity.v3.json#/$defs/recipe"},
+        "session": {
+          "type": "object",
+          "properties": {
+            "calendar": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+            "version": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}
+          },
+          "required": ["calendar", "version"],
+          "additionalProperties": false
+        },
+        "bounds": {
+          "type": "object",
+          "properties": {
+            "closure": {"const": "left_closed_right_open"},
+            "timezone": {"const": "UTC"},
+            "version": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}
+          },
+          "required": ["closure", "timezone", "version"],
+          "additionalProperties": false
+        },
+        "availability": {
+          "type": "object",
+          "properties": {
+            "mode": {"enum": ["historical", "live", "delayed"]},
+            "lag_seconds": {"type": "integer", "minimum": 0},
+            "version": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}
+          },
+          "required": ["mode", "lag_seconds", "version"],
+          "additionalProperties": false
+        },
+        "quality": {"$ref": "market_identity.v3.json#/$defs/recipe"}
+      },
+      "required": [
+        "source",
+        "namespace",
+        "venue",
+        "market",
+        "board",
+        "price_basis",
+        "price_currency",
+        "price_unit",
+        "quantity_unit",
+        "aggregation",
+        "session",
+        "bounds",
+        "availability",
+        "quality"
+      ],
+      "additionalProperties": false
+    },
+    "specification": {
+      "type": "object",
+      "properties": {
+        "derivative_subtype": {"const": "future"},
+        "deliverable_or_benchmark": {
+          "$ref": "market_identity.v3.json#/$defs/text_fact",
+          "allOf": [{"properties": {"state": {"enum": ["known", "unknown"]}}}]
+        },
+        "settlement": {"enum": ["cash", "physical"]},
+        "settlement_currency": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "price_currency": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "quantity_unit": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "multiplier": {"$ref": "market_identity.v3.json#/$defs/number_fact"},
+        "contract_size": {"$ref": "market_identity.v3.json#/$defs/number_fact"},
+        "size_variant": {
+          "$ref": "market_identity.v3.json#/$defs/size_variant",
+          "allOf": [{"properties": {"state": {"enum": ["known", "unknown"]}}}]
+        },
+        "grade": {"$ref": "market_identity.v3.json#/$defs/text_fact"},
+        "location": {"$ref": "market_identity.v3.json#/$defs/text_fact"}
+      },
+      "required": [
+        "derivative_subtype",
+        "deliverable_or_benchmark",
+        "settlement",
+        "settlement_currency",
+        "price_currency",
+        "quantity_unit",
+        "multiplier",
+        "contract_size",
+        "size_variant",
+        "grade",
+        "location"
+      ],
+      "additionalProperties": false
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "asset_id": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "eligibility": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "venue": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+              "market": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+              "board": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}
+            },
+            "required": ["venue", "market", "board"],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "specification": {"$ref": "market_identity.v3.json#/$defs/specification"},
+        "expiry_eligibility": {
+          "type": "object",
+          "properties": {
+            "min_days_to_expiry": {"type": "integer", "minimum": 0},
+            "max_days_to_expiry": {"type": "integer", "minimum": 0},
+            "date_basis": {"const": "utc_open_date"}
+          },
+          "required": ["min_days_to_expiry", "max_days_to_expiry", "date_basis"],
+          "additionalProperties": false,
+          "x-order": [["min_days_to_expiry", "max_days_to_expiry"]]
+        }
+      },
+      "required": ["asset_id", "eligibility", "specification", "expiry_eligibility"],
+      "additionalProperties": false
+    },
+    "roll": {
+      "type": "object",
+      "properties": {
+        "method": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "version": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "decision_timeframe": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "confirmation_rule": {"$ref": "market_identity.v3.json#/$defs/recipe"},
+        "reference_rule": {"$ref": "market_identity.v3.json#/$defs/recipe"},
+        "switch_rule": {"$ref": "market_identity.v3.json#/$defs/recipe"}
+      },
+      "required": ["method", "version", "decision_timeframe", "confirmation_rule", "reference_rule", "switch_rule"],
+      "additionalProperties": false
+    },
+    "adjustment": {
+      "type": "object",
+      "properties": {
+        "method": {"enum": ["none", "additive", "ratio"]},
+        "version": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "direction": {"enum": ["none", "backward", "forward"]},
+        "anchor": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "knowledge_policy": {"$ref": "market_identity.v3.json#/$defs/recipe"}
+      },
+      "required": ["method", "version", "direction", "anchor", "knowledge_policy"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"method": {"const": "none"}}, "required": ["method"]},
+          "then": {"properties": {"direction": {"const": "none"}, "anchor": {"const": "not_applicable"}}}
+        },
+        {
+          "if": {"properties": {"method": {"enum": ["additive", "ratio"]}}, "required": ["method"]},
+          "then": {"properties": {"direction": {"enum": ["backward", "forward"]}}}
+        }
+      ]
+    },
+    "asset": {
+      "type": "object",
+      "properties": {
+        "asset_id": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "kind": {"enum": ["equity", "reference_index", "other"]}
+      },
+      "required": ["asset_id", "kind"],
+      "additionalProperties": false
+    },
+    "instrument": {
+      "type": "object",
+      "properties": {
+        "instrument_id": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "asset_id": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "kind": {"enum": ["equity", "reference_index", "future"]},
+        "instrument_role": {"enum": ["base", "derivative"]},
+        "venue": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "market": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "board": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "tradable": {"type": "boolean"},
+        "execution_eligible": {"type": "boolean"},
+        "economics_state": {"enum": ["known", "unknown", "not_applicable"]},
+        "size_variant": {"$ref": "market_identity.v3.json#/$defs/size_variant"},
+        "specification": {"oneOf": [{"$ref": "market_identity.v3.json#/$defs/specification"}, {"const": null}]},
+        "expiry": {"oneOf": [{"type": "string", "format": "utc-instant"}, {"const": null}]}
+      },
+      "required": [
+        "instrument_id",
+        "asset_id",
+        "kind",
+        "instrument_role",
+        "venue",
+        "market",
+        "board",
+        "tradable",
+        "execution_eligible",
+        "economics_state",
+        "size_variant",
+        "specification",
+        "expiry"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"enum": ["equity", "reference_index"]}}, "required": ["kind"]},
+          "then": {
+            "properties": {
+              "instrument_role": {"const": "base"},
+              "specification": {"const": null},
+              "expiry": {"const": null},
+              "size_variant": {
+                "type": "object",
+                "properties": {"state": {"const": "not_applicable"}, "value": {"const": null}},
+                "required": ["state", "value"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "reference_index"}}, "required": ["kind"]},
+          "then": {
+            "properties": {
+              "tradable": {"const": false},
+              "execution_eligible": {"const": false},
+              "economics_state": {"const": "not_applicable"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "future"}}, "required": ["kind"]},
+          "then": {
+            "properties": {
+              "instrument_role": {"const": "derivative"},
+              "specification": {"$ref": "market_identity.v3.json#/$defs/specification"},
+              "expiry": {"type": "string", "format": "utc-instant"}
+            },
+            "x-equal": [["size_variant", "specification.size_variant"]]
+          }
+        },
+        {
+          "if": {"properties": {"tradable": {"const": false}}, "required": ["tradable"]},
+          "then": {"properties": {"execution_eligible": {"const": false}}}
+        }
+      ],
+      "x-relations": [
+        {"select": "asset_id", "collection": "assets", "key": "asset_id"},
+        {
+          "select": "asset_id",
+          "collection": "assets",
+          "key": "asset_id",
+          "match": [["kind", "kind"]],
+          "when": {"kind": ["equity", "reference_index"]}
+        }
+      ]
+    },
+    "definition": {
+      "type": "object",
+      "properties": {
+        "asset_id": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "series_type": {"enum": ["native", "continuous_front"]},
+        "instrument_role": {"enum": ["base", "derivative"]},
+        "instrument_id": {"oneOf": [{"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}, {"const": null}]},
+        "q": {"$ref": "market_identity.v3.json#/$defs/q"},
+        "scope": {"oneOf": [{"$ref": "market_identity.v3.json#/$defs/scope"}, {"const": null}]},
+        "roll": {"oneOf": [{"$ref": "market_identity.v3.json#/$defs/roll"}, {"const": null}]},
+        "adjustment": {"$ref": "market_identity.v3.json#/$defs/adjustment"}
+      },
+      "required": ["asset_id", "series_type", "instrument_role", "instrument_id", "q", "scope", "roll", "adjustment"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"series_type": {"const": "native"}}, "required": ["series_type"]},
+          "then": {
+            "properties": {
+              "instrument_id": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+              "scope": {"const": null},
+              "roll": {"const": null}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"series_type": {"const": "continuous_front"}}, "required": ["series_type"]},
+          "then": {
+            "properties": {
+              "instrument_id": {"const": null},
+              "instrument_role": {"const": "derivative"},
+              "scope": {"$ref": "market_identity.v3.json#/$defs/scope"},
+              "roll": {"$ref": "market_identity.v3.json#/$defs/roll"}
+            },
+            "x-equal": [["asset_id", "scope.asset_id"]],
+            "x-tuple-member": [
+              {
+                "local": ["q.venue", "q.market", "q.board"],
+                "set": "scope.eligibility",
+                "fields": ["venue", "market", "board"]
+              }
+            ],
+            "x-equal-spec": [
+              ["q.price_currency", "scope.specification.price_currency"],
+              ["q.quantity_unit", "scope.specification.quantity_unit"]
+            ]
+          }
+        }
+      ],
+      "x-namespace": "q.namespace",
+      "x-relations": [
+        {"select": "asset_id", "collection": "assets", "key": "asset_id"},
+        {
+          "select": "instrument_id",
+          "collection": "instruments",
+          "key": "instrument_id",
+          "match": [
+            ["asset_id", "asset_id"],
+            ["instrument_role", "instrument_role"],
+            ["q.venue", "venue"],
+            ["q.market", "market"],
+            ["q.board", "board"]
+          ]
+        }
+      ],
+      "x-key": {
+        "native": ["q", "series_type", "instrument_id", "adjustment"],
+        "continuous_front": ["q", "series_type", "scope", "roll", "adjustment"]
+      },
+      "x-set-paths": ["scope.eligibility"],
+      "x-require-known-for-key": ["scope.specification"]
+    },
+    "active_applicability": {
+      "type": "object",
+      "properties": {
+        "as_of": {"type": "string", "format": "utc-instant"},
+        "valid_from": {"type": "string", "format": "utc-instant"},
+        "valid_to": {"oneOf": [{"type": "string", "format": "utc-instant"}, {"const": null}]}
+      },
+      "required": ["as_of", "valid_from", "valid_to"],
+      "additionalProperties": false,
+      "x-intervals": [["valid_from", "valid_to"]],
+      "x-within": [["as_of", "valid_from", "valid_to"]]
+    },
+    "component": {
+      "type": "object",
+      "properties": {
+        "instrument_id": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "valid_from": {"type": "string", "format": "utc-instant"},
+        "valid_to": {"type": "string", "format": "utc-instant"}
+      },
+      "required": ["instrument_id", "valid_from", "valid_to"],
+      "additionalProperties": false,
+      "x-intervals": [["valid_from", "valid_to"]]
+    },
+    "versions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+          "version": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}
+        },
+        "required": ["name", "version"],
+        "additionalProperties": false
+      },
+      "minItems": 1,
+      "x-unique-by": "name"
+    },
+    "research": {
+      "type": "object",
+      "properties": {
+        "dataset": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "contour": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "set_versions": {"$ref": "market_identity.v3.json#/$defs/versions"},
+        "profile_versions": {"$ref": "market_identity.v3.json#/$defs/versions"}
+      },
+      "required": ["dataset", "contour", "set_versions", "profile_versions"],
+      "additionalProperties": false
+    },
+    "materialization": {
+      "type": "object",
+      "properties": {
+        "snapshot_reference": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "delta_references": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "table_uri": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+              "version": {"type": "integer", "minimum": 0}
+            },
+            "required": ["table_uri", "version"],
+            "additionalProperties": false
+          },
+          "minItems": 0
+        },
+        "produced_at": {"type": "string", "format": "utc-instant"}
+      },
+      "required": ["snapshot_reference", "delta_references", "produced_at"],
+      "additionalProperties": false
+    },
+    "bar": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 3},
+        "definition": {"$ref": "market_identity.v3.json#/$defs/definition"},
+        "timeframe": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "ts_open": {"type": "string", "format": "utc-instant"},
+        "ts_close": {"type": "string", "format": "utc-instant"},
+        "open": {"type": "number"},
+        "high": {"type": "number"},
+        "low": {"type": "number"},
+        "close": {"type": "number"},
+        "volume": {"type": ["number", "null"], "minimum": 0},
+        "open_interest": {"type": ["number", "null"], "minimum": 0},
+        "active_instrument_id": {"oneOf": [{"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}, {"const": null}]},
+        "active_applicability": {"oneOf": [{"$ref": "market_identity.v3.json#/$defs/active_applicability"}, {"const": null}]},
+        "components": {"type": "array", "items": {"$ref": "market_identity.v3.json#/$defs/component"}, "minItems": 0},
+        "research": {"$ref": "market_identity.v3.json#/$defs/research"},
+        "materialization": {"$ref": "market_identity.v3.json#/$defs/materialization"}
+      },
+      "required": [
+        "schema_version",
+        "definition",
+        "timeframe",
+        "ts_open",
+        "ts_close",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "open_interest",
+        "active_instrument_id",
+        "active_applicability",
+        "components"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {"definition": {"properties": {"series_type": {"const": "native"}}}},
+            "required": ["definition"]
+          },
+          "then": {
+            "properties": {
+              "active_instrument_id": {"const": null},
+              "active_applicability": {"const": null},
+              "components": {"maxItems": 0}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"definition": {"properties": {"series_type": {"const": "continuous_front"}}}},
+            "required": ["definition"]
+          },
+          "then": {"properties": {"components": {"minItems": 1}}}
+        },
+        {
+          "if": {"properties": {"active_instrument_id": {"const": null}}, "required": ["active_instrument_id"]},
+          "then": {"properties": {"active_applicability": {"const": null}}}
+        },
+        {
+          "if": {
+            "properties": {"active_instrument_id": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}},
+            "required": ["active_instrument_id"]
+          },
+          "then": {
+            "properties": {"active_applicability": {"$ref": "market_identity.v3.json#/$defs/active_applicability"}}
+          }
+        }
+      ],
+      "x-intervals": [["ts_open", "ts_close"]],
+      "x-order": [["low", "open"], ["low", "close"], ["open", "high"], ["close", "high"], ["low", "high"]],
+      "x-nested-bounds": {"start": "ts_open", "end": "ts_close", "intervals": "components", "point": "active_applicability.as_of"},
+      "x-relations": [
+        {
+          "collection": "instruments",
+          "key": "instrument_id",
+          "constants": {"kind": "future"},
+          "match": [["definition.asset_id", "asset_id"]],
+          "eligibility": {
+            "target": ["venue", "market", "board"],
+            "set": "definition.scope.eligibility",
+            "fields": ["venue", "market", "board"]
+          },
+          "known_equal": [["definition.scope.specification", "specification"]],
+          "expiry": {"instant": "ts_open", "target": "expiry", "policy": "definition.scope.expiry_eligibility"},
+          "select": "active_instrument_id"
+        },
+        {
+          "collection": "instruments",
+          "key": "instrument_id",
+          "constants": {"kind": "future"},
+          "match": [["definition.asset_id", "asset_id"]],
+          "eligibility": {
+            "target": ["venue", "market", "board"],
+            "set": "definition.scope.eligibility",
+            "fields": ["venue", "market", "board"]
+          },
+          "known_equal": [["definition.scope.specification", "specification"]],
+          "expiry": {"instant": "ts_open", "target": "expiry", "policy": "definition.scope.expiry_eligibility"},
+          "select": "components.*.instrument_id"
+        }
+      ],
+      "x-row-key": ["timeframe", "ts_open"],
+      "x-research-key": ["dataset", "contour", "set_versions", "profile_versions"]
+    },
+    "namespace": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "namespace": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "assets": {
+          "type": "array",
+          "items": {"$ref": "market_identity.v3.json#/$defs/asset"},
+          "minItems": 1,
+          "x-unique-by": "asset_id"
+        },
+        "instruments": {
+          "type": "array",
+          "items": {"$ref": "market_identity.v3.json#/$defs/instrument"},
+          "minItems": 1,
+          "x-unique-by": "instrument_id"
+        }
+      },
+      "required": ["schema_version", "namespace", "assets", "instruments"],
+      "additionalProperties": false
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "provider": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "venue": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "market": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "board": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}
+      },
+      "required": ["provider", "venue", "market", "board"],
+      "additionalProperties": false
+    },
+    "target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "asset"},
+            "asset_id": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}
+          },
+          "required": ["kind", "asset_id"],
+          "additionalProperties": false,
+          "x-relations": [{"select": "asset_id", "collection": "assets", "key": "asset_id"}]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "instrument"},
+            "instrument_id": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}
+          },
+          "required": ["kind", "instrument_id"],
+          "additionalProperties": false,
+          "x-relations": [{"select": "instrument_id", "collection": "instruments", "key": "instrument_id"}]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {"const": "continuous_front"},
+            "definition": {"$ref": "market_identity.v3.json#/$defs/definition"}
+          },
+          "required": ["kind", "definition"],
+          "additionalProperties": false,
+          "allOf": [{"properties": {"definition": {"properties": {"series_type": {"const": "continuous_front"}}}}}]
+        }
+      ]
+    },
+    "mapping": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1},
+        "namespace": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "source_symbol": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "source_context": {"$ref": "market_identity.v3.json#/$defs/context"},
+        "relation": {"enum": ["alias", "membership"]},
+        "component_asset_id": {"oneOf": [{"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"}, {"const": null}]},
+        "target": {"$ref": "market_identity.v3.json#/$defs/target"},
+        "valid_from": {"type": "string", "format": "utc-instant"},
+        "valid_to": {"oneOf": [{"type": "string", "format": "utc-instant"}, {"const": null}]},
+        "recorded_from": {"type": "string", "format": "utc-instant"},
+        "recorded_to": {"oneOf": [{"type": "string", "format": "utc-instant"}, {"const": null}]},
+        "source_reference": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+        "source_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "mapping_revision": {"type": "integer", "minimum": 1},
+        "retrieved_at": {"type": "string", "format": "utc-instant"}
+      },
+      "required": [
+        "schema_version",
+        "namespace",
+        "source_symbol",
+        "source_context",
+        "relation",
+        "component_asset_id",
+        "target",
+        "valid_from",
+        "valid_to",
+        "recorded_from",
+        "recorded_to",
+        "source_reference",
+        "source_hash",
+        "mapping_revision"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"source_symbol": {"pattern": "^FUT_"}}, "required": ["source_symbol"]},
+          "then": {
+            "properties": {"relation": {"const": "alias"}, "target": {"properties": {"kind": {"const": "continuous_front"}}}}
+          }
+        },
+        {
+          "if": {"properties": {"relation": {"const": "alias"}}, "required": ["relation"]},
+          "then": {"properties": {"component_asset_id": {"const": null}}}
+        },
+        {
+          "if": {"properties": {"relation": {"const": "membership"}}, "required": ["relation"]},
+          "then": {
+            "properties": {
+              "component_asset_id": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+              "target": {"properties": {"kind": {"const": "instrument"}}}
+            },
+            "x-relations": [
+              {"select": "component_asset_id", "collection": "assets", "key": "asset_id"},
+              {
+                "select": "target.instrument_id",
+                "collection": "instruments",
+                "key": "instrument_id",
+                "constants": {"kind": "reference_index"},
+                "not_equal": [["component_asset_id", "asset_id"]]
+              }
+            ]
+          }
+        }
+      ],
+      "x-namespace": "namespace",
+      "x-intervals": [["valid_from", "valid_to"], ["recorded_from", "recorded_to"]],
+      "x-resolution-match": ["namespace", "source_symbol", "source_context", "relation", "target.kind"],
+      "x-resolution-time": {"valid": ["valid_from", "valid_to"], "known": ["recorded_from", "recorded_to"]}
+    }
+  },
+  "$ref": "#/$defs/definition"
+}

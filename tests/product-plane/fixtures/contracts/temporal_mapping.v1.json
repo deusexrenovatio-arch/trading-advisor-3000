@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "namespace": "MOEX",
+  "source_symbol": "SBER",
+  "source_context": {
+    "provider": "fixture_terminal",
+    "venue": "MOEX",
+    "market": "shares",
+    "board": "TQBR"
+  },
+  "relation": "alias",
+  "component_asset_id": null,
+  "target": {
+    "kind": "instrument",
+    "instrument_id": "SBER@MOEX"
+  },
+  "valid_from": "2020-01-01T00:00:00Z",
+  "valid_to": "2030-01-01T00:00:00Z",
+  "recorded_from": "2026-10-01T00:00:00Z",
+  "recorded_to": null,
+  "source_reference": "fixture://illustrative-source-record",
+  "source_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "mapping_revision": 1,
+  "retrieved_at": "2026-11-02T12:00:00Z"
+}

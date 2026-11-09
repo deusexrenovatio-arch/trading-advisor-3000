@@ -1,0 +1,142 @@
+{
+  "schema_version": 3,
+  "definition": {
+    "asset_id": "SBER",
+    "series_type": "continuous_front",
+    "instrument_role": "derivative",
+    "instrument_id": null,
+    "q": {
+      "source": "fixture_terminal",
+      "namespace": "MOEX",
+      "venue": "MOEX",
+      "market": "futures",
+      "board": "RFUD",
+      "price_basis": "trades",
+      "price_currency": "RUB",
+      "price_unit": "fixture_price_points",
+      "quantity_unit": "contracts",
+      "aggregation": {
+        "method": "ohlcv_from_trades",
+        "version": "fixture-1"
+      },
+      "session": {
+        "calendar": "illustrative_regular_session",
+        "version": "fixture-1"
+      },
+      "bounds": {
+        "closure": "left_closed_right_open",
+        "timezone": "UTC",
+        "version": "fixture-1"
+      },
+      "availability": {
+        "mode": "historical",
+        "lag_seconds": 0,
+        "version": "fixture-1"
+      },
+      "quality": {
+        "method": "reject_duplicate_or_invalid_ohlc",
+        "version": "fixture-1"
+      }
+    },
+    "scope": {
+      "asset_id": "SBER",
+      "eligibility": [
+        {
+          "venue": "MOEX",
+          "market": "futures",
+          "board": "RFUD"
+        }
+      ],
+      "specification": {
+        "derivative_subtype": "future",
+        "deliverable_or_benchmark": {
+          "state": "known",
+          "value": "illustrative SBER ordinary-share basket"
+        },
+        "settlement": "cash",
+        "settlement_currency": "RUB",
+        "price_currency": "RUB",
+        "quantity_unit": "contracts",
+        "multiplier": {
+          "state": "known",
+          "value": 1
+        },
+        "contract_size": {
+          "state": "known",
+          "value": 10
+        },
+        "size_variant": {
+          "state": "known",
+          "value": "standard"
+        },
+        "grade": {
+          "state": "not_applicable",
+          "value": null
+        },
+        "location": {
+          "state": "not_applicable",
+          "value": null
+        }
+      },
+      "expiry_eligibility": {
+        "min_days_to_expiry": 0,
+        "max_days_to_expiry": 365,
+        "date_basis": "utc_open_date"
+      }
+    },
+    "roll": {
+      "method": "front_by_expiry",
+      "version": "fixture-1",
+      "decision_timeframe": "1h",
+      "confirmation_rule": {
+        "method": "two_closed_bars",
+        "version": "fixture-1"
+      },
+      "reference_rule": {
+        "method": "same_session_overlap_close",
+        "version": "fixture-1"
+      },
+      "switch_rule": {
+        "method": "next_bar_open_after_confirmation",
+        "version": "fixture-1"
+      }
+    },
+    "adjustment": {
+      "method": "none",
+      "version": "fixture-1",
+      "direction": "none",
+      "anchor": "not_applicable",
+      "knowledge_policy": {
+        "method": "as_known_at_bar_open",
+        "version": "fixture-1"
+      }
+    }
+  },
+  "timeframe": "1h",
+  "ts_open": "2026-11-02T10:00:00Z",
+  "ts_close": "2026-11-02T11:00:00Z",
+  "open": 100,
+  "high": 103,
+  "low": 99,
+  "close": 102,
+  "volume": 20,
+  "open_interest": 5,
+  "active_instrument_id": "SRZ6@MOEX",
+  "active_applicability": {
+    "as_of": "2026-11-02T10:00:00Z",
+    "valid_from": "2026-11-02T10:00:00Z",
+    "valid_to": "2026-11-02T10:30:00Z"
+  },
+  "components": [
+    {
+      "instrument_id": "SRZ6@MOEX",
+      "valid_from": "2026-11-02T10:00:00Z",
+      "valid_to": "2026-11-02T10:30:00Z"
+    },
+    {
+      "instrument_id": "SRH7@MOEX",
+      "valid_from": "2026-11-02T10:30:00Z",
+      "valid_to": "2026-11-02T11:00:00Z"
+    }
+  ]
+}

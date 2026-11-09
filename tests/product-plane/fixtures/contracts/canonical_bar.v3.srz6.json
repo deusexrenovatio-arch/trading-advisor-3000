@@ -1,0 +1,66 @@
+{
+  "schema_version": 3,
+  "definition": {
+    "asset_id": "SBER",
+    "series_type": "native",
+    "instrument_role": "derivative",
+    "instrument_id": "SRZ6@MOEX",
+    "q": {
+      "source": "fixture_terminal",
+      "namespace": "MOEX",
+      "venue": "MOEX",
+      "market": "futures",
+      "board": "RFUD",
+      "price_basis": "trades",
+      "price_currency": "RUB",
+      "price_unit": "fixture_price_points",
+      "quantity_unit": "contracts",
+      "aggregation": {
+        "method": "ohlcv_from_trades",
+        "version": "fixture-1"
+      },
+      "session": {
+        "calendar": "illustrative_regular_session",
+        "version": "fixture-1"
+      },
+      "bounds": {
+        "closure": "left_closed_right_open",
+        "timezone": "UTC",
+        "version": "fixture-1"
+      },
+      "availability": {
+        "mode": "historical",
+        "lag_seconds": 0,
+        "version": "fixture-1"
+      },
+      "quality": {
+        "method": "reject_duplicate_or_invalid_ohlc",
+        "version": "fixture-1"
+      }
+    },
+    "scope": null,
+    "roll": null,
+    "adjustment": {
+      "method": "none",
+      "version": "fixture-1",
+      "direction": "none",
+      "anchor": "not_applicable",
+      "knowledge_policy": {
+        "method": "as_known_at_bar_open",
+        "version": "fixture-1"
+      }
+    }
+  },
+  "timeframe": "1h",
+  "ts_open": "2026-11-02T10:00:00Z",
+  "ts_close": "2026-11-02T11:00:00Z",
+  "open": 100,
+  "high": 103,
+  "low": 99,
+  "close": 102,
+  "volume": 20,
+  "open_interest": 5,
+  "active_instrument_id": null,
+  "active_applicability": null,
+  "components": []
+}
