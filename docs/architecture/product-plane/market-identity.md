@@ -2,7 +2,8 @@
 
 Change surface: product-plane. Architecture impact: contract-change.
 Owner: Contracts; Market Data owns future producers and namespace facts.
-Decision: proposed stage 1; independent design admission required before code.
+Decision: staged foundation; independent admission is scoped to the real native
+namespace/evaluator boundary described below.
 Implementation: staged contracts only. Runtime adoption and migration not accepted.
 
 ## Context and decision
@@ -142,12 +143,25 @@ structural/policy/venue/size separation, unknown non-equivalence, temporal bound
 alias ambiguity, namespace FKs and old compatibility. Assertions use specified
 metamorphic invariants and independently selected time boundaries.
 
-Next-stage real proof: owning MOEX producer emits a v3 native equity/index/futures
+Future canonical/PIT admission requires the owning MOEX producer to emit a v3 native equity/index/futures
 sample and a multi-component CF using sourced, bitemporal namespace facts; actual
 consumer validates and reads back the expanded keys/lineage at pinned valid and
 known times. Negative replay must reject ambiguity, unknown scope and future
 knowledge. Plan separately authorized isolated resources before running it.
 
-Current fixtures establish contract behavior only. The contract-change PR gate
-requires real producer proof; it must remain BLOCKED without that artifact. Do not
-invent a producer or relabel tests as runtime acceptance to make the gate pass.
+Current fixtures establish contract behavior only. Foundation admission uses a
+separate real namespace proof: the pinned source-backed producer at `5277abbf`
+replays existing original MOEX metadata/report/assignments, emits its namespace,
+and the current public namespace evaluator consumes the unchanged SBER/IMOEX
+records and required assets. Readback is exact and repeatable; contradictory
+asset FKs and index execution reject. The full emitted namespace rejects because
+this foundation does not yet admit the future's unknown expiry/specification.
+The producer source, original input hashes and current consumer/schema hashes
+are pinned in `integration-20261109/pr1-real-namespace.py` and `.json` under the
+task evidence root `D:/CodexHome/visualizations/2026/10/31/01a19403-e9da-7011-bc5b-51fbe3ea3be9`.
+
+This admits only the staged native namespace/evaluator boundary. Real producers
+for `canonical_bar.v3`, continuous front, full Q and bitemporal applicability
+remain BLOCKED/unadmitted until the separate proof above exists. No such payload
+is fabricated for foundation acceptance. This is real producer/consumer evidence
+for the limited boundary, not an exception to the contract-change gate.
