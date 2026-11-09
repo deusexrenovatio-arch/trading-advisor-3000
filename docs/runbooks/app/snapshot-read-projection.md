@@ -87,8 +87,10 @@ Self-review: the new contract admits bounded native snapshot projections only.
 Latest/unpinned cache access, underlying-future substitution, duplicate grain,
 silent truncation and invented historical applicability are forbidden and have
 negative regressions. Residual limits: incomplete Q/temporal facts, local frozen
-verification roots, no production admission/performance claim. Full PR matrix
-includes write-proofs and remains unexecuted under the user's restriction.
+verification roots, no production admission/performance claim. The original
+read-only proof excluded the full PR write matrix. The November 9 integration
+tracks required isolated fixture/CI checks separately; real data/publication
+writes and production deployment remain outside scope.
 
 Rollback: omit the opt-in reader from `create_app` or use the previous consumer;
 discard the memory cache. No data recovery, manifest update or publication.

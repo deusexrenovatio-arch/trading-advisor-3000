@@ -246,7 +246,7 @@ facts are accepted; never silently upgrade existing bindings into PIT claims.
 Change surface: product-plane. Architecture impact: contract-change.
 Decision status: independently reviewed bounded extension.
 Implementation status: staged opt-in read slice, locally verified against existing
-outputs; full PR write-proof matrix unexecuted. Owners: Contracts (executable carrier), Market
+outputs; integration gates are tracked per delivery head. Owners: Contracts (executable carrier), Market
 Data (identity/pins and bars), Research (L0/L1/L2), Interfaces (opt-in inspector).
 
 Read existing accepted verification outputs through snapshot-only admission.
@@ -326,8 +326,10 @@ existing legacy reader remains unchanged. Actual proof: original accepted
 producer output -> adapters -> inspector consumer -> schema/Arrow validation;
 independent direct bounded pinned Arrow predicates are the oracle for every
 value, type, NULL/NaN mask, grain, index execution NULL, repeat and old readback.
-Fixtures stay in memory; source proof reads existing Delta only. Required broad
-write-proof matrix remains explicitly unexecuted under the user's prohibition.
+Fixtures stay in memory; source proof reads existing Delta only. The original
+read-only proof excluded the broad write matrix. The November 9 integration
+authorizes isolated fixture/CI writes, tracked separately for each delivery head;
+real market/research outputs, publications and deployment remain outside scope.
 
 Alternatives rejected: JSON-number conversion, pretending complete Q, duplicating
 identity DTO meaning, futures backtest loader for other assets, spill-file cache,
