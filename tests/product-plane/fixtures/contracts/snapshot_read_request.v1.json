@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "schema_version": 1,
+    "applicability": "snapshot_bound",
+    "namespace": "MOEX",
+    "instrument_id": "SBER@MOEX",
+    "source_context": {
+      "provider": "fixture_terminal",
+      "venue": "MOEX",
+      "market": "shares",
+      "board": "TQBR"
+    },
+    "source_engine": "stock",
+    "price_basis": "source_native",
+    "pins": {
+      "source_manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "report_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "configuration_sha256": "2e825c97f998c24a9764c4256ff43b59ae08dcf4d47e31386d4ab835b87794a0",
+      "assignments_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "namespace_sha256": "df3acd7bbd151d22c1251b37562b7a17dd69f999598b085e0e30af51b38dcca5",
+      "assignment_version": "synthetic-assignment-v1",
+      "dataset_context_id": "CTX:2e825c97f998c24a9764c4256ff43b59ae08dcf4d47e31386d4ab835b87794a0",
+      "table": {
+        "source_path": "fixture://source",
+        "table_id": "fixture-table",
+        "delta_version": 7
+      }
+    }
+  },
+  "layer": "bars",
+  "series_type": "native",
+  "timeframe": "1d",
+  "start": "2026-10-19T00:00:00Z",
+  "end": "2026-10-23T00:00:00Z",
+  "projection": [
+    "close",
+    "quantity",
+    "amount"
+  ],
+  "row_limit": 500,
+  "byte_limit": 2000000,
+  "research": null
+}
