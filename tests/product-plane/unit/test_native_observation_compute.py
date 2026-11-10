@@ -74,3 +74,22 @@ def test_compute_rejects_incomplete_or_simulated_parent_before_spark(tmp_path, m
     monkeypatch.setattr(owner, "open_pinned_table", lambda _: table)
     with pytest.raises(SchemaValidationError, match="compute"):
         reader.read_spark(ForbiddenSpark())
+
+
+@pytest.mark.parametrize(
+    "dependency", ["schema_validation.py", "native_observation_compute.v1.json"]
+)
+def test_runtime_provenance_covers_validator_and_thin_schema_bytes(monkeypatch, dependency):
+    from trading_advisor_3000.product_plane.data_plane.native_observations import (
+        observation_read_code_sha256,
+    )
+
+    before = observation_read_code_sha256()
+    read_bytes = Path.read_bytes
+
+    def changed(path):
+        raw = read_bytes(path)
+        return raw + b"\n" if path.name == dependency else raw
+
+    monkeypatch.setattr(Path, "read_bytes", changed)
+    assert observation_read_code_sha256() != before

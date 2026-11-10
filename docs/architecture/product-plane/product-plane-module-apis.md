@@ -121,7 +121,8 @@ Unpublished source observations use the explicit alternative
 Arrow inspection; `compute_metadata` and `read_spark` admit a full pinned native
 frame under separate row/file/physical-byte budgets. `contract_constants` and
 `physical_schema` expose declared layouts; `observation_read_code_sha256` exposes
-opaque runtime provenance. Research consumes these public outputs, without
+opaque application-runtime provenance (existing source/YAML fingerprint plus
+identity schemas, separate from numerical identity). Research consumes these public outputs, without
 importing provider normalization or ingest modules. This mode grants no canonical
 Q, UTC/session/PIT/finality or execution claim.
 
