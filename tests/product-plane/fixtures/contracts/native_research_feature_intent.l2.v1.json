@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "input_mode": "native_observation_research.v1",
+  "layer": "L2",
+  "command_id": "synthetic-features-l2",
+  "source_root": "/research-trial",
+  "parent_completion": {
+    "path": "synthetic-only/feature.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "policy_sha256": "58f1646b496b1d66cc02d484e23d11ab5b7274515cca26e55a4925d5ce81ad6e",
+  "numerical_identity": {
+    "version": "native_research_feature_numerical.v1",
+    "layer": "L2",
+    "basis": "observed_price_sequence.v1",
+    "policy_sha256": "58f1646b496b1d66cc02d484e23d11ab5b7274515cca26e55a4925d5ce81ad6e",
+    "kernels": {
+      "legacy": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "adapter": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "engines": {
+      "python": "synthetic-only",
+      "numpy": "synthetic-only",
+      "pandas": "synthetic-only",
+      "pandas_ta_classic": "synthetic-only",
+      "spark": "synthetic-only",
+      "delta": "synthetic-only",
+      "arrow": "synthetic-only",
+      "talib_absent": true
+    },
+    "digest": "04acb943230c28456ea3a5bcc48cfc2da59bbff05ff9a210793aea459e443b31"
+  },
+  "code_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}
