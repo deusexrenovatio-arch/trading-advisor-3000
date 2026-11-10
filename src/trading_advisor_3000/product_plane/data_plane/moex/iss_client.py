@@ -93,6 +93,10 @@ class MoexRequestError(RuntimeError):
         super().__init__(f"MOEX request failed after retries: {url} ({last_error})")
 
 
+class MoexCaptureError(RuntimeError):
+    """Source evidence could not be retained; retrying must not hide this failure."""
+
+
 def _utc_now_iso() -> str:
     return datetime.now(tz=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -171,6 +175,8 @@ class MoexISSClient:
         candle_chunk_days_by_interval: dict[int, int] | None = None,
         min_candle_split_span_days: int = DEFAULT_MIN_CANDLE_SPLIT_SPAN_DAYS,
         request_event_hook: Callable[[dict[str, Any]], None] | None = None,
+        response_capture: Callable[[dict[str, Any], bytes], None] | None = None,
+        max_response_bytes: int | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
@@ -208,6 +214,12 @@ class MoexISSClient:
         self.min_candle_split_span_days = int(min_candle_split_span_days)
         self.user_agent = user_agent
         self.request_event_hook = request_event_hook
+        if max_response_bytes is not None and (
+            type(max_response_bytes) is not int or max_response_bytes <= 0
+        ):
+            raise ValueError("max_response_bytes must be a positive integer")
+        self.response_capture = response_capture
+        self.max_response_bytes = max_response_bytes
         merged_chunk_days = dict(DEFAULT_CANDLE_CHUNK_DAYS_BY_INTERVAL)
         if candle_chunk_days_by_interval:
             for interval, chunk_days in candle_chunk_days_by_interval.items():
@@ -256,6 +268,36 @@ class MoexISSClient:
         )
         return base + jitter
 
+    def _capture_response(self, response: Any, *, url: str, started_at: str, body: bytes) -> None:
+        if self.response_capture is None:
+            return
+        try:
+            headers = response.headers
+            pairs = headers.raw_items() if hasattr(headers, "raw_items") else headers.items()
+            self.response_capture(
+                {
+                    "request_url": url,
+                    "final_url": response.geturl(),
+                    "status": int(response.status),
+                    "headers": list(pairs),
+                    "request_started_at_utc": started_at,
+                    "received_at_utc": _utc_now_iso(),
+                },
+                body,
+            )
+        except Exception as exc:
+            raise MoexCaptureError("strict MOEX source capture failed") from exc
+
+    def _read_response_bytes(self, response: Any) -> bytes:
+        body = (
+            response.read()
+            if self.max_response_bytes is None
+            else response.read(self.max_response_bytes + 1)
+        )
+        if self.max_response_bytes is not None and len(body) > self.max_response_bytes:
+            raise MoexCaptureError("MOEX response exceeds the explicit byte budget")
+        return body
+
     def _get_json(
         self,
         path: str,
@@ -277,12 +319,14 @@ class MoexISSClient:
         for attempt in range(max_retries + 1):
             req = request.Request(url, headers={"User-Agent": self.user_agent})
             started = time.perf_counter()
+            started_at = _utc_now_iso()
             try:
                 with request.urlopen(req, timeout=timeout_seconds) as response:
                     content_type = str(
                         getattr(response, "headers", {}).get("Content-Type", "") or ""
                     ).strip()
-                    raw_body = response.read()
+                    raw_body = self._read_response_bytes(response)
+                    self._capture_response(response, url=url, started_at=started_at, body=raw_body)
                 body_text = (
                     raw_body.decode("utf-8", errors="replace")
                     if isinstance(raw_body, bytes)
@@ -329,6 +373,13 @@ class MoexISSClient:
                 json.JSONDecodeError,
                 ValueError,
             ) as exc:
+                if isinstance(exc, HTTPError) and self.response_capture is not None:
+                    self._capture_response(
+                        exc,
+                        url=url,
+                        started_at=started_at,
+                        body=self._read_response_bytes(exc),
+                    )
                 last_error = exc
                 will_retry = attempt < max_retries
                 retry_sleep_seconds = (

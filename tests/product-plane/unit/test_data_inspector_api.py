@@ -82,6 +82,7 @@ def test_data_inspector_options_match_current_timeframes_and_parameters(tmp_path
                 "finam_symbol": "BRM6@MOEX",
                 "timeframe": "1m",
                 "ts_open": "2026-05-20T09:00:00Z",
+                "ts_close": "2026-05-20T09:01:00Z",
                 "close": 104.2,
             },
             {
@@ -89,6 +90,7 @@ def test_data_inspector_options_match_current_timeframes_and_parameters(tmp_path
                 "finam_symbol": "BRM6@MOEX",
                 "timeframe": "1h",
                 "ts_open": "2026-05-20T09:00:00Z",
+                "ts_close": "2026-05-20T10:00:00Z",
                 "close": 104.4,
             },
         ],
@@ -97,6 +99,7 @@ def test_data_inspector_options_match_current_timeframes_and_parameters(tmp_path
             "finam_symbol": "string",
             "timeframe": "string",
             "ts_open": "timestamp",
+            "ts_close": "timestamp",
             "close": "double",
         },
     )
