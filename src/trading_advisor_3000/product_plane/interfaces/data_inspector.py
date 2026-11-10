@@ -25,6 +25,9 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     MOEX_HISTORICAL_DATA_ROOT_ENV,
 )
+from trading_advisor_3000.product_plane.data_plane.native_observations import (
+    NativeObservationSnapshot,
+)
 from trading_advisor_3000.product_plane.data_plane.snapshot_reads import (
     PinnedNativeSnapshot,
     read_native_bars,
@@ -622,9 +625,27 @@ def create_app(
     env: Mapping[str, str] | None = None,
     snapshot_reader: PinnedNativeSnapshot | None = None,
     snapshot_cache: SnapshotReadCache | None = None,
+    observation_reader: NativeObservationSnapshot | None = None,
 ) -> FastAPI:
     resolved_data_root = resolve_data_root(data_root, env=env)
     app = FastAPI(title="TA3000 Data Inspector", version="0.2.0")
+
+    @app.post("/api/data-inspector/native-observation-read")
+    def read_native_observation(payload: dict) -> Response:
+        if observation_reader is None:
+            raise HTTPException(
+                status_code=503, detail="native observation reader is not configured"
+            )
+        try:
+            result = observation_reader.read(payload)
+            return Response(
+                content=result.to_ipc(observation_reader.namespace),
+                media_type="application/vnd.apache.arrow.stream",
+            )
+        except SchemaValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except SnapshotUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/api/data-inspector/snapshot-read")
     def read_snapshot(payload: dict) -> Response:
