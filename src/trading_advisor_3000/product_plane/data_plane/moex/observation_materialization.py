@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
@@ -13,10 +12,13 @@ from uuid import uuid4
 
 from trading_advisor_3000.product_plane.common.data_snapshots import (
     atomic_json,
-    capture_table,
     create_snapshot,
     save_snapshot,
 )
+from trading_advisor_3000.product_plane.common.data_snapshots import (
+    write_delta_once as _write_once,
+)
+from trading_advisor_3000.product_plane.common.immutable_files import command_lock as _command_lock
 from trading_advisor_3000.product_plane.contracts.identity_v3 import validate_identity_contract
 
 from ..native_observations import (
@@ -123,6 +125,7 @@ def intake_records(root: Path, source: dict, assignments: dict):
 
 
 def producer_code_sha256() -> str:
+    from trading_advisor_3000.product_plane.common import data_snapshots, immutable_files
     from trading_advisor_3000.product_plane.contracts import identity_v3
 
     from .. import native_observations
@@ -132,6 +135,8 @@ def producer_code_sha256() -> str:
         Path(module.__file__)
         for module in [
             identity_v3,
+            immutable_files,
+            data_snapshots,
             native_observations,
             iss_client,
             observation_acquisition,
@@ -204,19 +209,6 @@ def build_observation_command(
         "native_observation_intent.v1.json", result, assignments["namespace"]
     )
     return result
-
-
-@contextmanager
-def _command_lock(path: Path):
-    import fcntl
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+b") as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        try:
-            yield
-        finally:
-            fcntl.flock(stream, fcntl.LOCK_UN)
 
 
 def _spark_schema(layout):
@@ -401,19 +393,6 @@ def _frames(spark, root, source, assignments, metadata, overlay, overlay_sha256)
         ):
             raise ValueError("duplicate observation grain: " + name)
     return frames, counts
-
-
-def _write_once(spark, path: Path, frame, layout):
-    if path.exists():
-        raise ValueError("observation table destination already exists")
-    ddl = ", ".join(
-        "`" + f["name"] + "` " + f["sql_type"] + ("" if f["nullable"] else " NOT NULL")
-        for f in layout["fields"]
-    )
-    spark.sql(f"CREATE TABLE delta.`{path.as_posix()}` ({ddl}) USING DELTA")
-    if frame.limit(1).count():
-        frame.write.format("delta").mode("append").save(path.as_posix())
-    return capture_table(path)
 
 
 def materialize_observation_command(

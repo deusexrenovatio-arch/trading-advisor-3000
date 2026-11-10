@@ -93,6 +93,17 @@ def test_snapshot_reads_public_boundary_does_not_admit_internal_submodules() -> 
         assert classification == expected
 
 
+def test_native_observation_public_boundary_keeps_other_market_internals_closed() -> None:
+    public = "trading_advisor_3000.product_plane.data_plane.native_observations"
+    for module, expected in [
+        (public, PUBLIC_API),
+        (public + ".internal", REVIEW_REQUIRED),
+        ("trading_advisor_3000.product_plane.data_plane.moex", REVIEW_REQUIRED),
+    ]:
+        classification, _ = classify_import(RESEARCH_DATA_FACTORY, MARKET_DATA_FOUNDATION, module)
+        assert classification == expected
+
+
 def test_product_plane_module_import_inventory_cli_json_runs() -> None:
     result = subprocess.run(
         [

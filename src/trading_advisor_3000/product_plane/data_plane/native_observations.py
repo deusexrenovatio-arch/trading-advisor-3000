@@ -16,6 +16,8 @@ from trading_advisor_3000.product_plane.common.data_snapshots import (
     SnapshotUnavailableError,
     load_snapshot,
     open_pinned_table,
+    read_spark_delta,
+    snapshot_read_scope,
 )
 from trading_advisor_3000.product_plane.contracts.identity_v3 import (
     SCHEMAS,
@@ -52,8 +54,28 @@ def observation_metadata(source_pin: dict, assignment_pin: dict, namespace: dict
     return result
 
 
+def observation_read_code_sha256() -> str:
+    """Opaque application-runtime provenance, separate from numerical compatibility."""
+    from trading_advisor_3000.product_plane.common.data_snapshots import runtime_provenance
+    from trading_advisor_3000.product_plane.contracts import identity_v3
+
+    runtime = runtime_provenance()
+    payload = {key: runtime[key] for key in ["source_sha256", "contracts_sha256"]}
+    payload["identity_schemas"] = {
+        name: hashlib.sha256((SCHEMAS / name).read_bytes()).hexdigest()
+        for name in sorted(identity_v3.CONTRACTS)
+    }
+    return hashlib.sha256(canonical_bytes(payload)).hexdigest()
+
+
 def physical_schema(layout: dict) -> pa.Schema:
-    types = {"string": pa.string(), "bigint": pa.int64(), "decimal(38,10)": pa.decimal128(38, 10)}
+    types = {
+        "string": pa.string(),
+        "bigint": pa.int64(),
+        "decimal(38,10)": pa.decimal128(38, 10),
+        "double": pa.float64(),
+        "boolean": pa.bool_(),
+    }
     return pa.schema(
         [
             pa.field(f["name"], types[f["sql_type"]], nullable=f["nullable"])
@@ -429,6 +451,141 @@ class NativeObservationSnapshot:
 
     def verify(self) -> dict:
         return completed_candidate(self.root, json.loads(self._completion_json))
+
+    def compute_metadata(self) -> dict:
+        """Full-source compute admission, with physical budgets before Spark IO."""
+        graph = self.verify()
+        definitions = json.loads((SCHEMAS / "market_identity.v3.json").read_bytes())["$defs"]
+        policy = definitions["native_observation_compute"]["properties"]["policy"]["const"]
+        reference = graph["manifest"]["tables"]["native_bars"]
+        for field, limit in [("row_count", "rows"), ("file_count", "files")]:
+            _require(
+                0 < reference[field] <= policy["limits"][limit],
+                "compute " + limit + " budget exceeded",
+            )
+        table = open_pinned_table(reference)
+        physical_bytes = sum(table.get_add_actions().column("size_bytes").to_pylist())
+        _require(
+            0 < physical_bytes <= policy["limits"]["physical_bytes"],
+            "compute physical byte budget exceeded",
+        )
+        _require(
+            graph["manifest"]["tables"]["quarantine"]["row_count"] == 0,
+            "compute rejects quarantine",
+        )
+        _require(
+            reference["row_count"] == graph["source"]["source_rows"],
+            "compute source count mismatch",
+        )
+        _require(not graph["simulations"], "compute rejects simulated parents")
+        sequences = []
+        for binding in graph["assignments"]["bindings"]:
+            for timeframe in ["1m", "1d"]:
+                count = sum(
+                    page["source_row_count"]
+                    for page in graph["source"]["pages"]
+                    if page["source_symbol"] == binding["source_symbol"]
+                    and page["timeframe"] == timeframe
+                )
+                sequences.append(
+                    {
+                        "namespace": graph["metadata"]["namespace"]["namespace"],
+                        **{
+                            key: binding[key]
+                            for key in [
+                                "instrument_id",
+                                "asset_id",
+                                "context",
+                                "engine",
+                                "source_symbol",
+                            ]
+                        },
+                        "timeframe": timeframe,
+                        "rows": count,
+                    }
+                )
+        completion = graph["completion"]
+        metadata = {
+            "schema_version": 1,
+            "contract_version": "native_observation_compute.v1",
+            "input_mode": "native_observations.v1",
+            "source_root": self.root.as_posix(),
+            "namespace": graph["metadata"]["namespace"],
+            "completion": json.loads(self._completion_json),
+            **{
+                key: completion[key]
+                for key in ["snapshot", "source_manifest", "assignments", "metadata"]
+            },
+            "policy": policy,
+            "limitations": graph["metadata"]["limitations"],
+            "row_count": reference["row_count"],
+            "file_count": reference["file_count"],
+            "physical_bytes": physical_bytes,
+            "sequences": sorted(sequences, key=canonical_bytes),
+        }
+        validate_identity_contract(
+            "native_observation_compute.v1.json", metadata, graph["metadata"]["namespace"]
+        )
+        _require(
+            sum(s["rows"] for s in sequences) == reference["row_count"],
+            "compute sequence accounting mismatch",
+        )
+        return metadata
+
+    def read_spark(self, spark):
+        """Return the complete pinned native frame and its closed compute metadata."""
+        from pyspark.sql import functions as F
+
+        metadata = self.compute_metadata()
+        graph = self.verify()
+        layout = graph["metadata"]["storage_layout"]["native_bars"]
+        reference = graph["manifest"]["tables"]["native_bars"]
+        with snapshot_read_scope(graph["manifest"]):
+            frame = read_spark_delta(spark, reference["table_path"])
+        _require(
+            [(f.name, f.dataType.simpleString()) for f in frame.schema]
+            == [(f["name"], f["sql_type"]) for f in layout["fields"]],
+            "compute physical schema mismatch",
+        )
+        invalid = F.lit(False)
+        for field in layout["fields"]:
+            if not field["nullable"]:
+                invalid = invalid | F.col(field["name"]).isNull()
+        invalid = (
+            invalid
+            | (F.col("value_origin") != "exchange_observation")
+            | F.col("simulation_id").isNotNull()
+            | F.col("overlay_sha256").isNotNull()
+        )
+        _require(not frame.where(invalid).limit(1).count(), "invalid compute source row")
+        _require(frame.count() == metadata["row_count"], "compute actual row count mismatch")
+        _require(
+            not frame.groupBy(*layout["grain"]).count().where("count > 1").limit(1).count(),
+            "compute duplicate grain",
+        )
+        grouping = [name for name in layout["grain"] if name != "source_begin"] + [
+            "asset_id",
+            "source_symbol",
+        ]
+        actual = []
+        for row in frame.groupBy(*grouping).count().limit(129).collect():
+            actual.append(
+                {
+                    "namespace": row.namespace,
+                    "instrument_id": row.instrument_id,
+                    "asset_id": row.asset_id,
+                    "context": {key: row[key] for key in ["provider", "venue", "market", "board"]},
+                    "engine": row.engine,
+                    "source_symbol": row.source_symbol,
+                    "timeframe": row.timeframe,
+                    "rows": row["count"],
+                }
+            )
+        _require(
+            sorted(actual, key=canonical_bytes) == metadata["sequences"],
+            "compute actual sequence mismatch",
+        )
+        return frame, metadata
 
     def read(self, request: dict) -> NativeObservationRead:
         request = json.loads(canonical_bytes(request))
