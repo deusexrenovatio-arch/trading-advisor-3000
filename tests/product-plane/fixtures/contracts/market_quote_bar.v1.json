@@ -1,0 +1,19 @@
+{
+  "schema_version": "market_quote_bar.v1",
+  "series_id": "MOEX:stock:shares:SBER:TQBR:source_native",
+  "timeframe": "1d",
+  "ts_open": "2026-10-26T07:00:00Z",
+  "ts_close": "2026-10-26T15:39:59Z",
+  "source_begin": "2026-10-26 10:00:00",
+  "source_end": "2026-10-26 18:39:59",
+  "open": 260.0,
+  "high": 264.0,
+  "low": 259.0,
+  "close": 263.0,
+  "volume": 100,
+  "turnover": 26200.0,
+  "open_interest": null,
+  "volume_status": "reported",
+  "source_run_id": "quote-contract-fixture",
+  "fetched_at": "2026-10-26T21:00:00Z"
+}

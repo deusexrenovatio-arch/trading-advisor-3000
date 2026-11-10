@@ -1,0 +1,21 @@
+{
+  "schema_version": "market_quote_series.v1",
+  "series_id": "MOEX:stock:shares:SBER:TQBR:source_native",
+  "security_id": "MOEX:stock:shares:SBER",
+  "source": "moex_iss",
+  "asset_class": "equity",
+  "engine": "stock",
+  "market": "shares",
+  "board": "TQBR",
+  "secid": "SBER",
+  "underlying_security_id": null,
+  "source_timezone": "Europe/Moscow",
+  "price_basis": "source_native",
+  "price_unit": "source_native",
+  "volume_unit": "source_native",
+  "turnover_unit": "source_native",
+  "tradable": true,
+  "metadata_asof": "2026-10-26T21:00:00Z",
+  "metadata_json": "{\"SECID\":\"SBER\"}",
+  "aliases_json": "[\"SBER@MOEX\"]"
+}
