@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "contract_version": "native_research_compute.v1",
+  "input_mode": "native_observation_research.v1",
+  "root": "/research-trial",
+  "layer": "L0",
+  "namespace": {
+    "schema_version": 1,
+    "namespace": "synthetic-only",
+    "assets": [
+      {
+        "asset_id": "ASSET:fixture",
+        "kind": "equity"
+      }
+    ],
+    "instruments": [
+      {
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "kind": "equity",
+        "instrument_role": "base",
+        "venue": "MOEX",
+        "market": "shares",
+        "board": "TQBR",
+        "tradable": true,
+        "execution_eligible": false,
+        "economics_state": "unknown",
+        "size_variant": {
+          "state": "not_applicable",
+          "value": null
+        },
+        "specification": null,
+        "expiry": null
+      }
+    ]
+  },
+  "completion": {
+    "path": "synthetic-only/feature.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "snapshot": {
+    "path": "synthetic-only/feature.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "snapshot_id": "synthetic-only-snapshot"
+  },
+  "context": {
+    "path": "synthetic-only/feature.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "research_context_id": "NCTX:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "context_id": "NCTX:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "analysis_start": "2020-01-02 00:00:00",
+  "table_name": "research_bar_views",
+  "limitations": {
+    "snapshot_bound": true,
+    "canonical_Q_verified": false,
+    "historical_PIT_verified": false,
+    "timezone_verified": false,
+    "utc_closure_verified": false,
+    "session_complete_verified": false,
+    "execution_eligible": false
+  },
+  "policy": {
+    "version": "native_research_compute.v1",
+    "scope": "full_completed_observed_frame",
+    "limits": {
+      "rows": 20000,
+      "files": 128,
+      "physical_bytes": 67108864
+    },
+    "all_declared_sequences_required": true,
+    "duplicate_grain_forbidden": true
+  },
+  "row_count": 2,
+  "file_count": 1,
+  "physical_bytes": 1024,
+  "sequences": [
+    {
+      "namespace": "synthetic-only",
+      "instrument_id": "INSTR:fixture",
+      "asset_id": "ASSET:fixture",
+      "context": {
+        "provider": "moex_iss",
+        "venue": "MOEX",
+        "market": "shares",
+        "board": "TQBR"
+      },
+      "engine": "stock",
+      "source_symbol": "SYNTHETIC",
+      "timeframe": "1m",
+      "rows": 2
+    }
+  ]
+}

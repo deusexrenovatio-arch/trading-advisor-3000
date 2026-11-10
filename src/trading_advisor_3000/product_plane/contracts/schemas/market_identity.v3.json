@@ -3513,6 +3513,884 @@
       },
       "required": ["schema_version", "contract_version", "status", "layer", "command_id", "input_sha256", "attempt_id", "snapshot", "context", "intent", "source_root", "source_completion", "created_at_utc"],
       "additionalProperties": false
+    },
+    "native_research_compute": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "contract_version": {
+          "const": "native_research_compute.v1"
+        },
+        "input_mode": {
+          "const": "native_observation_research.v1"
+        },
+        "root": {
+          "const": "/research-trial"
+        },
+        "layer": {
+          "enum": ["L0", "L1"]
+        },
+        "namespace": {
+          "$ref": "market_identity.v3.json#/$defs/namespace"
+        },
+        "completion": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "snapshot": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_completion/properties/snapshot"
+        },
+        "context": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "research_context_id": {
+          "type": "string",
+          "pattern": "^NCTX:[0-9a-f]{64}$"
+        },
+        "context_id": {
+          "type": "string",
+          "pattern": "^(NCTX|NFCTX):[0-9a-f]{64}$"
+        },
+        "analysis_start": {
+          "type": "string",
+          "format": "source-key-time"
+        },
+        "table_name": {
+          "enum": ["research_bar_views", "research_indicator_frames"]
+        },
+        "limitations": {
+          "const": {
+            "snapshot_bound": true,
+            "canonical_Q_verified": false,
+            "historical_PIT_verified": false,
+            "timezone_verified": false,
+            "utc_closure_verified": false,
+            "session_complete_verified": false,
+            "execution_eligible": false
+          }
+        },
+        "policy": {
+          "const": {
+            "version": "native_research_compute.v1",
+            "scope": "full_completed_observed_frame",
+            "limits": {
+              "rows": 20000,
+              "files": 128,
+              "physical_bytes": 67108864
+            },
+            "all_declared_sequences_required": true,
+            "duplicate_grain_forbidden": true
+          }
+        },
+        "row_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20000
+        },
+        "file_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        },
+        "physical_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "sequences": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "$ref": "market_identity.v3.json#/$defs/native_observation_compute_sequence"
+          }
+        }
+      },
+      "required": ["schema_version", "contract_version", "input_mode", "root", "layer", "namespace", "completion", "snapshot", "context", "research_context_id", "context_id", "analysis_start", "table_name", "limitations", "policy", "row_count", "file_count", "physical_bytes", "sequences"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "layer": {
+                "const": "L0"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "table_name": {
+                "const": "research_bar_views"
+              },
+              "context_id": {
+                "pattern": "^NCTX:[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layer": {
+                "const": "L1"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "table_name": {
+                "const": "research_indicator_frames"
+              },
+              "context_id": {
+                "pattern": "^NFCTX:[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "native_observed_l1_policy": {
+      "const": {
+        "version": "native_observed_l1.v1",
+        "profile_version": "native_price_l1.v1",
+        "input_mode": "native_observation_research.v1",
+        "source_basis": "observed_price_sequence.v1",
+        "parent_layer": "L0",
+        "table": "research_indicator_frames",
+        "parent_table": "research_bar_views",
+        "gate": "explicit_observed_price_profile_no_missing_flags_permission",
+        "numeric_basis": "float64_transient_parent_fields_unchanged",
+        "history_origin": "first_pinned_observation",
+        "ordering": "strict_full_native_sequence_source_begin",
+        "gap_policy": "adjacent_observed_no_fill_no_session_reset",
+        "offset": 0,
+        "fill": "none",
+        "insufficient_history": "exclude_operation_from_called_profile_emit_null_and_reason",
+        "requirements": {
+          "sma_20": 20,
+          "ema_20": 20,
+          "rsi_14": 14,
+          "atr_14": 14
+        },
+        "capability_basis": "analysis_slice_with_full_observed_history",
+        "ready_means": "positive_analysis_finite_count_not_complete_Q_or_execution",
+        "backend": "pandas_ta_classic_native_no_talib",
+        "runtime_profile": {
+          "pandas_ta_classic": "0.4.47",
+          "talib_must_be_absent_in_worker": true
+        },
+        "join": "one_to_one_complete_native_grain_both_antijoins_empty",
+        "source_parent_fields": "all_exact_including_decimal_null_lineage_and_existing_features",
+        "additional_fields": [
+          {"name": "sma_20", "sql_type": "double", "nullable": true},
+          {"name": "ema_20", "sql_type": "double", "nullable": true},
+          {"name": "rsi_14", "sql_type": "double", "nullable": true},
+          {"name": "atr_14", "sql_type": "double", "nullable": true},
+          {"name": "indicator_context_id", "sql_type": "string", "nullable": false},
+          {"name": "indicator_profile_version", "sql_type": "string", "nullable": false}
+        ],
+        "capability_matrix": "exactly_one_profile_operation_per_verified_sequence_no_extras",
+        "undefined_arithmetic": "null",
+        "execution_eligible": false,
+        "library_defaults": {
+          "basis": "pinned_0.4.47_defaults_with_actual_talib_absent",
+          "sma_20": {
+            "length": 20,
+            "offset": 0
+          },
+          "ema_20": {
+            "length": 20,
+            "offset": 0,
+            "adjust": false,
+            "sma_seed": true
+          },
+          "rsi_14": {
+            "length": 14,
+            "offset": 0,
+            "scalar": 100,
+            "drift": 1,
+            "rma_seed": "native_skip_first_nan"
+          },
+          "atr_14": {
+            "length": 14,
+            "offset": 0,
+            "mamode": "rma",
+            "drift": 1,
+            "true_range_first": "native_nan"
+          }
+        },
+        "origin_profile": "core_v1",
+        "profile": {
+          "version": "native_price_l1.v1",
+          "origin_profile": "core_v1",
+          "indicators": [
+            {
+              "indicator_id": "sma_20",
+              "category": "trend",
+              "operation_key": "sma",
+              "parameters": [
+                {
+                  "name": "length",
+                  "value": 20
+                }
+              ],
+              "required_input_columns": ["close"],
+              "output_columns": ["sma_20"],
+              "warmup_bars": 20
+            },
+            {
+              "indicator_id": "ema_20",
+              "category": "trend",
+              "operation_key": "ema",
+              "parameters": [
+                {
+                  "name": "length",
+                  "value": 20
+                }
+              ],
+              "required_input_columns": ["close"],
+              "output_columns": ["ema_20"],
+              "warmup_bars": 20
+            },
+            {
+              "indicator_id": "atr_14",
+              "category": "volatility",
+              "operation_key": "atr",
+              "parameters": [
+                {
+                  "name": "length",
+                  "value": 14
+                }
+              ],
+              "required_input_columns": ["high", "low", "close"],
+              "output_columns": ["atr_14"],
+              "warmup_bars": 14
+            },
+            {
+              "indicator_id": "rsi_14",
+              "category": "oscillator",
+              "operation_key": "rsi",
+              "parameters": [
+                {
+                  "name": "length",
+                  "value": 14
+                }
+              ],
+              "required_input_columns": ["close"],
+              "output_columns": ["rsi_14"],
+              "warmup_bars": 14
+            }
+          ]
+        }
+      }
+    },
+    "native_observed_l2_policy": {
+      "const": {
+        "version": "native_observed_l2.v1",
+        "profile_version": "native_price_l2.v1",
+        "input_mode": "native_observation_research.v1",
+        "source_basis": "observed_price_sequence.v1",
+        "parent_layer": "L1",
+        "table": "research_derived_indicator_frames",
+        "parent_table": "research_indicator_frames",
+        "gate": "explicit_observed_price_profile_no_missing_flags_permission",
+        "numeric_basis": "float64_transient_parent_fields_unchanged",
+        "history_origin": "first_pinned_observation",
+        "ordering": "strict_full_native_sequence_source_begin",
+        "gap_policy": "adjacent_observed_no_fill_no_session_reset",
+        "offset": 0,
+        "fill": "none",
+        "insufficient_history": "exclude_operation_from_called_profile_emit_null_and_reason",
+        "requirements": {
+          "rolling_high_20": 20,
+          "rolling_low_20": 20,
+          "close_change_1": 2
+        },
+        "capability_basis": "analysis_slice_with_full_observed_history",
+        "ready_means": "positive_analysis_finite_count_not_complete_Q_or_execution",
+        "backend": "pandas_rolling_diff",
+        "runtime_profile": {
+          "pandas_ta_classic": "0.4.47",
+          "talib_must_be_absent_in_worker": true
+        },
+        "join": "one_to_one_complete_native_grain_both_antijoins_empty",
+        "source_parent_fields": "all_exact_including_decimal_null_lineage_and_existing_features",
+        "additional_fields": [
+          {"name": "rolling_high_20", "sql_type": "double", "nullable": true},
+          {"name": "rolling_low_20", "sql_type": "double", "nullable": true},
+          {"name": "close_change_1", "sql_type": "double", "nullable": true},
+          {"name": "derived_context_id", "sql_type": "string", "nullable": false},
+          {"name": "derived_profile_version", "sql_type": "string", "nullable": false}
+        ],
+        "capability_matrix": "exactly_one_profile_operation_per_verified_sequence_no_extras",
+        "undefined_arithmetic": "null",
+        "execution_eligible": false,
+        "rolling_window": "inclusive_current_observation_min_periods_20",
+        "close_change": "native_diff_1",
+        "origin_profile": "core_v1",
+        "profile": {
+          "version": "native_price_l2.v1",
+          "origin_profile": "core_v1",
+          "output_columns": ["rolling_high_20", "rolling_low_20", "close_change_1"],
+          "warmup_bars": 20
+        }
+      }
+    },
+    "native_research_feature_numerical": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "native_research_feature_numerical.v1"
+        },
+        "layer": {
+          "enum": ["L1", "L2"]
+        },
+        "basis": {
+          "const": "observed_price_sequence.v1"
+        },
+        "policy_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "kernels": {
+          "type": "object",
+          "properties": {
+            "legacy": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "adapter": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": ["legacy", "adapter"],
+          "additionalProperties": false
+        },
+        "engines": {
+          "type": "object",
+          "properties": {
+            "python": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "numpy": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "pandas": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "pandas_ta_classic": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "spark": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "delta": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "arrow": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "talib_absent": {
+              "const": true
+            }
+          },
+          "required": ["python", "numpy", "pandas", "pandas_ta_classic", "spark", "delta", "arrow", "talib_absent"],
+          "additionalProperties": false
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": ["version", "layer", "basis", "policy_sha256", "kernels", "engines", "digest"],
+      "additionalProperties": false
+    },
+    "native_research_feature_context": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "contract_version": {
+          "const": "native_research_feature_context.v1"
+        },
+        "input_mode": {
+          "const": "native_observation_research.v1"
+        },
+        "layer": {
+          "enum": ["L1", "L2"]
+        },
+        "research_context_id": {
+          "type": "string",
+          "pattern": "^NCTX:[0-9a-f]{64}$"
+        },
+        "feature_context_id": {
+          "type": "string",
+          "pattern": "^NFCTX:[0-9a-f]{64}$"
+        },
+        "source": {
+          "$ref": "market_identity.v3.json#/$defs/native_research_compute"
+        },
+        "policy": {
+          "oneOf": [
+            {
+              "$ref": "market_identity.v3.json#/$defs/native_observed_l1_policy"
+            },
+            {
+              "$ref": "market_identity.v3.json#/$defs/native_observed_l2_policy"
+            }
+          ]
+        },
+        "policy_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "layout_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "numerical_identity": {
+          "$ref": "market_identity.v3.json#/$defs/native_research_feature_numerical"
+        },
+        "runtime_code_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "quality": {
+          "type": "object",
+          "properties": {
+            "policy": {
+              "const": {
+                "version": "native_research_feature_comparison.v1",
+                "parent_fields": "exact",
+                "masks": "exact",
+                "new_feature_values": {
+                  "rtol": 1e-12,
+                  "atol": 1e-10
+                },
+                "nonfinite": "forbidden"
+              }
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": ["policy", "sha256"],
+          "additionalProperties": false
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 512,
+          "items": {
+            "type": "object",
+            "properties": {
+              "sequence": {
+                "$ref": "market_identity.v3.json#/$defs/native_observation_compute_sequence"
+              },
+              "feature": {
+                "enum": ["sma_20", "ema_20", "rsi_14", "atr_14", "rolling_high_20", "rolling_low_20", "close_change_1"]
+              },
+              "state": {
+                "enum": ["ready", "insufficient_history", "undefined_arithmetic"]
+              },
+              "required_observations": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20000
+              },
+              "finite_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 20000
+              },
+              "analysis_rows": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20000
+              },
+              "analysis_finite_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 20000
+              },
+              "first_finite_bar_index": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 20000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "first_finite_source_begin": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "format": "source-key-time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reason": {
+                "$ref": "market_identity.v3.json#/$defs/text"
+              }
+            },
+            "required": ["sequence", "feature", "state", "required_observations", "finite_count", "analysis_rows", "analysis_finite_count", "first_finite_bar_index", "first_finite_source_begin", "reason"],
+            "additionalProperties": false,
+            "x-order": [
+              ["finite_count", "sequence.rows"],
+              ["analysis_rows", "sequence.rows"],
+              ["analysis_finite_count", "finite_count"],
+              ["analysis_finite_count", "analysis_rows"]
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "state": {
+                      "const": "ready"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "analysis_finite_count": {
+                      "minimum": 1
+                    },
+                    "first_finite_bar_index": {
+                      "type": "integer"
+                    },
+                    "first_finite_source_begin": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "state": {
+                      "enum": ["insufficient_history", "undefined_arithmetic"]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "analysis_finite_count": {
+                      "const": 0
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "state": {
+                      "const": "insufficient_history"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "finite_count": {
+                      "const": 0
+                    },
+                    "first_finite_bar_index": {
+                      "type": "null"
+                    },
+                    "first_finite_source_begin": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "sma_20"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 20
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "ema_20"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 20
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "rsi_14"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 14
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "atr_14"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 14
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "rolling_high_20"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 20
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "rolling_low_20"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 20
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "close_change_1"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 2
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "required": ["schema_version", "contract_version", "input_mode", "layer", "research_context_id", "feature_context_id", "source", "policy", "policy_sha256", "layout_sha256", "numerical_identity", "runtime_code_sha256", "quality", "capabilities"],
+      "additionalProperties": false,
+      "x-equal": [
+        ["research_context_id", "source.research_context_id"],
+        ["layer", "numerical_identity.layer"],
+        ["policy_sha256", "numerical_identity.policy_sha256"]
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "layer": {
+                "const": "L1"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "properties": {
+                  "layer": {
+                    "const": "L0"
+                  }
+                }
+              },
+              "policy": {
+                "$ref": "market_identity.v3.json#/$defs/native_observed_l1_policy"
+              },
+              "capabilities": {
+                "items": {
+                  "properties": {
+                    "feature": {
+                      "enum": ["sma_20", "ema_20", "rsi_14", "atr_14"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layer": {
+                "const": "L2"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "properties": {
+                  "layer": {
+                    "const": "L1"
+                  }
+                }
+              },
+              "policy": {
+                "$ref": "market_identity.v3.json#/$defs/native_observed_l2_policy"
+              },
+              "capabilities": {
+                "items": {
+                  "properties": {
+                    "feature": {
+                      "enum": ["rolling_high_20", "rolling_low_20", "close_change_1"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "native_research_feature_intent": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "input_mode": {
+          "const": "native_observation_research.v1"
+        },
+        "layer": {
+          "enum": ["L1", "L2"]
+        },
+        "command_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "source_root": {
+          "const": "/research-trial"
+        },
+        "parent_completion": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "policy_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "numerical_identity": {
+          "$ref": "market_identity.v3.json#/$defs/native_research_feature_numerical"
+        },
+        "code_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": ["schema_version", "input_mode", "layer", "command_id", "source_root", "parent_completion", "policy_sha256", "numerical_identity", "code_sha256"],
+      "additionalProperties": false,
+      "x-equal": [
+        ["layer", "numerical_identity.layer"],
+        ["policy_sha256", "numerical_identity.policy_sha256"]
+      ]
+    },
+    "native_research_feature_completion": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "contract_version": {
+          "const": "native_research_feature_completion.v1"
+        },
+        "status": {
+          "const": "complete_unpublished"
+        },
+        "layer": {
+          "enum": ["L1", "L2"]
+        },
+        "command_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "snapshot": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_completion/properties/snapshot"
+        },
+        "context": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "intent": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "source_root": {
+          "const": "/research-trial"
+        },
+        "parent_completion": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "created_at_utc": {
+          "type": "string",
+          "format": "utc-instant"
+        }
+      },
+      "required": ["schema_version", "contract_version", "status", "layer", "command_id", "input_sha256", "attempt_id", "snapshot", "context", "intent", "source_root", "parent_completion", "created_at_utc"],
+      "additionalProperties": false
     }
   },
   "$ref": "#/$defs/definition"

@@ -1,0 +1,420 @@
+{
+  "schema_version": 1,
+  "contract_version": "native_research_feature_context.v1",
+  "input_mode": "native_observation_research.v1",
+  "layer": "L1",
+  "research_context_id": "NCTX:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "feature_context_id": "NFCTX:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "source": {
+    "schema_version": 1,
+    "contract_version": "native_research_compute.v1",
+    "input_mode": "native_observation_research.v1",
+    "root": "/research-trial",
+    "layer": "L0",
+    "namespace": {
+      "schema_version": 1,
+      "namespace": "synthetic-only",
+      "assets": [
+        {
+          "asset_id": "ASSET:fixture",
+          "kind": "equity"
+        }
+      ],
+      "instruments": [
+        {
+          "instrument_id": "INSTR:fixture",
+          "asset_id": "ASSET:fixture",
+          "kind": "equity",
+          "instrument_role": "base",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR",
+          "tradable": true,
+          "execution_eligible": false,
+          "economics_state": "unknown",
+          "size_variant": {
+            "state": "not_applicable",
+            "value": null
+          },
+          "specification": null,
+          "expiry": null
+        }
+      ]
+    },
+    "completion": {
+      "path": "synthetic-only/feature.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "snapshot": {
+      "path": "synthetic-only/feature.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "snapshot_id": "synthetic-only-snapshot"
+    },
+    "context": {
+      "path": "synthetic-only/feature.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "research_context_id": "NCTX:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "context_id": "NCTX:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "analysis_start": "2020-01-02 00:00:00",
+    "table_name": "research_bar_views",
+    "limitations": {
+      "snapshot_bound": true,
+      "canonical_Q_verified": false,
+      "historical_PIT_verified": false,
+      "timezone_verified": false,
+      "utc_closure_verified": false,
+      "session_complete_verified": false,
+      "execution_eligible": false
+    },
+    "policy": {
+      "version": "native_research_compute.v1",
+      "scope": "full_completed_observed_frame",
+      "limits": {
+        "rows": 20000,
+        "files": 128,
+        "physical_bytes": 67108864
+      },
+      "all_declared_sequences_required": true,
+      "duplicate_grain_forbidden": true
+    },
+    "row_count": 2,
+    "file_count": 1,
+    "physical_bytes": 1024,
+    "sequences": [
+      {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      }
+    ]
+  },
+  "policy": {
+    "version": "native_observed_l1.v1",
+    "profile_version": "native_price_l1.v1",
+    "input_mode": "native_observation_research.v1",
+    "source_basis": "observed_price_sequence.v1",
+    "parent_layer": "L0",
+    "table": "research_indicator_frames",
+    "parent_table": "research_bar_views",
+    "gate": "explicit_observed_price_profile_no_missing_flags_permission",
+    "numeric_basis": "float64_transient_parent_fields_unchanged",
+    "history_origin": "first_pinned_observation",
+    "ordering": "strict_full_native_sequence_source_begin",
+    "gap_policy": "adjacent_observed_no_fill_no_session_reset",
+    "offset": 0,
+    "fill": "none",
+    "insufficient_history": "exclude_operation_from_called_profile_emit_null_and_reason",
+    "requirements": {
+      "sma_20": 20,
+      "ema_20": 20,
+      "rsi_14": 14,
+      "atr_14": 14
+    },
+    "capability_basis": "analysis_slice_with_full_observed_history",
+    "ready_means": "positive_analysis_finite_count_not_complete_Q_or_execution",
+    "backend": "pandas_ta_classic_native_no_talib",
+    "runtime_profile": {
+      "pandas_ta_classic": "0.4.47",
+      "talib_must_be_absent_in_worker": true
+    },
+    "join": "one_to_one_complete_native_grain_both_antijoins_empty",
+    "source_parent_fields": "all_exact_including_decimal_null_lineage_and_existing_features",
+    "additional_fields": [
+      {
+        "name": "sma_20",
+        "sql_type": "double",
+        "nullable": true
+      },
+      {
+        "name": "ema_20",
+        "sql_type": "double",
+        "nullable": true
+      },
+      {
+        "name": "rsi_14",
+        "sql_type": "double",
+        "nullable": true
+      },
+      {
+        "name": "atr_14",
+        "sql_type": "double",
+        "nullable": true
+      },
+      {
+        "name": "indicator_context_id",
+        "sql_type": "string",
+        "nullable": false
+      },
+      {
+        "name": "indicator_profile_version",
+        "sql_type": "string",
+        "nullable": false
+      }
+    ],
+    "capability_matrix": "exactly_one_profile_operation_per_verified_sequence_no_extras",
+    "undefined_arithmetic": "null",
+    "execution_eligible": false,
+    "library_defaults": {
+      "basis": "pinned_0.4.47_defaults_with_actual_talib_absent",
+      "sma_20": {
+        "length": 20,
+        "offset": 0
+      },
+      "ema_20": {
+        "length": 20,
+        "offset": 0,
+        "adjust": false,
+        "sma_seed": true
+      },
+      "rsi_14": {
+        "length": 14,
+        "offset": 0,
+        "scalar": 100,
+        "drift": 1,
+        "rma_seed": "native_skip_first_nan"
+      },
+      "atr_14": {
+        "length": 14,
+        "offset": 0,
+        "mamode": "rma",
+        "drift": 1,
+        "true_range_first": "native_nan"
+      }
+    },
+    "origin_profile": "core_v1",
+    "profile": {
+      "version": "native_price_l1.v1",
+      "origin_profile": "core_v1",
+      "indicators": [
+        {
+          "indicator_id": "sma_20",
+          "category": "trend",
+          "operation_key": "sma",
+          "parameters": [
+            {
+              "name": "length",
+              "value": 20
+            }
+          ],
+          "required_input_columns": [
+            "close"
+          ],
+          "output_columns": [
+            "sma_20"
+          ],
+          "warmup_bars": 20
+        },
+        {
+          "indicator_id": "ema_20",
+          "category": "trend",
+          "operation_key": "ema",
+          "parameters": [
+            {
+              "name": "length",
+              "value": 20
+            }
+          ],
+          "required_input_columns": [
+            "close"
+          ],
+          "output_columns": [
+            "ema_20"
+          ],
+          "warmup_bars": 20
+        },
+        {
+          "indicator_id": "atr_14",
+          "category": "volatility",
+          "operation_key": "atr",
+          "parameters": [
+            {
+              "name": "length",
+              "value": 14
+            }
+          ],
+          "required_input_columns": [
+            "high",
+            "low",
+            "close"
+          ],
+          "output_columns": [
+            "atr_14"
+          ],
+          "warmup_bars": 14
+        },
+        {
+          "indicator_id": "rsi_14",
+          "category": "oscillator",
+          "operation_key": "rsi",
+          "parameters": [
+            {
+              "name": "length",
+              "value": 14
+            }
+          ],
+          "required_input_columns": [
+            "close"
+          ],
+          "output_columns": [
+            "rsi_14"
+          ],
+          "warmup_bars": 14
+        }
+      ]
+    }
+  },
+  "policy_sha256": "354de4d9afaf563a14a8326be8cb476790c87556ad5b51f156a441bced139f63",
+  "layout_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "numerical_identity": {
+    "version": "native_research_feature_numerical.v1",
+    "layer": "L1",
+    "basis": "observed_price_sequence.v1",
+    "policy_sha256": "354de4d9afaf563a14a8326be8cb476790c87556ad5b51f156a441bced139f63",
+    "kernels": {
+      "legacy": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "adapter": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "engines": {
+      "python": "synthetic-only",
+      "numpy": "synthetic-only",
+      "pandas": "synthetic-only",
+      "pandas_ta_classic": "synthetic-only",
+      "spark": "synthetic-only",
+      "delta": "synthetic-only",
+      "arrow": "synthetic-only",
+      "talib_absent": true
+    },
+    "digest": "5737ec2ad36686b2e6ed0bb309e119e2939aa0f2c258a61bf29fbc2c51bce4c4"
+  },
+  "runtime_code_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "quality": {
+    "policy": {
+      "version": "native_research_feature_comparison.v1",
+      "parent_fields": "exact",
+      "masks": "exact",
+      "new_feature_values": {
+        "rtol": 1e-12,
+        "atol": 1e-10
+      },
+      "nonfinite": "forbidden"
+    },
+    "sha256": "501a992833194709620220bec1a944900c824c827321680d5a2865cde1ddd2b5"
+  },
+  "capabilities": [
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "sma_20",
+      "state": "insufficient_history",
+      "required_observations": 20,
+      "finite_count": 0,
+      "analysis_rows": 1,
+      "analysis_finite_count": 0,
+      "first_finite_bar_index": null,
+      "first_finite_source_begin": null,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "ema_20",
+      "state": "insufficient_history",
+      "required_observations": 20,
+      "finite_count": 0,
+      "analysis_rows": 1,
+      "analysis_finite_count": 0,
+      "first_finite_bar_index": null,
+      "first_finite_source_begin": null,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "rsi_14",
+      "state": "insufficient_history",
+      "required_observations": 14,
+      "finite_count": 0,
+      "analysis_rows": 1,
+      "analysis_finite_count": 0,
+      "first_finite_bar_index": null,
+      "first_finite_source_begin": null,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "atr_14",
+      "state": "insufficient_history",
+      "required_observations": 14,
+      "finite_count": 0,
+      "analysis_rows": 1,
+      "analysis_finite_count": 0,
+      "first_finite_bar_index": null,
+      "first_finite_source_begin": null,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    }
+  ]
+}

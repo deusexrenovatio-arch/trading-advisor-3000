@@ -2,8 +2,12 @@
 
 ## Unpublished native observation L0
 
-Decision status: proposed; independent design admission required before dependent
-implementation. Surface: product-plane; impact: contract-change. Owner: Research
+Decision status: design admitted; bounded native producer/readback/oracle and
+seven lifecycle cases completed on frozen `9fbc8aaa`. Delivery is tracked by
+[contracts #265](https://github.com/deusexrenovatio-arch/trading-advisor-3000/pull/265)
+and [runtime #266](https://github.com/deusexrenovatio-arch/trading-advisor-3000/pull/266).
+This proves neither production deployment nor full Research acceptance.
+Surface: product-plane; impact: contract-change. Owner: Research
 Data Factory; Market Data owns the bounded input read; Contracts owns exact shapes.
 Authorization: bounded stages 4–6 after stage 3.1 integration. Production, bulk
 history/universe acquisition, current pointers and legacy-writer retirement are
@@ -151,6 +155,110 @@ deduplication, Python L0 analytics, a second indicator engine, implicit missing-
 flags admission, mutable publication heads and production promotion. Revisit this
 observation basis when source-backed UTC/session/availability facts permit a
 separately reviewed admission; do not widen this mode silently.
+
+## Unpublished observed feature layers
+
+Decision status: proposed; independent design admission required before dependent
+implementation. Surface: product-plane; impact: contract-change. Owner: Research
+Data Factory. Solution Class: staged. Critical Contour: data-integration-closure.
+Forbidden Shortcuts: scaffold-only. Closure Evidence: planned real integration
+test from completed L0 through native L1/L2 Delta tables and public pinned reader,
+original-byte reference and immutable lifecycle proof. Shortcut Waiver: none.
+
+This is the first bounded feature slice, not the complete stage 4 migration.
+Reuse the accepted registry specs and existing numerical kernels: L1 SMA20,
+EMA20, RSI14, ATR14; L2 rolling high20, rolling low20 and close change1. Before
+closing stage 4, compare the complete active owning profiles/configurations with
+actual capabilities: implemented and proved, not applicable, missing source
+facts, insufficient history, or not implemented. Preserve the other existing
+profiles and strategies. New metrics or strategies are outside this decision.
+The current registry/campaign baseline is L1 `core_v1` (58 specs, 103 outputs)
+and L2 `core_v1` (94 outputs); intraday/swing profiles are subsets. The accepted
+campaign's CF, 15m/1h/4h/1d and warmup300 configuration is not equivalent to the
+trial's native 1m/1d input and establishes no missing source facts.
+
+Input remains the completed four-instrument native observation graph. A new
+`native_research_compute.v1` handoff belongs to the existing Research reader:
+explicit completion -> verified parent graph -> `snapshot_read_scope` and pinned
+`read_spark_delta(versionAsOf)`. Only L0 bars may feed L1, and only completed L1
+indicator frames may feed L2. Separate limits are 20,000 rows, 128 active files
+and 64 MiB physical bytes, with exact types, source sequences and unique grain.
+Do not use an Arrow/Python row-list loader as the analytical path. No accepted-
+current, latest-path, canonical/r7 or source-time-to-UTC fallback exists.
+
+An explicit observed-price capability/profile gate must run before the unmasked
+legacy kernel; missing `bar_usage_flags` never supplies permission. Pin the
+actual worker backend, including `pandas-ta-classic=0.4.47` and TA-Lib absence;
+reject mismatched worker/driver engine versions before calculation. Call existing
+`_compute_profile_frame_unmasked` with a profile selected from accepted registry
+specs and `_compute_derived_frame_unmasked` with the fixed derived profile.
+No new formula engine is introduced. ATR uses its native library true range,
+whose first observation is NULL; do not substitute L0's high-low first TR.
+
+Spark groups by the complete native sequence. Within `applyInPandas`, sort strict
+source keys, restore a RangeIndex and convert only temporary OHLC to float64.
+Retain the full captured history, with no session reset, gap fill, output offset
+or tail trimming. SMA/EMA require 20 observations, RSI/ATR 14, rolling levels 20
+and close change 2. Exclude insufficient operations from the called profile;
+explicit NULLs and insufficient_history are distinct from a calculation proof.
+Do not impose a blanket warmup mask. Actual finite masks/first positions belong
+to each source sequence; native 0.4.47 references have first positions 19/19/13/13
+for the captured 1m series, while flat RSI may remain undefined.
+
+The pandas kernel returns only new features and the full join grain. Its mutated
+temporary OHLC never becomes output source truth. Join 1:1 to unchanged parent
+Spark buffers: both anti-joins empty, unique keys and conserved cardinality.
+Preserve every parent field, Decimal/NULL/lineage and existing feature exactly.
+L1 adds indicator context/profile fields; L2 adds derived context/profile fields.
+The base research NCTX remains unchanged through both layers. A separate NFCTX
+binds each layer's parent, policy, numerical identity, layout, quality and runtime.
+
+Shared closed feature context/intent/completion definitions and thin wrappers
+extend the single schema authority; every prior L0/MD definition remains intact.
+Numerical identity binds existing family kernel AST, actual adapter AST, profile/
+backend/history/seed/gap policy and actual engines. It is separate from existing
+opaque application runtime provenance and from quality policy.
+The constant policy embeds the selected actual registry parameters and profile
+descriptor. The producer must compare the resolved factory descriptor with this
+constant; silent registry changes require a new admitted policy. Old completed
+readback validates its immutable stored policy, not today's numerical factory.
+Freeze exact
+parent/NULL equality and new-feature comparison before compute:
+`abs(actual-reference) <= 1e-10 + 1e-12*abs(reference)`; reject nonfinite outputs.
+
+Capabilities form exactly one profile-operation entry per verified sequence.
+Recompute total/analysis rows, finite counts, first finite index/source key and
+state from physical feature buffers. Ready requires positive analysis finite
+count in the observed basis, not complete Q or execution permission. Insufficient
+history and arithmetic undefined in the analysis slice remain separate. Counts
+must be bounded by actual sequence/analysis counts, not declared hash strings.
+Current two-row daily input proves insufficiency for L1/rolling20 and a positive
+second-row close change; it is not positive daily indicator computation proof.
+
+Use one feature writer for the two admitted layers under the same Research root
+and OS-owned lock. Preserve immutable intent/key conflict, exclusive attempts,
+complete-graph reconciliation for 0/1/>1 outcomes, old receipts and terminal
+completion-last behavior. Reuse parent table refs byte-for-byte; add only the new
+layer table to each acyclic unpublished graph. Source code/reference inputs stay
+RO; only the separate Research child is RW. No production mount, publisher,
+current pointer, execution prices or canonical/time/PIT/CF admission is added.
+
+Canonical hashing reuses the L0 primitives: policy covers its complete constant;
+layout covers the new table's inherited-plus-additional fields and grain;
+numerical digest excludes only itself; NFCTX excludes only feature_context_id;
+intent input hash covers the complete intent. Validate all source/parent/context/
+intent/completion/manifest pins and crosslinks, numerical policy/layer equality,
+base NCTX preservation, exact inherited table refs and required new table before
+receipt or public read. Chain depth is fixed: L2 -> L1 -> L0 -> completed MD.
+
+Acceptance needs the real inherited L0, frozen original-byte/library references,
+positive finite 1m values, truthful daily states, exact source/parent conservation,
+public reads, replay/conflict/recovery and actual runtime/mount evidence. Fixtures
+remain synthetic shape examples. UTC/session/VWAP/MTF-availability/CF/PIT and
+execution stay unavailable without their separately admitted source boundaries.
+A targeted daily warmup prefix is authorized when a specific positive behavior
+needs it, but requires a separate source generation and source-owner amendment;
+the existing acquisition guard and old snapshots are not relaxed here.
 
 ## Purpose
 This page is the stable map of the current research platform.
