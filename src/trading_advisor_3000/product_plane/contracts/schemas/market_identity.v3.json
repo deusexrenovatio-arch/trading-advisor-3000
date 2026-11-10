@@ -2723,6 +2723,796 @@
         "changes"
       ],
       "additionalProperties": false
+    },
+    "native_observation_compute_sequence": {
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "instrument_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "context": {
+          "$ref": "market_identity.v3.json#/$defs/context",
+          "allOf": [
+            {
+              "properties": {
+                "provider": {
+                  "const": "moex_iss"
+                },
+                "market": {
+                  "enum": ["shares", "index", "forts"]
+                }
+              }
+            }
+          ]
+        },
+        "engine": {
+          "enum": ["stock", "futures"]
+        },
+        "timeframe": {
+          "enum": ["1m", "1d"]
+        },
+        "asset_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "source_symbol": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20000
+        }
+      },
+      "required": ["namespace", "instrument_id", "context", "engine", "timeframe", "asset_id", "source_symbol", "rows"],
+      "additionalProperties": false,
+      "x-namespace": "namespace",
+      "x-relations": [
+        {
+          "select": "instrument_id",
+          "collection": "instruments",
+          "key": "instrument_id",
+          "match": [
+            ["context.venue", "venue"],
+            ["context.market", "market"],
+            ["context.board", "board"],
+            ["asset_id", "asset_id"]
+          ]
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "context": {
+                "properties": {
+                  "market": {
+                    "const": "forts"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "engine": {
+                "const": "futures"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "context": {
+                "properties": {
+                  "market": {
+                    "enum": ["shares", "index"]
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "engine": {
+                "const": "stock"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "native_observation_compute": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "contract_version": {
+          "const": "native_observation_compute.v1"
+        },
+        "input_mode": {
+          "const": "native_observations.v1"
+        },
+        "source_root": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "namespace": {
+          "$ref": "market_identity.v3.json#/$defs/namespace"
+        },
+        "completion": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "snapshot": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_completion/properties/snapshot"
+        },
+        "source_manifest": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "assignments": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "metadata": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "policy": {
+          "const": {
+            "version": "native_observation_compute.v1",
+            "scope": "full_pinned_native_snapshot",
+            "limits": {
+              "rows": 20000,
+              "files": 128,
+              "physical_bytes": 67108864
+            },
+            "quarantine_must_be_empty": true,
+            "source_native_count_equal": true,
+            "all_declared_sequences_required": true,
+            "duplicate_grain_forbidden": true,
+            "simulation_must_be_absent": true
+          }
+        },
+        "limitations": {
+          "const": {
+            "snapshot_bound": true,
+            "canonical_Q_verified": false,
+            "historical_PIT_verified": false,
+            "timezone_verified": false,
+            "utc_closure_verified": false,
+            "session_complete_verified": false,
+            "execution_eligible": false
+          }
+        },
+        "row_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20000
+        },
+        "file_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        },
+        "physical_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "sequences": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "$ref": "market_identity.v3.json#/$defs/native_observation_compute_sequence"
+          }
+        }
+      },
+      "required": ["schema_version", "contract_version", "input_mode", "source_root", "namespace", "completion", "snapshot", "source_manifest", "assignments", "metadata", "policy", "limitations", "row_count", "file_count", "physical_bytes", "sequences"],
+      "additionalProperties": false
+    },
+    "native_research_l0_policy": {
+      "const": {
+        "version": "native_research_l0.v1",
+        "capability_profile": "native_l0_capabilities.v1",
+        "input_mode": "native_observations.v1",
+        "contour_id": "native_tradable",
+        "source_layout": "native_observation_snapshot.v1/native_bars",
+        "source_basis": "observed_price_sequence.v1",
+        "numeric_basis": "float64_derived_source_decimal38_10",
+        "ordering": "strict_source_begin_within_full_native_sequence",
+        "history_origin": "first_pinned_observation",
+        "gap_policy": "adjacent_observed_no_fill_no_session_reset",
+        "first_true_range": "high_minus_low",
+        "undefined_arithmetic": "null",
+        "ready_means": "at_least_one_finite_value_in_observed_sequence_not_complete_Q",
+        "capability_matrix": "exactly_one_feature_per_verified_source_sequence_no_extras",
+        "capability_counts": "finite_lte_sequence_rows_ready_iff_positive",
+        "metric_requirements": {
+          "prev_close": 2,
+          "ret_1": 2,
+          "log_ret_1": 2,
+          "true_range": 1,
+          "hl_range": 1,
+          "oc_range": 1,
+          "bar_index": 1
+        },
+        "source_fields_unchanged": true,
+        "additional_fields": [
+          {"name": "research_context_id", "sql_type": "string", "nullable": false},
+          {"name": "research_recipe_version", "sql_type": "string", "nullable": false},
+          {"name": "prev_close", "sql_type": "double", "nullable": true},
+          {"name": "ret_1", "sql_type": "double", "nullable": true},
+          {"name": "log_ret_1", "sql_type": "double", "nullable": true},
+          {"name": "true_range", "sql_type": "double", "nullable": false},
+          {"name": "hl_range", "sql_type": "double", "nullable": false},
+          {"name": "oc_range", "sql_type": "double", "nullable": false},
+          {"name": "bar_index", "sql_type": "bigint", "nullable": false},
+          {"name": "slice_role", "sql_type": "string", "nullable": false},
+          {"name": "execution_eligible", "sql_type": "boolean", "nullable": false},
+          {"name": "execution_open", "sql_type": "decimal(38,10)", "nullable": true},
+          {"name": "execution_high", "sql_type": "decimal(38,10)", "nullable": true},
+          {"name": "execution_low", "sql_type": "decimal(38,10)", "nullable": true},
+          {"name": "execution_close", "sql_type": "decimal(38,10)", "nullable": true}
+        ],
+        "tree_fields": [
+          {"name": "research_context_id", "sql_type": "string", "nullable": false},
+          {"name": "namespace", "sql_type": "string", "nullable": false},
+          {"name": "asset_id", "sql_type": "string", "nullable": false},
+          {"name": "instrument_id", "sql_type": "string", "nullable": false},
+          {"name": "provider", "sql_type": "string", "nullable": false},
+          {"name": "venue", "sql_type": "string", "nullable": false},
+          {"name": "engine", "sql_type": "string", "nullable": false},
+          {"name": "market", "sql_type": "string", "nullable": false},
+          {"name": "board", "sql_type": "string", "nullable": false},
+          {"name": "source_symbol", "sql_type": "string", "nullable": false},
+          {"name": "timeframe", "sql_type": "string", "nullable": false},
+          {"name": "instrument_kind", "sql_type": "string", "nullable": false},
+          {"name": "instrument_role", "sql_type": "string", "nullable": false},
+          {"name": "bar_count", "sql_type": "bigint", "nullable": false},
+          {"name": "first_source_begin", "sql_type": "string", "nullable": false},
+          {"name": "last_source_begin", "sql_type": "string", "nullable": false},
+          {"name": "last_source_end", "sql_type": "string", "nullable": false},
+          {"name": "execution_eligible", "sql_type": "boolean", "nullable": false}
+        ],
+        "bars_grain": ["research_context_id", "namespace", "provider", "venue", "engine", "market", "board", "instrument_id", "timeframe", "source_begin"],
+        "tree_grain": ["research_context_id", "namespace", "provider", "venue", "engine", "market", "board", "instrument_id", "timeframe"],
+        "required_tables": ["research_bar_views", "research_instrument_tree"],
+        "execution_eligible": false,
+        "execution_prices": "null",
+        "unknown_capabilities": ["utc_mtf", "session", "execution"],
+        "source_quantity_capabilities": ["volume", "open_interest"]
+      }
+    },
+    "native_research_l0_comparison": {
+      "const": {
+        "version": "native_research_l0_comparison.v1",
+        "source_fields": "exact_decimal_and_null_equality",
+        "derived_masks": "exact",
+        "derived_values": {
+          "prev_close": {
+            "rtol": 1e-10,
+            "atol": 1e-10
+          },
+          "ret_1": {
+            "rtol": 1e-10,
+            "atol": 1e-10
+          },
+          "log_ret_1": {
+            "rtol": 1e-10,
+            "atol": 1e-10
+          },
+          "true_range": {
+            "rtol": 1e-10,
+            "atol": 1e-10
+          },
+          "hl_range": {
+            "rtol": 1e-10,
+            "atol": 1e-10
+          },
+          "oc_range": {
+            "rtol": 1e-10,
+            "atol": 1e-10
+          }
+        },
+        "bar_index": "exact_integer",
+        "nonfinite": "forbidden"
+      }
+    },
+    "native_research_numerical": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "native_research_numerical.v1"
+        },
+        "basis": {
+          "const": "observed_price_sequence.v1"
+        },
+        "policy_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "kernels": {
+          "type": "object",
+          "properties": {
+            "l0": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "adapter": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": ["l0", "adapter"],
+          "additionalProperties": false
+        },
+        "engines": {
+          "type": "object",
+          "properties": {
+            "spark": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "delta": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "arrow": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "python": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            }
+          },
+          "required": ["spark", "delta", "arrow", "python"],
+          "additionalProperties": false
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": ["version", "basis", "policy_sha256", "kernels", "engines", "digest"],
+      "additionalProperties": false
+    },
+    "native_research_l0_context": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "contract_version": {
+          "const": "native_research_l0_context.v1"
+        },
+        "input_mode": {
+          "const": "native_observation_research.v1"
+        },
+        "layer": {
+          "const": "L0"
+        },
+        "research_context_id": {
+          "type": "string",
+          "pattern": "^NCTX:[0-9a-f]{64}$"
+        },
+        "source": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_compute"
+        },
+        "policy": {
+          "$ref": "market_identity.v3.json#/$defs/native_research_l0_policy"
+        },
+        "policy_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "layout_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "numerical_identity": {
+          "$ref": "market_identity.v3.json#/$defs/native_research_numerical"
+        },
+        "quality": {
+          "type": "object",
+          "properties": {
+            "policy": {
+              "$ref": "market_identity.v3.json#/$defs/native_research_l0_comparison"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": ["policy", "sha256"],
+          "additionalProperties": false
+        },
+        "runtime_code_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "analysis_start": {
+          "type": "string",
+          "format": "source-key-time"
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1536,
+          "items": {
+            "type": "object",
+            "properties": {
+              "sequence": {
+                "$ref": "market_identity.v3.json#/$defs/native_observation_compute_sequence"
+              },
+              "feature": {
+                "enum": ["prev_close", "ret_1", "log_ret_1", "true_range", "hl_range", "oc_range", "bar_index", "volume", "open_interest", "utc_mtf", "session", "execution"]
+              },
+              "state": {
+                "enum": ["ready", "not_applicable", "missing_source", "insufficient_history", "unverified_policy", "undefined_arithmetic"]
+              },
+              "required_observations": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 20000
+              },
+              "finite_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 20000
+              },
+              "reason": {
+                "$ref": "market_identity.v3.json#/$defs/text"
+              }
+            },
+            "required": ["sequence", "feature", "state", "required_observations", "finite_count", "reason"],
+            "additionalProperties": false,
+            "x-order": [
+              ["finite_count", "sequence.rows"]
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "state": {
+                      "const": "ready"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "finite_count": {
+                      "minimum": 1
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "state": {
+                      "enum": ["not_applicable", "missing_source", "insufficient_history", "unverified_policy", "undefined_arithmetic"]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "finite_count": {
+                      "const": 0
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "prev_close"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 2
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "ret_1"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 2
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "log_ret_1"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 2
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "true_range"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 1
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "hl_range"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 1
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "oc_range"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 1
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "bar_index"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 1
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "volume"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 0
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "open_interest"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 0
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "utc_mtf"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 0
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "session"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 0
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "const": "execution"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "required_observations": {
+                      "const": 0
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "feature": {
+                      "enum": ["utc_mtf", "session", "execution"]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "state": {
+                      "const": "unverified_policy"
+                    },
+                    "finite_count": {
+                      "const": 0
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "required": ["schema_version", "contract_version", "input_mode", "layer", "research_context_id", "source", "policy", "policy_sha256", "layout_sha256", "numerical_identity", "quality", "runtime_code_sha256", "analysis_start", "capabilities"],
+      "additionalProperties": false,
+      "x-equal": [
+        ["policy_sha256", "numerical_identity.policy_sha256"]
+      ]
+    },
+    "native_research_l0_intent": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "input_mode": {
+          "const": "native_observation_research.v1"
+        },
+        "layer": {
+          "const": "L0"
+        },
+        "command_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "source_root": {
+          "const": "/trial"
+        },
+        "source_completion": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "analysis_start": {
+          "type": "string",
+          "format": "source-key-time"
+        },
+        "policy_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "numerical_identity": {
+          "$ref": "market_identity.v3.json#/$defs/native_research_numerical"
+        },
+        "code_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": ["schema_version", "input_mode", "layer", "command_id", "source_root", "source_completion", "analysis_start", "policy_sha256", "numerical_identity", "code_sha256"],
+      "additionalProperties": false,
+      "x-equal": [
+        ["policy_sha256", "numerical_identity.policy_sha256"]
+      ]
+    },
+    "native_research_l0_completion": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "contract_version": {
+          "const": "native_research_l0_completion.v1"
+        },
+        "status": {
+          "const": "complete_unpublished"
+        },
+        "layer": {
+          "const": "L0"
+        },
+        "command_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "snapshot": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_completion/properties/snapshot"
+        },
+        "context": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "intent": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "source_root": {
+          "const": "/trial"
+        },
+        "source_completion": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "created_at_utc": {
+          "type": "string",
+          "format": "utc-instant"
+        }
+      },
+      "required": ["schema_version", "contract_version", "status", "layer", "command_id", "input_sha256", "attempt_id", "snapshot", "context", "intent", "source_root", "source_completion", "created_at_utc"],
+      "additionalProperties": false
     }
   },
   "$ref": "#/$defs/definition"

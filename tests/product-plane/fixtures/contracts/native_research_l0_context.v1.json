@@ -1,0 +1,500 @@
+{
+  "schema_version": 1,
+  "contract_version": "native_research_l0_context.v1",
+  "input_mode": "native_observation_research.v1",
+  "layer": "L0",
+  "research_context_id": "NCTX:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "source": {
+    "schema_version": 1,
+    "contract_version": "native_observation_compute.v1",
+    "input_mode": "native_observations.v1",
+    "source_root": "/trial",
+    "namespace": {
+      "schema_version": 1,
+      "namespace": "synthetic-only",
+      "assets": [
+        {
+          "asset_id": "ASSET:fixture",
+          "kind": "equity"
+        }
+      ],
+      "instruments": [
+        {
+          "instrument_id": "INSTR:fixture",
+          "asset_id": "ASSET:fixture",
+          "kind": "equity",
+          "instrument_role": "base",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR",
+          "tradable": true,
+          "execution_eligible": false,
+          "economics_state": "unknown",
+          "size_variant": {
+            "state": "not_applicable",
+            "value": null
+          },
+          "specification": null,
+          "expiry": null
+        }
+      ]
+    },
+    "completion": {
+      "path": "synthetic-only/file.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "snapshot": {
+      "path": "synthetic-only/file.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "snapshot_id": "synthetic-only-snapshot"
+    },
+    "source_manifest": {
+      "path": "synthetic-only/file.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "assignments": {
+      "path": "synthetic-only/file.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "metadata": {
+      "path": "synthetic-only/file.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "policy": {
+      "version": "native_observation_compute.v1",
+      "scope": "full_pinned_native_snapshot",
+      "limits": {
+        "rows": 20000,
+        "files": 128,
+        "physical_bytes": 67108864
+      },
+      "quarantine_must_be_empty": true,
+      "source_native_count_equal": true,
+      "all_declared_sequences_required": true,
+      "duplicate_grain_forbidden": true,
+      "simulation_must_be_absent": true
+    },
+    "limitations": {
+      "snapshot_bound": true,
+      "canonical_Q_verified": false,
+      "historical_PIT_verified": false,
+      "timezone_verified": false,
+      "utc_closure_verified": false,
+      "session_complete_verified": false,
+      "execution_eligible": false
+    },
+    "row_count": 2,
+    "file_count": 1,
+    "physical_bytes": 1024,
+    "sequences": [
+      {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      }
+    ]
+  },
+  "policy": {
+    "version": "native_research_l0.v1",
+    "capability_profile": "native_l0_capabilities.v1",
+    "input_mode": "native_observations.v1",
+    "contour_id": "native_tradable",
+    "source_layout": "native_observation_snapshot.v1/native_bars",
+    "source_basis": "observed_price_sequence.v1",
+    "numeric_basis": "float64_derived_source_decimal38_10",
+    "ordering": "strict_source_begin_within_full_native_sequence",
+    "history_origin": "first_pinned_observation",
+    "gap_policy": "adjacent_observed_no_fill_no_session_reset",
+    "first_true_range": "high_minus_low",
+    "undefined_arithmetic": "null",
+    "ready_means": "at_least_one_finite_value_in_observed_sequence_not_complete_Q",
+    "capability_matrix": "exactly_one_feature_per_verified_source_sequence_no_extras",
+    "capability_counts": "finite_lte_sequence_rows_ready_iff_positive",
+    "metric_requirements": {
+      "prev_close": 2,
+      "ret_1": 2,
+      "log_ret_1": 2,
+      "true_range": 1,
+      "hl_range": 1,
+      "oc_range": 1,
+      "bar_index": 1
+    },
+    "source_fields_unchanged": true,
+    "additional_fields": [
+      {"name": "research_context_id", "sql_type": "string", "nullable": false},
+      {"name": "research_recipe_version", "sql_type": "string", "nullable": false},
+      {"name": "prev_close", "sql_type": "double", "nullable": true},
+      {"name": "ret_1", "sql_type": "double", "nullable": true},
+      {"name": "log_ret_1", "sql_type": "double", "nullable": true},
+      {"name": "true_range", "sql_type": "double", "nullable": false},
+      {"name": "hl_range", "sql_type": "double", "nullable": false},
+      {"name": "oc_range", "sql_type": "double", "nullable": false},
+      {"name": "bar_index", "sql_type": "bigint", "nullable": false},
+      {"name": "slice_role", "sql_type": "string", "nullable": false},
+      {"name": "execution_eligible", "sql_type": "boolean", "nullable": false},
+      {"name": "execution_open", "sql_type": "decimal(38,10)", "nullable": true},
+      {"name": "execution_high", "sql_type": "decimal(38,10)", "nullable": true},
+      {"name": "execution_low", "sql_type": "decimal(38,10)", "nullable": true},
+      {"name": "execution_close", "sql_type": "decimal(38,10)", "nullable": true}
+    ],
+    "tree_fields": [
+      {"name": "research_context_id", "sql_type": "string", "nullable": false},
+      {"name": "namespace", "sql_type": "string", "nullable": false},
+      {"name": "asset_id", "sql_type": "string", "nullable": false},
+      {"name": "instrument_id", "sql_type": "string", "nullable": false},
+      {"name": "provider", "sql_type": "string", "nullable": false},
+      {"name": "venue", "sql_type": "string", "nullable": false},
+      {"name": "engine", "sql_type": "string", "nullable": false},
+      {"name": "market", "sql_type": "string", "nullable": false},
+      {"name": "board", "sql_type": "string", "nullable": false},
+      {"name": "source_symbol", "sql_type": "string", "nullable": false},
+      {"name": "timeframe", "sql_type": "string", "nullable": false},
+      {"name": "instrument_kind", "sql_type": "string", "nullable": false},
+      {"name": "instrument_role", "sql_type": "string", "nullable": false},
+      {"name": "bar_count", "sql_type": "bigint", "nullable": false},
+      {"name": "first_source_begin", "sql_type": "string", "nullable": false},
+      {"name": "last_source_begin", "sql_type": "string", "nullable": false},
+      {"name": "last_source_end", "sql_type": "string", "nullable": false},
+      {"name": "execution_eligible", "sql_type": "boolean", "nullable": false}
+    ],
+    "bars_grain": ["research_context_id", "namespace", "provider", "venue", "engine", "market", "board", "instrument_id", "timeframe", "source_begin"],
+    "tree_grain": ["research_context_id", "namespace", "provider", "venue", "engine", "market", "board", "instrument_id", "timeframe"],
+    "required_tables": ["research_bar_views", "research_instrument_tree"],
+    "execution_eligible": false,
+    "execution_prices": "null",
+    "unknown_capabilities": ["utc_mtf", "session", "execution"],
+    "source_quantity_capabilities": ["volume", "open_interest"]
+  },
+  "policy_sha256": "80c21c34d723e1e354f6ab1798058edebfe690aad85158beef5a8cd5ee08f0c6",
+  "layout_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "numerical_identity": {
+    "version": "native_research_numerical.v1",
+    "basis": "observed_price_sequence.v1",
+    "policy_sha256": "80c21c34d723e1e354f6ab1798058edebfe690aad85158beef5a8cd5ee08f0c6",
+    "kernels": {
+      "l0": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "adapter": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "engines": {
+      "spark": "synthetic-only",
+      "delta": "synthetic-only",
+      "arrow": "synthetic-only",
+      "python": "synthetic-only"
+    },
+    "digest": "aee6e00d2ee1f58a5902d72353d12c60291038a0d1a3b0a8939162c2e45f1625"
+  },
+  "runtime_code_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "quality": {
+    "policy": {
+      "version": "native_research_l0_comparison.v1",
+      "source_fields": "exact_decimal_and_null_equality",
+      "derived_masks": "exact",
+      "derived_values": {
+        "prev_close": {
+          "rtol": 1e-10,
+          "atol": 1e-10
+        },
+        "ret_1": {
+          "rtol": 1e-10,
+          "atol": 1e-10
+        },
+        "log_ret_1": {
+          "rtol": 1e-10,
+          "atol": 1e-10
+        },
+        "true_range": {
+          "rtol": 1e-10,
+          "atol": 1e-10
+        },
+        "hl_range": {
+          "rtol": 1e-10,
+          "atol": 1e-10
+        },
+        "oc_range": {
+          "rtol": 1e-10,
+          "atol": 1e-10
+        }
+      },
+      "bar_index": "exact_integer",
+      "nonfinite": "forbidden"
+    },
+    "sha256": "4f326c208448c1c15f31d85c25c4c2114460c92b4660ca708d7304d38f91ec34"
+  },
+  "analysis_start": "2020-01-02 00:00:00",
+  "capabilities": [
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "prev_close",
+      "state": "ready",
+      "required_observations": 2,
+      "finite_count": 1,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "ret_1",
+      "state": "ready",
+      "required_observations": 2,
+      "finite_count": 1,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "log_ret_1",
+      "state": "ready",
+      "required_observations": 2,
+      "finite_count": 1,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "true_range",
+      "state": "ready",
+      "required_observations": 1,
+      "finite_count": 2,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "hl_range",
+      "state": "ready",
+      "required_observations": 1,
+      "finite_count": 2,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "oc_range",
+      "state": "ready",
+      "required_observations": 1,
+      "finite_count": 2,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "bar_index",
+      "state": "ready",
+      "required_observations": 1,
+      "finite_count": 2,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "volume",
+      "state": "ready",
+      "required_observations": 0,
+      "finite_count": 2,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "open_interest",
+      "state": "not_applicable",
+      "required_observations": 0,
+      "finite_count": 0,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "utc_mtf",
+      "state": "unverified_policy",
+      "required_observations": 0,
+      "finite_count": 0,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "session",
+      "state": "unverified_policy",
+      "required_observations": 0,
+      "finite_count": 0,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    },
+    {
+      "sequence": {
+        "namespace": "synthetic-only",
+        "instrument_id": "INSTR:fixture",
+        "asset_id": "ASSET:fixture",
+        "context": {
+          "provider": "moex_iss",
+          "venue": "MOEX",
+          "market": "shares",
+          "board": "TQBR"
+        },
+        "engine": "stock",
+        "source_symbol": "SYNTHETIC",
+        "timeframe": "1m",
+        "rows": 2
+      },
+      "feature": "execution",
+      "state": "unverified_policy",
+      "required_observations": 0,
+      "finite_count": 0,
+      "reason": "synthetic-only fixture; no producer/source admission"
+    }
+  ]
+}

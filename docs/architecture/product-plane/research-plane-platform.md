@@ -1,5 +1,157 @@
 # Research Plane Platform
 
+## Unpublished native observation L0
+
+Decision status: proposed; independent design admission required before dependent
+implementation. Surface: product-plane; impact: contract-change. Owner: Research
+Data Factory; Market Data owns the bounded input read; Contracts owns exact shapes.
+Authorization: bounded stages 4–6 after stage 3.1 integration. Production, bulk
+history/universe acquisition, current pointers and legacy-writer retirement are
+excluded. Implementation/deployment acceptance is separate from this decision.
+
+Solution Class: staged. Critical Contour: data-integration-closure. Forbidden
+Shortcuts: scaffold-only. Closure Evidence: real isolated integration test from
+the completed native source candidate through Spark/Delta L0 and pinned public
+readback; source/NULL/grain oracle, per-operation capabilities and old-reader
+compatibility. Shortcut Waiver: none. This is not full target closure.
+
+The [native source observation boundary](docs/architecture/product-plane/market-identity.md#unpublished-native-observation-trial)
+preserves exact Decimal buffers and naive source keys. It does not prove UTC,
+session completeness, finality, historical availability, canonical Q or PIT.
+Official MOEX [September schedule](https://www.moex.com/n103379) and
+[index schedule](https://www.moex.com/n103770) establish dated market hours, not
+the ISS candle clock/end/finality/availability contract. Never manufacture the
+canonical provenance, session, roll or r7 inputs required by the old L0 route.
+
+First patch: observation-bound `native_tradable` L0 bars and instrument tree.
+The contour name grants no execution authorization. Keep equities, the reference
+index and dated futures, including expired SRU6; do not filter by today's tradable
+state or derive identity/kind from ticker prefixes. Retain the complete native
+grain, namespace, asset/instrument/context, timeframe, original begin/end, units,
+quantity states and exact row lineage. No new canonical `series_id` is written.
+
+Native Runtime Choice: `NativeObservationSnapshot.read_spark` is the narrow Market
+Data compute handoff. It verifies the completed source graph and exact table pin,
+then uses existing `snapshot_read_scope` and `read_spark_delta(versionAsOf)`.
+Research does not read private Market Data paths. Its fixed compute limits are
+source rows, active files and physical bytes, separate from interactive Arrow
+`row_limit`/IPC `byte_limit`. Reject quarantine, inconsistent source/native counts,
+missing/extra declared sequences, duplicate grain or incompatible physical schema.
+The first compute policy rejects simulated-correction parents; their existing
+interactive read route remains available with its original provenance.
+There is no latest-path fallback, new query engine or active Python row-list scan.
+
+Reuse `research_bar_views_job._with_l0_metrics`. Order by strict source key within
+the full native instrument/context/timeframe sequence. Its transient `ts` is a
+string ordering alias, never a UTC timestamp. Retain all captured history: use the
+kernel without tail trimming, then assign warmup/analysis roles by the explicit
+source key. History starts at the first pinned observation. Adjacent observations
+carry across dates/gaps, without filling, resampling or session reset.
+
+Keep source OHLC/quantities unchanged as Decimal(38,10). Compute features from a
+temporary float64 price copy, restore the untouched source fields, and persist
+only the declared new features. Returns, logarithms and ranges use the existing
+Spark kernel, not a parallel formula implementation. L0 first-row TR is high-low;
+lag/return need two observations. Undefined/nonfinite arithmetic becomes NULL.
+`execution_eligible=false` and execution OHLC=NULL for this mode, including index.
+No economics or money calculation is admitted.
+
+Shared `market_identity.v3` definitions and thin `native_observation_compute.v1`,
+`native_research_l0_context.v1`, intent and completion wrappers own metadata,
+limits, field/policy declarations and executable assertions. Derive unchanged L0
+source fields from the existing native-bars layout; declare only additional L0
+fields and the tree layout here. Common snapshot references bind actual physical
+schemas, UUIDs, Delta versions and active files. Source and numerical compatibility
+are different: the numerical descriptor includes observation basis, actual kernel
+AST, float64 conversion, history/gap/seed policy and engine versions. Reuse the
+existing semantic fingerprint primitives; do not alter unrelated legacy numerical
+identities merely because a new helper exists. Runtime release provenance stays
+separate. Metadata contains no JSON price DTOs.
+
+Capabilities are versioned and per operation/sequence. Distinguish ready,
+not_applicable, missing_source, insufficient_history, unverified_policy and
+undefined_arithmetic, with observed/required/finite counts and reasons. Ready
+means ready only in the observed-sequence basis. Daily two-row input supports a
+second-row return/change and first-row ranges, but not SMA20. Do not label a
+blanket all-NULL daily frame as successful compute. Index quantity N/A and absent
+futures OI are different source states. UTC/session/VWAP/MTF-availability/CF/PIT/
+execution remain unavailable unless a separate sourced boundary admits them.
+
+The owner must require exactly one capability for every declared feature and every
+verified source sequence, with no missing, duplicate or extra pair. Match each
+sequence (including asset, namespace, source symbol, engine and row count) to the
+verified MD assignments and actual native grouping. Feature history requirements
+are fixed by policy; finite counts cannot exceed sequence rows, and ready requires
+a positive finite count. Unsupported UTC/session/execution states are always
+unverified_policy with zero finite count. These cross-collection checks are
+mandatory producer and public-reader validation, not a new generic schema engine.
+
+Canonical hashing reuses the existing sorted UTF-8 JSON bytes, finite numbers,
+compact separators and SHA256. Policy hash covers exactly the declared L0 policy.
+Layout hash covers the two table-name -> {fields, grain} entries, deriving source
+fields from the native layout. Numerical digest covers the complete numerical
+descriptor excluding only its own digest; the adapter AST is the numerical frame
+adapter, not the operational writer. NCTX is `NCTX:` plus the canonical hash of
+the complete context excluding only research_context_id. The intent input hash
+covers the entire canonical intent. Quality is separate from numerical identity:
+its versioned policy hash covers exact source/NULL/integer equality and per-feature
+float64 `abs(actual-reference) <= 1e-10 + 1e-10*abs(reference)`; undefined masks
+must match exactly and nonfinite values are forbidden. Freeze this before compute.
+
+Before accepting a receipt, verify its intent pin/hash/command/attempt, the context
+pin and NCTX, all policy/layout/quality/numerical hashes, and intent-context equality
+for source root/completion, analysis start, policy, numerical identity and code SHA.
+The common manifest must reference that same context/intent/input hash and exact
+Market Data parent snapshot; its ID/path/hash must equal the completion snapshot
+pin. Verify context.source against the MD owner's freshly verified compute
+metadata, including source/assignment/metadata pins, limits, limitations and complete
+sequences. Both table refs bind the exact declared schemas, counts and unique
+grains. No filename, declared capability or hash string substitutes these checks.
+
+Mount the completed source at `/trial` RO, reviewed code RO, and only a new unique
+Research child at `/research-trial` RW. Keep runtime scratch there; use the pinned
+one-shot image and bounded CPU/memory. Never mount production code/data/Dagster.
+One OS-owned lock serializes the generation and releases on process death. Reuse
+the existing immutable intent/receipt and common capture/create/save/readback
+primitives. Same key/input returns its committed receipt; changed input conflicts.
+Fresh attempts use exclusive paths; partial attempts cannot become readable.
+Validate an unacknowledged complete graph before reconciling its receipt; reject
+ambiguous outcomes. No mutable head, current/accepted/latest or publish call exists.
+
+The acyclic graph is: completed Market Data parent -> L0 tables and context ->
+common immutable snapshot -> terminal unpublished receipt. The context does not
+contain its future snapshot hash. The receipt is last, after input/namespace,
+types/counts, unique keys, source equality, capability and physical-pin checks.
+The public Research reader requires an explicit completion pin and verifies the
+whole graph; it cannot substitute an accepted-current parent. Failed attempts and
+old candidates remain intact. Rollback selects an explicit old completion pin.
+
+Native proof requires exact source buffers/NULLs and full grain, cardinality and
+join checks; independent original-byte L0 values/masks; positive finite 1m compute;
+truthful daily operation history; source and old-snapshot readback unchanged;
+replay/conflict/failure recovery and actual root/mount isolation. Fixtures do not
+replace this producer-consumer proof. The independent reference artifact has role
+`reference_only_not_research_dataset`, never a materialization acceptance.
+
+Follow-ups are separate patches after the actual L0 example: L1 reuses existing
+pandas-ta dispatch; L2 reuses existing derived kernels. Their explicit price-only
+capability gate must not treat absent `bar_usage_flags` as permission. Transient
+compute returns only new feature columns joined by the complete unique grain to
+unchanged source buffers. Pin library/backend, seed/offset/fill/history/gap policy;
+the first planned L1 profile rejects TA-Lib/different unadmitted backends. A bounded
+daily prefix requires its own source-owner amendment/new generation; the existing
+two-day acquisition guard is not relaxed here. Stage 5 public consumer/cache/
+shadow graph follows real L0/L1/L2 examples. Positive UTC/as-of MTF and stage 6 CF
+remain dependent on the actual sourced clock/availability/specification/expiry
+facts; a last-trade cutoff is not a settlement expiry instant.
+
+Rejected alternatives: fake canonical/r7 inputs, copying source price into an
+execution frame, broad latest-path reads, source-key-to-UTC coercion, silent
+deduplication, Python L0 analytics, a second indicator engine, implicit missing-
+flags admission, mutable publication heads and production promotion. Revisit this
+observation basis when source-backed UTC/session/availability facts permit a
+separately reviewed admission; do not widen this mode silently.
+
 ## Purpose
 This page is the stable map of the current research platform.
 
