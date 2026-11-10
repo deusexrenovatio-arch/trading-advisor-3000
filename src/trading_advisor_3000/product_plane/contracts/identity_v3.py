@@ -37,6 +37,10 @@ CONTRACTS = {
     "native_observation_completion.v1.json",
     "native_observation_units.v1.json",
     "native_observation_overlay.v1.json",
+    "native_observation_compute.v1.json",
+    "native_research_l0_context.v1.json",
+    "native_research_l0_intent.v1.json",
+    "native_research_l0_completion.v1.json",
 }
 KEYWORDS = {
     "$schema",

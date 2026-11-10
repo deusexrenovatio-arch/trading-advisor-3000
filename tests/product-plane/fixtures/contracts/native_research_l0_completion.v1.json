@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "contract_version": "native_research_l0_completion.v1",
+  "status": "complete_unpublished",
+  "layer": "L0",
+  "command_id": "synthetic-only-command",
+  "input_sha256": "49741eba940944ba65cab0ab1b22953544e61d581b935c73f7063e8d1a7a339c",
+  "attempt_id": "ffffffffffffffffffffffffffffffff",
+  "snapshot": {
+    "path": "synthetic-only/file.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "snapshot_id": "synthetic-only-snapshot"
+  },
+  "context": {
+    "path": "synthetic-only/file.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "intent": {
+    "path": "synthetic-only/file.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "source_root": "/trial",
+  "source_completion": {
+    "path": "synthetic-only/file.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "created_at_utc": "2020-01-03T00:00:00Z"
+}

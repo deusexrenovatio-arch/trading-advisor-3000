@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "input_mode": "native_observation_research.v1",
+  "layer": "L0",
+  "command_id": "synthetic-only-command",
+  "source_root": "/trial",
+  "source_completion": {
+    "path": "synthetic-only/file.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "analysis_start": "2020-01-02 00:00:00",
+  "policy_sha256": "80c21c34d723e1e354f6ab1798058edebfe690aad85158beef5a8cd5ee08f0c6",
+  "numerical_identity": {
+    "version": "native_research_numerical.v1",
+    "basis": "observed_price_sequence.v1",
+    "policy_sha256": "80c21c34d723e1e354f6ab1798058edebfe690aad85158beef5a8cd5ee08f0c6",
+    "kernels": {
+      "l0": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "adapter": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "engines": {
+      "spark": "synthetic-only",
+      "delta": "synthetic-only",
+      "arrow": "synthetic-only",
+      "python": "synthetic-only"
+    },
+    "digest": "aee6e00d2ee1f58a5902d72353d12c60291038a0d1a3b0a8939162c2e45f1625"
+  },
+  "code_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}
