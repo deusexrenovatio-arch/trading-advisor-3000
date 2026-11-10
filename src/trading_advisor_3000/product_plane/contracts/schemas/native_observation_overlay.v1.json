@@ -1,0 +1,5 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "contracts/native_observation_overlay.v1.json",
+  "$ref": "market_identity.v3.json#/$defs/native_observation_overlay"
+}

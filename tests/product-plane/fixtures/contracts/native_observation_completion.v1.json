@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "contract_version": "native_observation_completion.v1",
+  "status": "complete_unpublished",
+  "command_id": "synthetic-command",
+  "input_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "attempt_id": "ffffffffffffffffffffffffffffffff",
+  "snapshot": {
+    "path": "synthetic/file.json",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "snapshot_id": "synthetic-snapshot"
+  },
+  "metadata": {
+    "path": "synthetic/file.json",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "source_manifest": {
+    "path": "synthetic/file.json",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "assignments": {
+    "path": "synthetic/file.json",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "intent": {
+    "path": "synthetic/file.json",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "parent": null,
+  "overlay": null,
+  "created_at_utc": "2020-01-01T00:00:00Z"
+}

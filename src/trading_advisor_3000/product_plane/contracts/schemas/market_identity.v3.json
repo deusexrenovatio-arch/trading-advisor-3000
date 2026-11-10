@@ -1826,6 +1826,903 @@
         ],
         "metadata_key": "ta3000.snapshot_read_projection.v1"
       }
+    },
+    "native_observation_snapshot": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "contract_version": {
+          "const": "native_observation_snapshot.v1"
+        },
+        "input_mode": {
+          "const": "native_observations.v1"
+        },
+        "namespace": {
+          "$ref": "market_identity.v3.json#/$defs/namespace"
+        },
+        "source_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "assignments_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "normalization_recipe": {
+          "const": "moex-source-observations.v1"
+        },
+        "limitations": {
+          "const": {
+            "snapshot_bound": true,
+            "canonical_Q_verified": false,
+            "historical_PIT_verified": false,
+            "timezone_verified": false,
+            "utc_closure_verified": false,
+            "session_complete_verified": false,
+            "execution_eligible": false
+          }
+        },
+        "storage_layout": {
+          "const": {
+            "raw_observations": {
+              "fields": [
+                {"name": "namespace", "sql_type": "string", "nullable": false},
+                {"name": "asset_id", "sql_type": "string", "nullable": false},
+                {"name": "instrument_id", "sql_type": "string", "nullable": false},
+                {"name": "provider", "sql_type": "string", "nullable": false},
+                {"name": "venue", "sql_type": "string", "nullable": false},
+                {"name": "engine", "sql_type": "string", "nullable": false},
+                {"name": "market", "sql_type": "string", "nullable": false},
+                {"name": "board", "sql_type": "string", "nullable": false},
+                {"name": "source_symbol", "sql_type": "string", "nullable": false},
+                {"name": "timeframe", "sql_type": "string", "nullable": false},
+                {"name": "source_begin", "sql_type": "string", "nullable": true},
+                {"name": "source_end", "sql_type": "string", "nullable": true},
+                {"name": "open_lexeme", "sql_type": "string", "nullable": true},
+                {"name": "high_lexeme", "sql_type": "string", "nullable": true},
+                {"name": "low_lexeme", "sql_type": "string", "nullable": true},
+                {"name": "close_lexeme", "sql_type": "string", "nullable": true},
+                {"name": "volume_lexeme", "sql_type": "string", "nullable": true},
+                {"name": "open_interest_lexeme", "sql_type": "string", "nullable": true},
+                {"name": "source_values_json", "sql_type": "string", "nullable": false},
+                {"name": "rejection_reason", "sql_type": "string", "nullable": true},
+                {"name": "body_sha256", "sql_type": "string", "nullable": false},
+                {"name": "receipt_sha256", "sql_type": "string", "nullable": false},
+                {"name": "source_block", "sql_type": "string", "nullable": false},
+                {"name": "page_start", "sql_type": "bigint", "nullable": false},
+                {"name": "row_ordinal", "sql_type": "bigint", "nullable": false}
+              ],
+              "grain": [
+                "receipt_sha256",
+                "source_block",
+                "row_ordinal"
+              ]
+            },
+            "native_bars": {
+              "fields": [
+                {"name": "namespace", "sql_type": "string", "nullable": false},
+                {"name": "asset_id", "sql_type": "string", "nullable": false},
+                {"name": "instrument_id", "sql_type": "string", "nullable": false},
+                {"name": "provider", "sql_type": "string", "nullable": false},
+                {"name": "venue", "sql_type": "string", "nullable": false},
+                {"name": "engine", "sql_type": "string", "nullable": false},
+                {"name": "market", "sql_type": "string", "nullable": false},
+                {"name": "board", "sql_type": "string", "nullable": false},
+                {"name": "source_symbol", "sql_type": "string", "nullable": false},
+                {"name": "timeframe", "sql_type": "string", "nullable": false},
+                {"name": "source_begin", "sql_type": "string", "nullable": false},
+                {"name": "source_end", "sql_type": "string", "nullable": false},
+                {"name": "open", "sql_type": "decimal(38,10)", "nullable": false},
+                {"name": "high", "sql_type": "decimal(38,10)", "nullable": false},
+                {"name": "low", "sql_type": "decimal(38,10)", "nullable": false},
+                {"name": "close", "sql_type": "decimal(38,10)", "nullable": false},
+                {"name": "volume", "sql_type": "decimal(38,10)", "nullable": true},
+                {"name": "open_interest", "sql_type": "decimal(38,10)", "nullable": true},
+                {"name": "volume_state", "sql_type": "string", "nullable": false},
+                {"name": "volume_null_reason", "sql_type": "string", "nullable": true},
+                {"name": "open_interest_state", "sql_type": "string", "nullable": false},
+                {"name": "open_interest_null_reason", "sql_type": "string", "nullable": true},
+                {"name": "source_units_json", "sql_type": "string", "nullable": false},
+                {"name": "normalization_recipe", "sql_type": "string", "nullable": false},
+                {"name": "value_origin", "sql_type": "string", "nullable": false},
+                {"name": "simulation_id", "sql_type": "string", "nullable": true},
+                {"name": "overlay_sha256", "sql_type": "string", "nullable": true},
+                {"name": "body_sha256", "sql_type": "string", "nullable": false},
+                {"name": "receipt_sha256", "sql_type": "string", "nullable": false},
+                {"name": "source_block", "sql_type": "string", "nullable": false},
+                {"name": "page_start", "sql_type": "bigint", "nullable": false},
+                {"name": "row_ordinal", "sql_type": "bigint", "nullable": false}
+              ],
+              "grain": [
+                "namespace",
+                "provider",
+                "venue",
+                "engine",
+                "market",
+                "board",
+                "instrument_id",
+                "timeframe",
+                "source_begin"
+              ]
+            },
+            "observed_day_qc": {
+              "fields": [
+                {"name": "namespace", "sql_type": "string", "nullable": false},
+                {"name": "asset_id", "sql_type": "string", "nullable": false},
+                {"name": "instrument_id", "sql_type": "string", "nullable": false},
+                {"name": "provider", "sql_type": "string", "nullable": false},
+                {"name": "venue", "sql_type": "string", "nullable": false},
+                {"name": "engine", "sql_type": "string", "nullable": false},
+                {"name": "market", "sql_type": "string", "nullable": false},
+                {"name": "board", "sql_type": "string", "nullable": false},
+                {"name": "timeframe", "sql_type": "string", "nullable": false},
+                {"name": "source_day", "sql_type": "string", "nullable": false},
+                {"name": "bar_count", "sql_type": "bigint", "nullable": false},
+                {"name": "first_source_begin", "sql_type": "string", "nullable": false},
+                {"name": "last_source_begin", "sql_type": "string", "nullable": false},
+                {"name": "volume_sum", "sql_type": "decimal(38,10)", "nullable": true},
+                {"name": "simulated_rows", "sql_type": "bigint", "nullable": false}
+              ],
+              "grain": [
+                "namespace",
+                "provider",
+                "venue",
+                "engine",
+                "market",
+                "board",
+                "instrument_id",
+                "timeframe",
+                "source_day"
+              ]
+            },
+            "quarantine": {
+              "fields": [
+                {"name": "namespace", "sql_type": "string", "nullable": false},
+                {"name": "asset_id", "sql_type": "string", "nullable": false},
+                {"name": "instrument_id", "sql_type": "string", "nullable": false},
+                {"name": "provider", "sql_type": "string", "nullable": false},
+                {"name": "venue", "sql_type": "string", "nullable": false},
+                {"name": "engine", "sql_type": "string", "nullable": false},
+                {"name": "market", "sql_type": "string", "nullable": false},
+                {"name": "board", "sql_type": "string", "nullable": false},
+                {"name": "source_symbol", "sql_type": "string", "nullable": false},
+                {"name": "timeframe", "sql_type": "string", "nullable": false},
+                {"name": "source_begin", "sql_type": "string", "nullable": true},
+                {"name": "source_end", "sql_type": "string", "nullable": true},
+                {"name": "source_values_json", "sql_type": "string", "nullable": false},
+                {"name": "rejection_reason", "sql_type": "string", "nullable": false},
+                {"name": "body_sha256", "sql_type": "string", "nullable": false},
+                {"name": "receipt_sha256", "sql_type": "string", "nullable": false},
+                {"name": "source_block", "sql_type": "string", "nullable": false},
+                {"name": "page_start", "sql_type": "bigint", "nullable": false},
+                {"name": "row_ordinal", "sql_type": "bigint", "nullable": false}
+              ],
+              "grain": [
+                "receipt_sha256",
+                "source_block",
+                "row_ordinal"
+              ]
+            }
+          }
+        },
+        "policies": {
+          "const": {
+            "quantity_states": [
+              "known",
+              "unavailable",
+              "not_applicable"
+            ],
+            "quantity_rules": {
+              "known": "finite_nonnegative_nonnull",
+              "unavailable": "null:not_reported_by_source",
+              "not_applicable": "null:instrument_kind"
+            },
+            "index_quantities": {
+              "volume_state": "not_applicable",
+              "open_interest_state": "not_applicable"
+            },
+            "equity_open_interest_state": "not_applicable",
+            "value_origins": [
+              "exchange_observation",
+              "simulated_correction"
+            ],
+            "origin_rules": {
+              "exchange_observation": "simulation_id_and_overlay_sha256_null",
+              "simulated_correction": "nonempty_simulation_id_and_exact_command_overlay_hash"
+            },
+            "units_schema": "native_observation_units.v1.json",
+            "units_binding": "canonical JSON exactly equals individually source-verified assignment units",
+            "mandatory_read_columns": [
+              "namespace",
+              "provider",
+              "venue",
+              "engine",
+              "market",
+              "board",
+              "instrument_id",
+              "timeframe",
+              "source_begin",
+              "asset_id",
+              "source_symbol",
+              "source_end"
+            ],
+            "read_sort_and_grain": [
+              "namespace",
+              "provider",
+              "venue",
+              "engine",
+              "market",
+              "board",
+              "instrument_id",
+              "timeframe",
+              "source_begin"
+            ],
+            "wire": {
+              "metadata_key": "ta3000.native_observation_read.v1",
+              "serialization": "uncompressed Arrow IPC stream; combine_chunks; preserve field/schema metadata",
+              "payload_hash": "SHA256 of sorted payload IPC before attaching envelope metadata",
+              "schema_bytes": "base64 of payload schema.serialize bytes before attaching envelope metadata",
+              "metadata_encoding": "UTF8 JSON sort_keys=True ensure_ascii=False separators=(',',':') allow_nan=False",
+              "wire_budget": "all bytes of final IPC stream including attached envelope metadata"
+            }
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "contract_version",
+        "input_mode",
+        "namespace",
+        "source_manifest_sha256",
+        "assignments_sha256",
+        "normalization_recipe",
+        "limitations",
+        "storage_layout",
+        "policies"
+      ],
+      "additionalProperties": false
+    },
+    "native_observation_request": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "input_mode": {
+          "const": "native_observations.v1"
+        },
+        "namespace": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "instrument_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "context": {
+          "$ref": "market_identity.v3.json#/$defs/context",
+          "allOf": [
+            {
+              "properties": {
+                "provider": {
+                  "const": "moex_iss"
+                },
+                "market": {
+                  "enum": [
+                    "shares",
+                    "index",
+                    "forts"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "engine": {
+          "enum": [
+            "stock",
+            "futures"
+          ]
+        },
+        "series_type": {
+          "const": "native"
+        },
+        "timeframe": {
+          "enum": [
+            "1m",
+            "1d"
+          ]
+        },
+        "source_begin_from": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$",
+          "format": "source-key-time"
+        },
+        "source_begin_to": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$",
+          "format": "source-key-time"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "open",
+              "high",
+              "low",
+              "close",
+              "volume",
+              "open_interest",
+              "volume_state",
+              "volume_null_reason",
+              "open_interest_state",
+              "open_interest_null_reason",
+              "source_units_json",
+              "normalization_recipe",
+              "value_origin",
+              "simulation_id",
+              "overlay_sha256",
+              "body_sha256",
+              "receipt_sha256",
+              "source_block",
+              "page_start",
+              "row_ordinal"
+            ]
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        },
+        "row_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
+        },
+        "byte_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16777216
+        }
+      },
+      "required": [
+        "schema_version",
+        "input_mode",
+        "namespace",
+        "instrument_id",
+        "context",
+        "engine",
+        "series_type",
+        "timeframe",
+        "source_begin_from",
+        "source_begin_to",
+        "columns",
+        "row_limit",
+        "byte_limit"
+      ],
+      "additionalProperties": false,
+      "x-namespace": "namespace",
+      "x-intervals": [
+        [
+          "source_begin_from",
+          "source_begin_to"
+        ]
+      ],
+      "x-relations": [
+        {
+          "select": "instrument_id",
+          "collection": "instruments",
+          "key": "instrument_id",
+          "match": [
+            [
+              "context.venue",
+              "venue"
+            ],
+            [
+              "context.market",
+              "market"
+            ],
+            [
+              "context.board",
+              "board"
+            ]
+          ]
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "context": {
+                "properties": {
+                  "market": {
+                    "const": "forts"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "engine": {
+                "const": "futures"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "context": {
+                "properties": {
+                  "market": {
+                    "enum": [
+                      "shares",
+                      "index"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "engine": {
+                "const": "stock"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "native_observation_read": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "contract_version": {
+          "const": "native_observation_read.v1"
+        },
+        "request": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_request"
+        },
+        "completion_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "snapshot_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observation_metadata_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "limitations": {
+          "const": {
+            "snapshot_bound": true,
+            "canonical_Q_verified": false,
+            "historical_PIT_verified": false,
+            "timezone_verified": false,
+            "utc_closure_verified": false,
+            "session_complete_verified": false,
+            "execution_eligible": false
+          }
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "row_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "columns": {
+              "type": "array",
+              "items": {
+                "$ref": "market_identity.v3.json#/$defs/text"
+              },
+              "uniqueItems": true
+            },
+            "schema_ipc_base64": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "ipc_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "row_count",
+            "columns",
+            "schema_ipc_base64",
+            "ipc_sha256"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "contract_version",
+        "request",
+        "completion_sha256",
+        "snapshot_manifest_sha256",
+        "source_manifest_sha256",
+        "observation_metadata_sha256",
+        "limitations",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "native_observation_units": {
+      "type": "object",
+      "properties": {
+        "price_currency": {
+          "$ref": "market_identity.v3.json#/$defs/text_fact"
+        },
+        "price_unit": {
+          "$ref": "market_identity.v3.json#/$defs/text_fact"
+        },
+        "quantity_unit": {
+          "$ref": "market_identity.v3.json#/$defs/text_fact"
+        }
+      },
+      "required": [
+        "price_currency",
+        "price_unit",
+        "quantity_unit"
+      ],
+      "additionalProperties": false
+    },
+    "native_observation_file_pin": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "native_observation_intent": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "input_mode": {
+          "const": "native_observations.v1"
+        },
+        "command_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "operation": {
+          "enum": [
+            "baseline",
+            "simulated_correction"
+          ]
+        },
+        "source_manifest": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "assignments": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "metadata": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "code_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "selection": {
+          "type": "array",
+          "items": {
+            "$ref": "market_identity.v3.json#/$defs/native_observation_request"
+          },
+          "minItems": 1
+        },
+        "parent": {
+          "oneOf": [
+            {
+              "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+            },
+            {
+              "const": null
+            }
+          ]
+        },
+        "overlay": {
+          "oneOf": [
+            {
+              "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+            },
+            {
+              "const": null
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "input_mode",
+        "command_id",
+        "operation",
+        "source_manifest",
+        "assignments",
+        "metadata",
+        "code_sha256",
+        "selection",
+        "parent",
+        "overlay"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "baseline"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parent": {
+                "const": null
+              },
+              "overlay": {
+                "const": null
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "simulated_correction"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parent": {
+                "type": "object"
+              },
+              "overlay": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "native_observation_completion": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "contract_version": {
+          "const": "native_observation_completion.v1"
+        },
+        "status": {
+          "const": "complete_unpublished"
+        },
+        "command_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "snapshot": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "snapshot_id": {
+              "$ref": "market_identity.v3.json#/$defs/text"
+            }
+          },
+          "required": [
+            "path",
+            "sha256",
+            "snapshot_id"
+          ],
+          "additionalProperties": false
+        },
+        "metadata": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "source_manifest": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "assignments": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "intent": {
+          "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+        },
+        "parent": {
+          "oneOf": [
+            {
+              "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+            },
+            {
+              "const": null
+            }
+          ]
+        },
+        "overlay": {
+          "oneOf": [
+            {
+              "$ref": "market_identity.v3.json#/$defs/native_observation_file_pin"
+            },
+            {
+              "const": null
+            }
+          ]
+        },
+        "created_at_utc": {
+          "type": "string",
+          "format": "utc-instant"
+        }
+      },
+      "required": [
+        "schema_version",
+        "contract_version",
+        "status",
+        "command_id",
+        "input_sha256",
+        "attempt_id",
+        "snapshot",
+        "metadata",
+        "source_manifest",
+        "assignments",
+        "intent",
+        "parent",
+        "overlay",
+        "created_at_utc"
+      ],
+      "additionalProperties": false
+    },
+    "native_observation_overlay": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "simulation_id": {
+          "$ref": "market_identity.v3.json#/$defs/text"
+        },
+        "parent_completion_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "changes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "object",
+                "properties": {
+                  "namespace": {
+                    "$ref": "market_identity.v3.json#/$defs/text"
+                  },
+                  "provider": {
+                    "$ref": "market_identity.v3.json#/$defs/text"
+                  },
+                  "venue": {
+                    "$ref": "market_identity.v3.json#/$defs/text"
+                  },
+                  "engine": {
+                    "enum": [
+                      "stock",
+                      "futures"
+                    ]
+                  },
+                  "market": {
+                    "$ref": "market_identity.v3.json#/$defs/text"
+                  },
+                  "board": {
+                    "$ref": "market_identity.v3.json#/$defs/text"
+                  },
+                  "instrument_id": {
+                    "$ref": "market_identity.v3.json#/$defs/text"
+                  },
+                  "timeframe": {
+                    "enum": [
+                      "1m",
+                      "1d"
+                    ]
+                  },
+                  "source_begin": {
+                    "type": "string",
+                    "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$",
+                    "format": "source-key-time"
+                  }
+                },
+                "required": [
+                  "namespace",
+                  "provider",
+                  "venue",
+                  "engine",
+                  "market",
+                  "board",
+                  "instrument_id",
+                  "timeframe",
+                  "source_begin"
+                ],
+                "additionalProperties": false,
+                "x-namespace": "namespace",
+                "x-relations": [
+                  {
+                    "select": "instrument_id",
+                    "collection": "instruments",
+                    "key": "instrument_id",
+                    "match": [
+                      [
+                        "venue",
+                        "venue"
+                      ],
+                      [
+                        "market",
+                        "market"
+                      ],
+                      [
+                        "board",
+                        "board"
+                      ]
+                    ]
+                  }
+                ]
+              },
+              "field": {
+                "const": "volume"
+              },
+              "new_value": {
+                "type": "string",
+                "pattern": "^[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$"
+              }
+            },
+            "required": [
+              "key",
+              "field",
+              "new_value"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "simulation_id",
+        "parent_completion_sha256",
+        "changes"
+      ],
+      "additionalProperties": false
     }
   },
   "$ref": "#/$defs/definition"
