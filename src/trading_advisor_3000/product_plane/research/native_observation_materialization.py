@@ -24,6 +24,7 @@ from trading_advisor_3000.product_plane.contracts.identity_v3 import (
 from trading_advisor_3000.product_plane.data_plane.native_observations import (
     NativeObservationSnapshot,
     contract_constants,
+    observation_read_code_sha256,
 )
 from trading_advisor_3000.spark_jobs.research_bar_views_job import _with_l0_metrics
 
@@ -117,11 +118,6 @@ def numerical_identity():
 def producer_code_sha256():
     from trading_advisor_3000.product_plane.common import data_snapshots, immutable_files
     from trading_advisor_3000.product_plane.contracts import identity_v3
-    from trading_advisor_3000.product_plane.data_plane import native_observations as md
-    from trading_advisor_3000.product_plane.data_plane.moex import (
-        observation_acquisition,
-        observation_validation,
-    )
     from trading_advisor_3000.spark_jobs import research_bar_views_job
 
     from . import native_observation_job, native_observations, semantic_fingerprint
@@ -132,9 +128,6 @@ def producer_code_sha256():
             data_snapshots,
             immutable_files,
             identity_v3,
-            md,
-            observation_acquisition,
-            observation_validation,
             native_observation_job,
             native_observations,
             research_bar_views_job,
@@ -143,10 +136,13 @@ def producer_code_sha256():
     ] + [Path(__file__), SCHEMAS / "market_identity.v3.json"]
     return sha(
         {
-            path.relative_to(Path(__file__).resolve().parents[2]).as_posix(): hashlib.sha256(
-                path.read_bytes()
-            ).hexdigest()
-            for path in paths
+            "files": {
+                path.relative_to(Path(__file__).resolve().parents[2]).as_posix(): hashlib.sha256(
+                    path.read_bytes()
+                ).hexdigest()
+                for path in paths
+            },
+            "market_data_read": observation_read_code_sha256(),
         }
     )
 

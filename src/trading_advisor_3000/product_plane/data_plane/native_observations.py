@@ -54,6 +54,29 @@ def observation_metadata(source_pin: dict, assignment_pin: dict, namespace: dict
     return result
 
 
+def observation_read_code_sha256() -> str:
+    """Opaque runtime provenance for the public read/verification boundary."""
+    from trading_advisor_3000.product_plane.common import data_snapshots, immutable_files
+    from trading_advisor_3000.product_plane.contracts import identity_v3
+
+    from .moex import observation_acquisition
+
+    package = Path(__file__).resolve().parents[2]
+    paths = [
+        Path(module.__file__)
+        for module in [data_snapshots, immutable_files, identity_v3, observation_acquisition]
+    ]
+    paths += [Path(__file__), *[SCHEMAS / name for name in sorted(identity_v3.CONTRACTS)]]
+    return hashlib.sha256(
+        canonical_bytes(
+            {
+                path.relative_to(package).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in paths
+            }
+        )
+    ).hexdigest()
+
+
 def physical_schema(layout: dict) -> pa.Schema:
     types = {
         "string": pa.string(),

@@ -188,7 +188,10 @@ def _iter_product_plane_imports(tree: ast.AST, file_path: Path) -> list[tuple[in
 
 
 def _is_market_data_public_import(module_name: str) -> bool:
-    if module_name == f"{PRODUCT_PLANE_IMPORT_PREFIX}.data_plane.snapshot_reads":
+    if module_name in {
+        f"{PRODUCT_PLANE_IMPORT_PREFIX}.data_plane.snapshot_reads",
+        f"{PRODUCT_PLANE_IMPORT_PREFIX}.data_plane.native_observations",
+    }:
         return True
     allowed_prefixes = (
         f"{PRODUCT_PLANE_IMPORT_PREFIX}.data_plane.delta_runtime",

@@ -116,6 +116,15 @@ shared `NativeReadRequest` and returns `ArrowReadResult`. It exposes an explicit
 bounded projection with unverified Q, never a full canonical/PIT claim. See
 [request and readback](docs/runbooks/app/snapshot-read-projection.md).
 
+Unpublished source observations use the explicit alternative
+`data_plane.native_observations.NativeObservationSnapshot`: `read` is bounded
+Arrow inspection; `compute_metadata` and `read_spark` admit a full pinned native
+frame under separate row/file/physical-byte budgets. `contract_constants` and
+`physical_schema` expose declared layouts; `observation_read_code_sha256` exposes
+opaque runtime provenance. Research consumes these public outputs, without
+importing provider normalization or ingest modules. This mode grants no canonical
+Q, UTC/session/PIT/finality or execution claim.
+
 ## API: Research Data
 
 | Field | Decision |
