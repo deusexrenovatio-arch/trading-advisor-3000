@@ -1,0 +1,14 @@
+{
+  "price_currency": {
+    "state": "unknown",
+    "value": null
+  },
+  "price_unit": {
+    "state": "unknown",
+    "value": null
+  },
+  "quantity_unit": {
+    "state": "unknown",
+    "value": null
+  }
+}

@@ -30,6 +30,13 @@ CONTRACTS = {
     "snapshot_identity_binding.v1.json",
     "snapshot_read_request.v1.json",
     "snapshot_read_projection.v1.json",
+    "native_observation_snapshot.v1.json",
+    "native_observation_request.v1.json",
+    "native_observation_read.v1.json",
+    "native_observation_intent.v1.json",
+    "native_observation_completion.v1.json",
+    "native_observation_units.v1.json",
+    "native_observation_overlay.v1.json",
 }
 KEYWORDS = {
     "$schema",
@@ -103,6 +110,17 @@ def _instant(value: str) -> datetime:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise SchemaValidationError(f"invalid UTC instant: {value!r}") from exc
+
+
+def _source_key_time(value: str) -> datetime:
+    if not isinstance(value, str) or not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", value
+    ):
+        _fail(f"expected source-local key time: {value!r}")
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError as exc:
+        raise SchemaValidationError(f"invalid source-local key time: {value!r}") from exc
 
 
 def _inside(point: str, start: str, end: str | None) -> bool:
@@ -202,7 +220,7 @@ class _Evaluator:
             columns = [pair[0] for pair in rules["constants"]]
             if len(set(columns)) != len(columns) or set(columns) != set(rules["required_columns"]):
                 _fail("Arrow constants must bind every mandatory metadata column exactly once")
-        if "format" in schema and schema["format"] != "utc-instant":
+        if "format" in schema and schema["format"] not in {"utc-instant", "source-key-time"}:
             _fail("unsupported schema format")
         if "additionalProperties" in schema and not isinstance(
             schema["additionalProperties"], bool
@@ -331,7 +349,7 @@ class _Evaluator:
             if "pattern" in schema and not re.search(schema["pattern"], value):
                 _fail("string does not match schema pattern")
             if "format" in schema:
-                _instant(value)
+                (_source_key_time if schema["format"] == "source-key-time" else _instant)(value)
         for child in schema.get("allOf", []):
             self.check(child, value)
         if "oneOf" in schema:
@@ -357,7 +375,12 @@ class _Evaluator:
                 _fail(f"invalid order: {left}, {right}")
         for start, end in schema.get("x-intervals", []):
             a, b = _get(value, start), _get(value, end)
-            if b is not None and _instant(a) >= _instant(b):
+            parser = (
+                _source_key_time
+                if schema.get("properties", {}).get(start, {}).get("format") == "source-key-time"
+                else _instant
+            )
+            if b is not None and parser(a) >= parser(b):
                 _fail(f"empty/reversed interval: {start}, {end}")
         for point, start, end in schema.get("x-within", []):
             if not _inside(_get(value, point), _get(value, start), _get(value, end)):

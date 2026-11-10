@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "simulation_id": "synthetic-correction",
+  "parent_completion_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "changes": [
+    {
+      "key": {
+        "namespace": "synthetic-only",
+        "provider": "moex_iss",
+        "venue": "MOEX",
+        "engine": "stock",
+        "market": "shares",
+        "board": "TQBR",
+        "instrument_id": "INSTR:fixture",
+        "timeframe": "1m",
+        "source_begin": "2020-01-01 12:00:00"
+      },
+      "field": "volume",
+      "new_value": "11"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "input_mode": "native_observations.v1",
+  "namespace": "synthetic-only",
+  "instrument_id": "INSTR:fixture",
+  "context": {
+    "provider": "moex_iss",
+    "venue": "MOEX",
+    "market": "shares",
+    "board": "TQBR"
+  },
+  "engine": "stock",
+  "series_type": "native",
+  "timeframe": "1m",
+  "source_begin_from": "2020-01-01 00:00:00",
+  "source_begin_to": "2020-01-02 00:00:00",
+  "columns": [
+    "close",
+    "volume"
+  ],
+  "row_limit": 100,
+  "byte_limit": 1048576
+}

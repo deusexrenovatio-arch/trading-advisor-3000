@@ -369,3 +369,162 @@ type/field-metadata preservation executable, independent of payload self-descrip
 
 Operational request, read-pin capture, actual readback evidence and rollback:
 [snapshot read projection runbook](docs/runbooks/app/snapshot-read-projection.md).
+
+## Unpublished native observation trial
+
+Decision status: accepted for isolated verification after independent design
+review. Each implementation change requires independent review and the native
+proof below. Production deployment: not admitted. Change surface:
+product-plane; architecture impact: contract-change. Owner: Market Data, with
+Contracts owning the shared schema. Authorization: stage 3.1 trial, resumed
+2026-11-10; production and publications explicitly excluded.
+
+Solution Class: staged. Critical Contour: data-integration-closure. Forbidden
+Shortcuts: invented Q/PIT, fake r7 receipts, Python analytical table scans,
+synthetic source evidence, publication, and a second HTTP/storage owner. Closure
+Evidence: fresh original HTTP bytes -> Spark/Delta -> independent source oracle
+and public pinned read, plus replay/correction/failure/recovery and containment.
+Shortcut Waiver: none. Full canonical/PIT admission remains a separate decision.
+
+Existing `canonical_bar.v3` requires Q/session/availability/UTC closure facts
+not established by retrieval or lifetime dates. Preserve it and the existing
+UTC/r7-bound read mode unchanged. Add an explicit `native_observations.v1` mode,
+with `native_observation_snapshot.v1`, request and read-metadata wrappers whose
+definitions live in `market_identity.v3`. These closed metadata contracts do
+not pass prices through JSON numbers. Snapshot metadata carries the namespace,
+source-manifest and explicit-assignment hashes, recipe/version and exact
+`storage_layout` constants (field name, Spark SQL type, nullability and grain).
+Spark and Arrow adapters derive physical schemas from those constants; they
+must check actual types/nullability rather than restating a competing schema.
+
+The source manifest binds exact body/receipt hashes, URL/status/headers/time,
+source block/column layout, page offset/count, requested context and window.
+Capture must finish before decode; sink failure aborts, independently of the
+best-effort diagnostic hook. Pagination advances by the original page row
+count even if a row quarantines. Request/page/row/response-byte budgets are
+explicit trial inputs. Source discovery confirms TYPE, complete board route,
+ordinary-share underlying and lifetime. Reuse only individually extracted
+existing pilot asset/instrument assignments, revalidated against new evidence;
+never copy its CF registry or infer identity from ticker prefixes.
+
+Four Delta tables have exact layouts in the shared metadata schema:
+
+- `raw_observations`: native/context/timeframe keys, original source begin/end,
+  decimal lexemes as nullable strings, lossless decimal-string source-values
+  JSON, body/receipt hashes, block/page/row ordinal, intake rejection reason.
+  Original body bytes remain the authoritative RAW, never re-encoded JSON.
+- `native_bars`: native asset/instrument/context keys, unchanged source begin/end,
+  OHLC and volume/OI as decimal(38,10), quantity states/reasons, source unit/currency
+  facts, exact row lineage, recipe and value-origin/simulation discriminator.
+- `observed_day_qc`: context/instrument/timeframe/source-day grain, observed count,
+  first/last source keys, volume sum and simulated-row count. This describes only
+  acquired rows; it is not a resampled daily bar or a complete-session claim.
+- `quarantine`: exact source-row lineage plus rejection reason. Source rows equal
+  admitted plus quarantined rows; no silent filtering, deduplication or truncation.
+
+Native grain is namespace, provider/venue/engine/market/board, concrete
+instrument_id, timeframe and source_begin. Source end is retained, not silently
+treated as an exclusive UTC close. Decimal intake rejects nonfinite values,
+overflow or nonzero digits beyond scale 10; it never rounds. Numeric intake is
+bounded source parsing, not an analytical fallback. Spark owns casts, validation,
+projection, uniqueness and observed-day aggregation. Index source volume zero
+remains in RAW; native index volume/OI are NULL/not_applicable. Missing futures
+OI is NULL/unavailable. No zero filling. Namespace expiry/specification stay
+unknown when exact source evidence is absent; execution_eligible remains false.
+
+Limitations are executable constants: snapshot_bound=true, canonical_Q_verified,
+historical_PIT_verified, timezone_verified, utc_closure_verified and
+session_complete_verified=false. The source-time request is closed: input_mode,
+namespace, concrete instrument_id, timeframe, source_begin_from/to (strict naive
+source-key strings, half-open key selection), ordered columns, row_limit and
+byte_limit. It has no CF/valid_at/known_at/UTC interval parameters. The Arrow
+read returns original strings and Decimal buffers, with mandatory native grain
+and source_end columns plus requested columns. It sorts by that grain and rejects
+duplicates, row_limit+1 or actual wire-byte overflow. Read metadata binds request,
+completion/common-manifest/source/metadata hashes, row count/schema/IPC hashes
+and the limitation constants. No cache or implicit legacy-mode dispatcher is added.
+
+Native Runtime Choice: existing MoexISSClient HTTP intake and strict capture;
+Spark SQL/DataFrames; Delta ACID tables; ephemeral bounded Dagster job/instance.
+Python owns source/metadata parsing, contracts, orchestration and evidence only.
+Use the existing Spark bootstrap and common.data_snapshots capture/create/save/
+load/open_pinned_table. Do not call publish_snapshot or create current/accepted/
+latest pointers, including inside verification. A dedicated one-shot container
+has code/evidence RO and only one validated unique verification child RW; no
+production code/data or Dagster instance mounts. Runtime scratch is inside it.
+
+The graph is acyclic: immutable source manifest/assignments/metadata -> tables ->
+common snapshot (parameters pin metadata) -> terminal completion receipt. Metadata
+does not contain the common snapshot's future hash. The receipt is written last,
+after namespace, RAW/bars/QC/quarantine, exact physical pins and independent
+source/physical checks validate. A saved common snapshot alone is not a completed
+candidate. Public `NativeObservationSnapshot` requires an explicitly hash-pinned
+completion receipt, verifies the complete graph and source/namespace associations
+before every read, then uses open_pinned_table and bounded Arrow predicates.
+It never manufactures old pilot reports or enters PinnedNativeSnapshot's r7 path.
+
+Command key scope is this unique trial root. Immutable intent binds original
+command identity and canonical input hash over source/assignment/recipe/code,
+selection, explicit immutable parent and optional named overlay. Same key with
+changed input conflicts. An OS-owned advisory lock serializes this Linux native
+trial writer and releases on process death; no stale-lease takeover. Each attempt
+gets an exclusive unique child and write-once table paths. Completed replay
+verifies and returns its original receipt with no HTTP or Delta writes. A crash
+after saving a complete graph but before acknowledgement is reconciled by
+validating that graph and issuing the same command's terminal receipt. An
+incomplete graph is retained; retry creates a fresh attempt without overwriting
+its files. No mutable head exists: a parent is an explicit pinned dependency,
+multiple named children are allowed and old replay cannot switch anything back.
+
+Correction is an explicitly named simulated overlay on exact native keys, pinned
+to an explicit parent and overlay hash. Changed rows carry
+value_origin=simulated_correction and simulation identity; they are never labeled
+as new exchange observations. Original RAW stays immutable. A descendant changes
+only selected logical bars and their affected observed-day aggregates; untouched
+logical values and source lineage remain exact. Preceding candidates stay readable.
+
+Proof A-F: independent Decimal parser of original source bytes compares every
+value/type/NULL/key/bound and page/quarantine count with physical Delta; no-op
+replay checks unchanged versions/files and no acquisition; named correction
+checks exact affected keys/groups; injected inter-table and post-save/pre-receipt
+failures test rejection/recovery; public source-time read and the old frozen
+reader both work; roots/mounts and absent publication pointers prove containment.
+Fixture tests do not replace this real producer/consumer proof. No Research,
+full Q, CF/PIT, execution, shared publication or production readiness is claimed.
+
+Alternatives rejected: weakening canonical Q, invented UTC dates, duplicate
+HTTP/storage/publisher owners, fake r7 input, mutable candidate heads and float
+price DTOs. Rollback: stop the opt-in job and read the explicitly pinned previous
+unpublished candidate; no production or old-data restore. Revisit this observation
+mode when independently sourced Q/time/temporal facts support a separate admission.
+
+Exact completion and wire refinements: `native_observation_intent.v1` and
+`native_observation_completion.v1` are closed shared definitions. A file pin is
+exactly path/sha256; paths resolve inside this unique root without symlink escape.
+Intent contains schema_version/input_mode, command_id/operation, source_manifest,
+assignments, metadata, code_sha256, exact source-time read selections, parent and
+overlay pins (baseline requires both null; simulation requires both). Canonical
+JSON is sorted compact UTF-8, ensure_ascii=false, allow_nan=false, without a
+trailing newline for input_sha256. File hashes cover actual file bytes including
+their newline. Completion contains command_id/input_sha256/attempt_id,
+status=complete_unpublished, snapshot path/hash/id, metadata/source/assignment/
+intent pins, parent/overlay pins and UTC creation lineage. It never changes a head.
+Recovery under the command lock validates its saved same-input attempt manifests:
+zero complete graphs -> fresh attempt; one -> reuse that graph without writes;
+multiple -> explicit ambiguity error. Partial graphs are retained and rejected.
+
+Shared metadata policies declare quantity states, known/nonnegative/non-null and
+NULL-reason rules; index quantity N/A and equity OI N/A; exchange_observation
+versus simulated_correction crosslinks; units schema and exact assignment binding.
+Units are a closed price_currency/price_unit/quantity_unit object of shared
+text_fact values. Unknown values remain null, with no unit conversion/inference.
+RAW/quarantine grain is receipt_sha256/source_block/row_ordinal, not body content.
+Request namespace/context FK/engine, calendar-valid source times and strict
+from<to are checked before I/O; extra projection fields come from the shared
+layout enum. Mandatory Arrow order is native grain, asset_id/source_symbol/
+source_end, then requested additional columns. Serialize combined chunks as an
+uncompressed Arrow IPC stream; schema bytes and content hash describe the payload
+before attaching canonical JSON read metadata under
+ta3000.native_observation_read.v1. Validate by removing only that metadata key,
+restoring the exact payload schema, and recomputing IPC/hash/count/grain/types.
+The byte budget counts the entire final IPC stream including envelope metadata.
