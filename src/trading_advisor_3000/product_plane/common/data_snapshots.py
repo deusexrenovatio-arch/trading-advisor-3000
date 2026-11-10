@@ -273,6 +273,19 @@ def capture_table(path: Path, *, version: int | None = None) -> dict[str, object
     }
 
 
+def write_delta_once(spark, path: Path, frame, layout):
+    if path.exists():
+        raise ValueError("Delta table destination already exists")
+    ddl = ", ".join(
+        "`" + f["name"] + "` " + f["sql_type"] + ("" if f["nullable"] else " NOT NULL")
+        for f in layout["fields"]
+    )
+    spark.sql(f"CREATE TABLE delta.`{path.as_posix()}` ({ddl}) USING DELTA")
+    if frame.limit(1).count():
+        frame.write.format("delta").mode("append").save(path.as_posix())
+    return capture_table(path)
+
+
 def open_pinned_table(reference: Mapping[str, Any]) -> DeltaTable:
     _validate_reference(reference)
     path = Path(str(reference["table_path"]))

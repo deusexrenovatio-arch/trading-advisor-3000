@@ -6,41 +6,17 @@ import hashlib
 import json
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from trading_advisor_3000.product_plane.common.data_snapshots import atomic_json
+from trading_advisor_3000.product_plane.common.immutable_files import (
+    canonical_bytes as canonical_bytes,
+)
+from trading_advisor_3000.product_plane.common.immutable_files import child, pin, pinned_bytes
 from trading_advisor_3000.product_plane.contracts.identity_v3 import validate_identity_contract
 
 from .iss_client import MoexISSClient
-
-
-def canonical_bytes(value: Any) -> bytes:
-    return json.dumps(
-        value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-    ).encode("utf-8")
-
-
-def child(root: Path, relative: str) -> Path:
-    path = (root / relative).resolve()
-    if not path.is_relative_to(root.resolve()) or Path(relative).is_absolute():
-        raise ValueError("observation artifact escapes its supplied root")
-    return path
-
-
-def pin(root: Path, path: Path) -> dict[str, str]:
-    return {
-        "path": path.resolve().relative_to(root.resolve()).as_posix(),
-        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-    }
-
-
-def pinned_bytes(root: Path, reference: dict) -> bytes:
-    raw = child(root, reference["path"]).read_bytes()
-    if hashlib.sha256(raw).hexdigest() != reference["sha256"]:
-        raise ValueError("observation artifact hash mismatch: " + reference["path"])
-    return raw
 
 
 class OriginalResponseCapture:
