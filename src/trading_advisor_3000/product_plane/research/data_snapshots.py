@@ -110,6 +110,7 @@ def _parameters(config: Mapping[str, Any]) -> dict[str, Any]:
         "force_full_refresh",
         "hash_compatibility",
         "continuous_front_policy",
+        "calendar_roll_schedule",
         "indicator_set_version",
         "indicator_profile_version",
         "derived_indicator_set_version",
@@ -325,6 +326,7 @@ def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) 
             "force_full_refresh",
             "hash_compatibility",
             "continuous_front_policy",
+            "calendar_roll_schedule",
             "canonical_contract_economics_path",
         )
         if (
