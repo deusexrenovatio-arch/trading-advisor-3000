@@ -19,6 +19,46 @@ from trading_advisor_3000.product_plane.research.datasets import ContinuousFront
 from trading_advisor_3000.spark_jobs import continuous_front_job as job
 
 
+def _synthetic_br_calendar():
+    """Explicit test dates/order, not retained exchange-calendar evidence."""
+    import copy
+    import json
+    from datetime import date, timedelta
+
+    seed = json.loads(
+        (Path(__file__).parents[1] / "fixtures/contracts/native_cf_inputs.v1.json").read_text(
+            encoding="utf-8"
+        )
+    )["calendar_roll_schedule"]
+    rule = seed["governing_rules"][0]
+    rule["effective_from"] = "2025-01-01"
+    group = seed["groups"][0]
+    group.update(group_key="FUT_BR", coverage_from="2025-09-23", coverage_to="2025-10-21")
+    original = group["components"][0]
+    group["components"] = []
+    for order, (symbol, last) in enumerate(
+        [("BRU5", "2025-09-26"), ("BRV5", "2025-10-20"), ("BRX5", "2025-11-20")]
+    ):
+        component = copy.deepcopy(original)
+        component.update(
+            component_key=symbol + "@MOEX",
+            source_symbol=symbol,
+            source_order=order,
+            last_trade_date=last,
+        )
+        group["components"].append(component)
+    begin, end = date(2025, 9, 23), date(2025, 10, 21)
+    group["planned_dates"] = [
+        {
+            "source_date": (begin + timedelta(days=i)).isoformat(),
+            "state": "open" if (begin + timedelta(days=i)).weekday() < 5 else "closed",
+            "governing_rule_ids": [rule["rule_id"]],
+        }
+        for i in range((end - begin).days)
+    ]
+    return seed
+
+
 class _FakeDataFrame:
     def __init__(self, rows: list[dict[str, object]] | None = None) -> None:
         self.rows = rows or []
@@ -119,6 +159,9 @@ def test_continuous_front_spark_job_reports_native_spark_wiring_contract(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    # This test isolates wiring/finally behavior; source admission has separate real-pin guards.
+    monkeypatch.setattr(job, "validate_calendar_sources", lambda *_a, **_k: None)
+
     canonical_bars_path = tmp_path / "canonical_bars.delta"
     calendar_path = tmp_path / "canonical_session_calendar.delta"
     roll_map_path = tmp_path / "canonical_roll_map.delta"
@@ -203,6 +246,8 @@ def test_continuous_front_spark_job_reports_native_spark_wiring_contract(
 
 
 def test_continuous_front_releases_cached_plans_after_write_failure(tmp_path, monkeypatch):
+    # This test isolates wiring/finally behavior; source admission has separate real-pin guards.
+    monkeypatch.setattr(job, "validate_calendar_sources", lambda *_a, **_k: None)
     paths = [tmp_path / f"{name}.delta" for name in ("bars", "calendar", "roll_map")]
     for path in paths:
         write_deltalake(str(path), pa.table({"fixture": [1]}))
@@ -230,6 +275,7 @@ def test_continuous_front_releases_cached_plans_after_write_failure(tmp_path, mo
 
 
 def test_continuous_front_bars_contract_carries_active_contract_economics() -> None:
+
     columns = continuous_front_store_contract()["continuous_front_bars"]["columns"]
 
     assert columns["execution_step_price_rub"] == "double"
@@ -630,6 +676,7 @@ def test_calendar_expiry_spark_policy_uses_unbounded_contract_windows_for_partia
 
         tables = job._build_spark_native_tables(  # type: ignore[attr-defined]
             spark=spark,
+            calendar_roll_schedule=_synthetic_br_calendar(),
             canonical_bars_path=tmp_path / "canonical_bars.delta",
             dataset_version="spark-calendar-partial-v1",
             policy=ContinuousFrontPolicy(calendar_roll_offset_trading_days=2),
@@ -708,6 +755,7 @@ def test_calendar_expiry_spark_policy_uses_active_contract_session_bars(
 
         tables = job._build_spark_native_tables(  # type: ignore[attr-defined]
             spark=spark,
+            calendar_roll_schedule=_synthetic_br_calendar(),
             canonical_bars_path=tmp_path / "canonical_bars.delta",
             dataset_version="spark-calendar-session-v1",
             policy=ContinuousFrontPolicy(
@@ -761,5 +809,38 @@ def test_calendar_expiry_spark_policy_uses_active_contract_session_bars(
         assert qc["status"] == "PASS"
         assert qc["missing_active_bar_count"] == 0
         assert qc["missing_reference_price_count"] == 0
+    finally:
+        spark.stop()
+
+
+def test_calendar_t2_uses_sourced_last_trade_calendar_not_observed_tail():
+    """Literal source-date oracle: last trade17, planned14..17, T-2=15."""
+    from pyspark.sql import SparkSession
+
+    spark = (
+        SparkSession.builder.master("local[1]")
+        .appName("calendar-source-regression")
+        .config("spark.ui.enabled", "false")
+        .getOrCreate()
+    )
+    try:
+        bars = spark.sql("""SELECT 'SBRF' instrument_id, '1d' timeframe, contract_id, CAST(label AS TIMESTAMP) ts FROM VALUES
+            ('SRU6','2026-09-14 09:00:00'),('SRZ6','2026-09-14 09:00:00'),
+            ('SRU6','2026-09-15 09:00:00'),('SRZ6','2026-09-15 09:00:00') AS t(contract_id,label)""")
+        import json
+
+        fixture = Path(__file__).parents[1] / "fixtures/contracts/native_cf_inputs.v1.json"
+        schedule = json.loads(fixture.read_text(encoding="utf-8"))["calendar_roll_schedule"]
+        schedule["groups"][0]["group_key"] = "SBRF"
+        for component in schedule["groups"][0]["components"]:
+            component["component_key"] = component["source_symbol"]
+        policy = ContinuousFrontPolicy()
+        actual = [
+            r.active_contract_id
+            for r in job._active_timeline(bars=bars, policy=policy, calendar_roll_schedule=schedule)
+            .orderBy("ts")
+            .collect()
+        ]
+        assert actual == ["SRU6", "SRZ6"]
     finally:
         spark.stop()

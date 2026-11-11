@@ -414,6 +414,83 @@ def _spark_feature_counts(frame, source, policy):
     return result
 
 
+def _build_feature_frames(intent, source_reader, source, policy, spark, resources):
+    core = "catalog" in policy
+    profile_version = intent.get("profile_version")
+    frame, source = source_reader.read_spark(spark)
+    profile = profile_for_policy(policy)
+    layout = feature_layout(intent["layer"], profile_version)
+    outputs = feature_additional_outputs(policy)
+    grain = layout["grain"]
+    grouping = [k for k in grain if k != "source_begin"]
+    from pyspark.sql import functions as F
+    from pyspark.sql import types as T
+
+    udf_schema = T.StructType(
+        [frame.schema[k] for k in grain] + [T.StructField(k, T.DoubleType(), True) for k in outputs]
+    )
+    compute = _compute_l1_group if intent["layer"] == "L1" else _compute_l2_group
+    requirements, engines = (
+        feature_requirements(policy),
+        intent["numerical_identity"]["engines"],
+    )
+    calculated = (
+        frame.groupBy(*grouping)
+        .applyInPandas(
+            lambda pdf: compute(pdf, profile, requirements, engines, grain),
+            schema=udf_schema,
+        )
+        .persist()
+    )
+    resources.append(calculated)
+    require(
+        calculated.count() == source["row_count"],
+        "feature returned cardinality mismatch",
+    )
+    require(
+        not calculated.groupBy(*grain).count().where("count > 1").limit(1).count(),
+        "feature returned duplicate grain",
+    )
+    require(
+        not frame.join(calculated, grain, "left_anti").limit(1).count()
+        and not calculated.join(frame, grain, "left_anti").limit(1).count(),
+        "feature returned missing/extra keys",
+    )
+    cached = frame.join(calculated, grain, "inner").select(*frame.columns, *outputs).persist()
+    resources.append(cached)
+    counts = _spark_feature_counts(cached, source, policy)
+    quality = feature_quality(profile_version)
+    context = {
+        "schema_version": 1,
+        "contract_version": "native_research_core_context.v1"
+        if core
+        else "native_research_feature_context.v1",
+        "input_mode": "native_observation_research.v1",
+        "layer": intent["layer"],
+        "research_context_id": source["research_context_id"],
+        "source": source,
+        "policy": feature_policy_reference(policy),
+        "policy_sha256": intent["policy_sha256"],
+        "layout_sha256": sha({policy["table"]: layout}),
+        "numerical_identity": intent["numerical_identity"],
+        "runtime_code_sha256": intent["code_sha256"],
+        "quality": {"policy": quality, "sha256": sha(quality)},
+        "capabilities": feature_capabilities(source, policy, counts),
+    }
+    context["feature_context_id"] = "NFCTX:" + sha(context)
+    validate_feature_context(context, source)
+    prefix = "indicator" if intent["layer"] == "L1" else "derived"
+    output = cached.withColumn(
+        prefix + "_context_id", F.lit(context["feature_context_id"])
+    ).withColumn(prefix + "_profile_version", F.lit(policy["profile_version"]))
+    return (
+        {policy["table"]: output},
+        {policy["table"]: layout},
+        context,
+        source_reader.verify()["manifest"],
+    )
+
+
 def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=None):
     root = root.resolve()
     require(
@@ -424,19 +501,39 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
         not any((root / p).exists() for p in ["published_current.json", "accepted_current.json"]),
         "feature publication pointer forbidden",
     )
+    require(isinstance(intent, dict), "feature intent must be an object")
     require(intent.get("source_root") == "/research-trial", "feature source mount mismatch")
     require(
-        fault in [None, "after_table", "after_snapshot", "after_completion"],
+        fault in [None, "after_table", "after_snapshot", "after_completion"]
+        or (
+            intent.get("contract_version") == "native_cf_intent.v1"
+            and fault in ["after_table:" + r for r in ["bars", "events", "ladder", "qc"]]
+        ),
         "unknown feature fault point",
     )
+    cf = intent.get("contract_version") == "native_cf_intent.v1"
     profile_version = intent.get("profile_version")
-    policy = feature_policy(intent["layer"], profile_version)
-    core = "catalog" in policy
-    source_reader = parent_reader(
-        root, intent["parent_completion"], intent["layer"], profile_version
-    )
+    if cf:
+        from .native_cf import NativeCfSnapshot, _parent, validate_cf_graph
+        from .native_cf_policy import TABLES
+
+        require(intent.get("layer") == "CF", "CF sidecar producer not implemented")
+        source_reader, parent_graph = _parent(root, intent["parent_completion"], intent["layer"])
+        policy, core = None, False
+    else:
+        policy = feature_policy(intent["layer"], profile_version)
+        core = "catalog" in policy
+        source_reader = parent_reader(
+            root, intent["parent_completion"], intent["layer"], profile_version
+        )
     source = source_reader.compute_metadata()
-    validate_identity_contract(feature_schema("intent", core), intent, source["namespace"])
+    schema = "native_cf_intent.v1.json" if cf else feature_schema("intent", core)
+    validate_identity_contract(schema, intent, source["namespace"])
+    reader_type = NativeCfSnapshot if cf else NativeFeatureSnapshot
+
+    def graph_check(**pins):
+        return validate_cf_graph(root, **pins) if cf else validate_feature_graph(root, **pins)
+
     input_hash = sha(intent)
     command_dir = root / "commands" / hashlib.sha256(intent["command_id"].encode()).hexdigest()
     with command_lock(root / "writer.lock"):
@@ -449,7 +546,7 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
         intent_pin = pin(root, intent_path)
         if completion_path.exists():
             result_pin = pin(root, completion_path)
-            graph = NativeFeatureSnapshot(root, result_pin).verify()
+            graph = reader_type(root, result_pin).verify()
             require(
                 graph["completion"]["input_sha256"] == input_hash,
                 "feature receipt belongs to different input",
@@ -459,8 +556,7 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
         attempts.mkdir(parents=True, exist_ok=True)
         saved = []
         for path in sorted(attempts.glob("*/manifests/*.json")):
-            graph = validate_feature_graph(
-                root,
+            graph = graph_check(
                 snapshot_pin=pin(root, path),
                 context_pin=pin(root, path.parent.parent / "context.json"),
                 intent_pin=intent_pin,
@@ -470,8 +566,7 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
         require(len(saved) <= 1, "ambiguous saved complete feature graphs")
         recovered = bool(saved)
         owned_spark = False
-        cached = None
-        calculated = None
+        resources = []
         try:
             if recovered:
                 snapshot_path, graph = saved[0]
@@ -479,12 +574,24 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
                 context_pin = pin(root, snapshot_path.parent.parent / "context.json")
                 attempt_id = manifest["run_id"]
             else:
-                expected = build_feature_command(
-                    source_reader,
-                    layer=intent["layer"],
-                    command_id=intent["command_id"],
-                    profile_version=profile_version,
-                )
+                if cf:
+                    from .native_cf import build_cf_command
+
+                    expected = build_cf_command(
+                        source_reader,
+                        command_id=intent["command_id"],
+                        layer=intent["layer"],
+                        definitions=intent["definitions"],
+                        calendar_roll_schedule=intent["calendar_roll_schedule"],
+                        source_fact_pins=intent["source_fact_pins"],
+                    )
+                else:
+                    expected = build_feature_command(
+                        source_reader,
+                        layer=intent["layer"],
+                        command_id=intent["command_id"],
+                        profile_version=profile_version,
+                    )
                 require(
                     expected == intent, "uncommitted feature policy/numerical/runtime code changed"
                 )
@@ -500,89 +607,45 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
                 attempt_id = uuid4().hex
                 attempt = attempts / attempt_id
                 attempt.mkdir()
-                frame, source = source_reader.read_spark(spark)
-                profile = profile_for_policy(policy)
-                layout = feature_layout(intent["layer"], profile_version)
-                outputs = feature_additional_outputs(policy)
-                grain = layout["grain"]
-                grouping = [k for k in grain if k != "source_begin"]
-                from pyspark.sql import functions as F
-                from pyspark.sql import types as T
+                if cf:
+                    from .native_cf import build_cf_frames, validate_cf_facts
 
-                udf_schema = T.StructType(
-                    [frame.schema[k] for k in grain]
-                    + [T.StructField(k, T.DoubleType(), True) for k in outputs]
-                )
-                compute = _compute_l1_group if intent["layer"] == "L1" else _compute_l2_group
-                requirements, engines = (
-                    feature_requirements(policy),
-                    intent["numerical_identity"]["engines"],
-                )
-                calculated = (
-                    frame.groupBy(*grouping)
-                    .applyInPandas(
-                        lambda pdf: compute(pdf, profile, requirements, engines, grain),
-                        schema=udf_schema,
+                    role_frames, role_layouts, context, parent = build_cf_frames(
+                        root, intent, source_reader, parent_graph, spark
                     )
-                    .persist()
-                )
-                require(
-                    calculated.count() == source["row_count"],
-                    "feature returned cardinality mismatch",
-                )
-                require(
-                    not calculated.groupBy(*grain).count().where("count > 1").limit(1).count(),
-                    "feature returned duplicate grain",
-                )
-                require(
-                    not frame.join(calculated, grain, "left_anti").limit(1).count()
-                    and not calculated.join(frame, grain, "left_anti").limit(1).count(),
-                    "feature returned missing/extra keys",
-                )
-                cached = (
-                    frame.join(calculated, grain, "inner")
-                    .select(*frame.columns, *outputs)
-                    .persist()
-                )
-                counts = _spark_feature_counts(cached, source, policy)
-                quality = feature_quality(profile_version)
-                context = {
-                    "schema_version": 1,
-                    "contract_version": "native_research_core_context.v1"
-                    if core
-                    else "native_research_feature_context.v1",
-                    "input_mode": "native_observation_research.v1",
-                    "layer": intent["layer"],
-                    "research_context_id": source["research_context_id"],
-                    "source": source,
-                    "policy": feature_policy_reference(policy),
-                    "policy_sha256": intent["policy_sha256"],
-                    "layout_sha256": sha({policy["table"]: layout}),
-                    "numerical_identity": intent["numerical_identity"],
-                    "runtime_code_sha256": intent["code_sha256"],
-                    "quality": {"policy": quality, "sha256": sha(quality)},
-                    "capabilities": feature_capabilities(source, policy, counts),
-                }
-                context["feature_context_id"] = "NFCTX:" + sha(context)
-                validate_feature_context(context, source)
+                    frames = {TABLES[role]: frame for role, frame in role_frames.items()}
+                    layouts = {
+                        TABLES[role]: layout
+                        for role, layout in role_layouts.items()
+                        if role in role_frames
+                    }
+                    validate_cf_facts(root, intent, parent_graph)
+                else:
+                    frames, layouts, context, parent = _build_feature_frames(
+                        intent, source_reader, source, policy, spark, resources
+                    )
+                references = {}
+                for name, output in frames.items():
+                    references[name] = write_delta_once(
+                        spark, attempt / (name + ".delta"), output, layouts[name]
+                    )
+                    if fault == "after_table" or (
+                        cf
+                        and fault
+                        == "after_table:"
+                        + next(role for role, table in TABLES.items() if table == name)
+                    ):
+                        raise RuntimeError("injected feature partial failure after table: " + name)
                 context_path = attempt / "context.json"
                 atomic_json(context_path, context, immutable=True)
                 context_pin = pin(root, context_path)
-                prefix = "indicator" if intent["layer"] == "L1" else "derived"
-                output = cached.withColumn(
-                    prefix + "_context_id", F.lit(context["feature_context_id"])
-                ).withColumn(prefix + "_profile_version", F.lit(policy["profile_version"]))
-                reference = write_delta_once(
-                    spark, attempt / (policy["table"] + ".delta"), output, layout
-                )
-                if fault == "after_table":
-                    raise RuntimeError("injected feature partial failure after table")
-                parent = source_reader.verify()["manifest"]
-                tables = {**parent["tables"], policy["table"]: reference}
+                tables = {**parent["tables"], **references}
                 manifest = create_snapshot(
                     tables=tables,
-                    required_tables=[*parent["required_tables"], policy["table"]],
-                    dataset_version=policy["version"],
+                    required_tables=[*parent["required_tables"], *references],
+                    dataset_version=context["policy_payload"]["version"]
+                    if cf
+                    else policy["version"],
                     run_id=attempt_id,
                     code_version=intent["code_sha256"],
                     quality_checks={
@@ -598,8 +661,7 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
                     parents=[source["snapshot"]["snapshot_id"]],
                 )
                 snapshot_path = save_snapshot(attempt, manifest)
-                validate_feature_graph(
-                    root,
+                graph_check(
                     snapshot_pin=pin(root, snapshot_path),
                     context_pin=context_pin,
                     intent_pin=intent_pin,
@@ -613,7 +675,9 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
             )
             completion = {
                 "schema_version": 1,
-                "contract_version": "native_research_core_completion.v1"
+                "contract_version": "native_cf_completion.v1"
+                if cf
+                else "native_research_core_completion.v1"
                 if core
                 else "native_research_feature_completion.v1",
                 "status": "complete_unpublished",
@@ -628,19 +692,21 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
                 "parent_completion": intent["parent_completion"],
                 "created_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
+            if cf:
+                completion["input_mode"] = intent["input_mode"]
             validate_identity_contract(
-                feature_schema("completion", core), completion, source["namespace"]
+                "native_cf_completion.v1.json" if cf else feature_schema("completion", core),
+                completion,
+                source["namespace"],
             )
             atomic_json(completion_path, completion, immutable=True)
             result_pin = pin(root, completion_path)
-            NativeFeatureSnapshot(root, result_pin).verify()
+            reader_type(root, result_pin).verify()
             if fault == "after_completion":
                 raise RuntimeError("injected feature lost acknowledgement")
             return {"completion": result_pin, "replayed": False, "recovered": recovered}
         finally:
-            if cached is not None:
-                cached.unpersist()
-            if calculated is not None:
-                calculated.unpersist()
+            for resource in reversed(resources):
+                resource.unpersist()
             if owned_spark:
                 spark.stop()

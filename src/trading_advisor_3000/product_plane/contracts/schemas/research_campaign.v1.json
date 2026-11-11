@@ -76,6 +76,10 @@
         "dataset_name": {"type": "string", "minLength": 1},
         "universe_id": {"type": "string", "minLength": 1},
         "series_mode": {"type": "string", "enum": ["contract", "continuous_front"]},
+        "calendar_roll_schedule": {
+          "type": "object",
+          "description": "Transport only; the CF owner validates its closed source-calendar DTO before recompute."
+        },
         "continuous_front_policy": {
           "type": "object",
           "properties": {

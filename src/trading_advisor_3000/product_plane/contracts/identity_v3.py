@@ -12,7 +12,7 @@ import hashlib
 import json
 import math
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +54,13 @@ CONTRACTS = {
     "native_research_shadow.v1.json",
     "native_research_source_key_request.v1.json",
     "native_research_source_key_read.v1.json",
+    "native_cf_policy.v1.json",
+    "native_cf_context.v1.json",
+    "native_cf_intent.v1.json",
+    "native_cf_completion.v1.json",
+    "native_cf_compute.v1.json",
+    "native_cf_read_request.v1.json",
+    "native_cf_read.v1.json",
 }
 KEYWORDS = {
     "$schema",
@@ -138,6 +145,15 @@ def _source_key_time(value: str) -> datetime:
         return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
     except ValueError as exc:
         raise SchemaValidationError(f"invalid source-local key time: {value!r}") from exc
+
+
+def _source_date(value: str) -> date:
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        _fail(f"expected source date: {value!r}")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise SchemaValidationError(f"invalid source date: {value!r}") from exc
 
 
 def _inside(point: str, start: str, end: str | None) -> bool:
@@ -237,7 +253,11 @@ class _Evaluator:
             columns = [pair[0] for pair in rules["constants"]]
             if len(set(columns)) != len(columns) or set(columns) != set(rules["required_columns"]):
                 _fail("Arrow constants must bind every mandatory metadata column exactly once")
-        if "format" in schema and schema["format"] not in {"utc-instant", "source-key-time"}:
+        if "format" in schema and schema["format"] not in {
+            "utc-instant",
+            "source-key-time",
+            "source-date",
+        }:
             _fail("unsupported schema format")
         if "additionalProperties" in schema and not isinstance(
             schema["additionalProperties"], bool
@@ -366,7 +386,11 @@ class _Evaluator:
             if "pattern" in schema and not re.search(schema["pattern"], value):
                 _fail("string does not match schema pattern")
             if "format" in schema:
-                (_source_key_time if schema["format"] == "source-key-time" else _instant)(value)
+                {
+                    "source-key-time": _source_key_time,
+                    "source-date": _source_date,
+                    "utc-instant": _instant,
+                }[schema["format"]](value)
         for child in schema.get("allOf", []):
             self.check(child, value)
         if "oneOf" in schema:
@@ -392,10 +416,8 @@ class _Evaluator:
                 _fail(f"invalid order: {left}, {right}")
         for start, end in schema.get("x-intervals", []):
             a, b = _get(value, start), _get(value, end)
-            parser = (
-                _source_key_time
-                if schema.get("properties", {}).get(start, {}).get("format") == "source-key-time"
-                else _instant
+            parser = {"source-key-time": _source_key_time, "source-date": _source_date}.get(
+                schema.get("properties", {}).get(start, {}).get("format"), _instant
             )
             if b is not None and parser(a) >= parser(b):
                 _fail(f"empty/reversed interval: {start}, {end}")
