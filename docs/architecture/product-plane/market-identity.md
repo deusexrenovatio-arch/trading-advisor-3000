@@ -532,8 +532,8 @@ The byte budget counts the entire final IPC stream including envelope metadata.
 
 ## Bounded native Research consumers and observation-key MTF
 
-Decision status: independently admitted design; contracts and paired runtime prepared.
-Native verification and PR integration are tracked separately; production not admitted.
+Decision status: independently admitted design; bounded native implementation verified.
+PR integration is tracked separately; production not admitted.
 Change surface: product-plane.
 Architecture impact: contract-change. Authorization: isolated native Research consumer
 route, following the completed Data/L0 and feature slices; no production cutover.
@@ -673,3 +673,40 @@ endpoint/shadow descriptor and SOURCE_KEY alignment, bound native proof, indepen
 implementation review, required PR integration. Rollback: omit the opt-in reader/endpoint,
 discard cache and select the prior explicit shadow descriptor. Existing snapshots stay
 readable; no data migration, restore, source rewrite or production promotion.
+
+
+### Bounded consumer implementation evidence, 11 November 2026
+
+The paired implementation passed actual completed native L0/L1/L2 -> public loader ->
+IPC decoder -> memory cache hit -> loopback HTTP/FastAPI for all four instruments and
+both 1m/1d timeframes:24 cases, all persisted columns, exact values/Arrow types/NULL
+masks/parent lineage. The HTTP test used the standard-library loopback transport into
+the actual ASGI application; no package or numerical-runtime change or deployed-server
+admission. The same pinned Java17 image ran with2CPU/3GiB/networknone; original Data,
+Research and code were read-only. Only owned negative metadata copies and the unique
+shadow-descriptor child were writable. Original metadata/Delta-log hashes stayed exact.
+
+Four actual1d-to-1m SOURCE_KEY results match the independent source-row label oracle;
+matched open-interest NULLs and their source states/reasons remain distinct from no
+match. Daily true_range is finite and was compared unchanged, never assumed missing.
+Temporal requests still reject. The25 negatives include actual correctly hash-pinned
+non-object completion/parent headers returning unavailable/HTTP409 before cache;
+context/source/physical table UUID and foreign-root rejection; row/full-wire budgets;
+valid mixed-generation parents; failed descriptor save preserving the previous reader;
+and immutable retry/conflict. Typed empty retains the complete selected Arrow schema.
+
+Request-local reuse of the same full verifier removes repeated work without retaining
+an admission between requests. On the same2018-row/199-column L2 slice, profiled cold/hot
+reads changed146.15/144.15s ->10.98/9.25s. Source-bundle verification88->1 and pinned-table
+opens453->20; full source/receipt/context/intent/table/parent checks still precede each
+cache hit. The unchanged wire SHA256 is6dd1483ea0642092998172574a7601abe3736977f8b21e52cc987d1f26f8e672.
+These are bounded Windows-bind observations, not SLA, throughput or live suitability.
+
+Consumer read-code identity a8695a8a232af829d9ed109fada29faf9b44bbf1693130ee04c9c96d57127033
+covers package Python, contract YAML and identity schemas; it is distinct from producer
+code provenance. Full consumer receipt SHA2564578c3512fa270b18b2e67ba622f736aac77134b40b79683cf44174c14c88bd6
+is under the November11 consumer evidence root native-consumers-proof/native-20261111T034911Z-26ed92dd/full-retry2.
+The unchanged original-byte/library oracle also reopens the old first7 physical L1/L2
+snapshots with the new reader code:6728 rows/eight sequences each, unchanged values,
+Decimal/NULL/lineage. Contracts and runtime are separate reviewable PR patch sets;
+this evidence does not admit production, canonicalQ, actual availability, UTC or PIT.
