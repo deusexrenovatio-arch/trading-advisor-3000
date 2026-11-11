@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "command_id": "import-2026-10-12-xauusd-short-v1",
+  "trade_id": "2026-10-12-xauusd-short",
+  "card": {
+    "title": "Золото · XAUUSD · шорт",
+    "introduction": "Золото XAUUSD, спот. Одна авторская гипотеза шорта: общее межрыночное обоснование по Brent и собственные вход, техническая структура, цели и отмена.",
+    "analysis": {
+      "symbol": "XAUUSD",
+      "asset": "золото",
+      "market_type": "spot",
+      "price_unit": "USD_per_troy_ounce",
+      "timeframe": {
+        "value": null,
+        "reason": "not_provided"
+      },
+      "data_provider": {
+        "value": null,
+        "reason": "not_provided"
+      }
+    },
+    "direction": "short",
+    "entry": {
+      "price": {
+        "value": "4170",
+        "reason": null
+      },
+      "approximate": false,
+      "rationale": "Шорт после выхода из верхнего ГИПа, консолидации, возврата к зоне шеи и отбоя от неё; по наблюдению автора, цена оказалась ниже 13- и 21-дневной EMA."
+    },
+    "invalidation": {
+      "price": {
+        "value": "4400",
+        "reason": null
+      },
+      "approximate": true,
+      "rationale": "При этом отмена сетапа в 4 где-то 400."
+    },
+    "targets": [
+      {
+        "price": {
+          "value": "4100",
+          "reason": null
+        },
+        "approximate": true,
+        "rationale": "Первая фиксация в окрестности окончания малого ГИПа по золоту."
+      },
+      {
+        "price": {
+          "value": "3900",
+          "reason": null
+        },
+        "approximate": true,
+        "rationale": "Цель 3900 обоснована авторской проекцией верхнего ГИПа в зону около 3865 и нахождением 500-дневной EMA в той же зоне."
+      },
+      {
+        "price": {
+          "value": "3700",
+          "reason": null
+        },
+        "approximate": true,
+        "rationale": "Цель 3700 соответствует указанному автором первому уровню 0.618 трендового расширения Фибоначчи вниз для движения, рассматриваемого от начала января."
+      }
+    ],
+    "technical_items": [
+      {
+        "kind": "pattern",
+        "title": "малый ГИП из исходной записи",
+        "description": "{\"id\": \"gold-original-small-pattern\", \"author_label\": \"малый ГИП из исходной записи\", \"type\": null, \"orientation\": null, \"extremum_dates\": null, \"neckline_price\": null, \"linked_target_order\": 1, \"source\": \"user_original_dictation\", \"verification_status\": \"not_independently_verified\"}",
+        "timeframe": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "lower": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "upper": {
+          "value": null,
+          "reason": "not_provided"
+        }
+      },
+      {
+        "kind": "pattern",
+        "title": "ГИП по верхним точкам",
+        "description": "{\"id\": \"gold-hs-aug-sep\", \"author_label\": \"ГИП по верхним точкам\", \"type\": \"head_and_shoulders\", \"orientation\": \"upper_peaks\", \"timeframe\": null, \"pattern_year\": 2026, \"year_source\": \"conversation_context\", \"extrema\": [{\"role\": \"left_shoulder\", \"date\": \"2026-08-13\", \"price\": null}, {\"role\": \"head\", \"date\": \"2026-08-25\", \"price\": null}, {\"role\": \"right_shoulder\", \"date\": \"2026-09-03\", \"price\": null}], \"extremum_price_convention\": null, \"neckline_price\": null, \"breakout_date\": null, \"author_projection_zone_ref\": \"gold-projection-3865\", \"relationship_to_original_small_pattern\": \"not_specified\", \"source\": \"user_addition\", \"verification_status\": \"user_reported_not_independently_verified\"}",
+        "timeframe": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "lower": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "upper": {
+          "value": null,
+          "reason": "not_provided"
+        }
+      },
+      {
+        "kind": "indicator",
+        "title": "gold-ema-13-d1",
+        "description": "{\"id\": \"gold-ema-13-d1\", \"type\": \"EMA\", \"period\": 13, \"timeframe\": \"D1\", \"value\": null, \"price_relation\": \"below\", \"zone_ref\": null, \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}",
+        "timeframe": {
+          "value": "D1",
+          "reason": null
+        },
+        "lower": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "upper": {
+          "value": null,
+          "reason": "not_provided"
+        }
+      },
+      {
+        "kind": "indicator",
+        "title": "gold-ema-21-d1",
+        "description": "{\"id\": \"gold-ema-21-d1\", \"type\": \"EMA\", \"period\": 21, \"timeframe\": \"D1\", \"value\": null, \"price_relation\": \"below\", \"zone_ref\": null, \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}",
+        "timeframe": {
+          "value": "D1",
+          "reason": null
+        },
+        "lower": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "upper": {
+          "value": null,
+          "reason": "not_provided"
+        }
+      },
+      {
+        "kind": "indicator",
+        "title": "gold-ema-50-d1",
+        "description": "{\"id\": \"gold-ema-50-d1\", \"type\": \"EMA\", \"period\": 50, \"timeframe\": \"D1\", \"value\": null, \"price_relation\": null, \"zone_ref\": \"gold-resistance-4270-4320\", \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}",
+        "timeframe": {
+          "value": "D1",
+          "reason": null
+        },
+        "lower": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "upper": {
+          "value": null,
+          "reason": "not_provided"
+        }
+      },
+      {
+        "kind": "indicator",
+        "title": "gold-ema-200-d1",
+        "description": "{\"id\": \"gold-ema-200-d1\", \"type\": \"EMA\", \"period\": 200, \"timeframe\": \"D1\", \"value\": null, \"price_relation\": null, \"zone_ref\": \"gold-resistance-4270-4320\", \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}",
+        "timeframe": {
+          "value": "D1",
+          "reason": null
+        },
+        "lower": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "upper": {
+          "value": null,
+          "reason": "not_provided"
+        }
+      },
+      {
+        "kind": "indicator",
+        "title": "gold-ema-500-d1",
+        "description": "{\"id\": \"gold-ema-500-d1\", \"type\": \"EMA\", \"period\": 500, \"timeframe\": \"D1\", \"value\": null, \"price_relation\": null, \"zone_ref\": \"gold-projection-3865\", \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}",
+        "timeframe": {
+          "value": "D1",
+          "reason": null
+        },
+        "lower": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "upper": {
+          "value": null,
+          "reason": "not_provided"
+        }
+      },
+      {
+        "kind": "zone",
+        "title": "gold-resistance-4270-4320",
+        "description": "{\"id\": \"gold-resistance-4270-4320\", \"role\": \"resistance\", \"lower\": 4270, \"upper\": 4320, \"approximate\": true, \"initial_upper_in_dictation\": 4315, \"author_meaning\": \"Зона потенциального отскока.\", \"confluence_refs\": [\"gold-ema-50-d1\", \"gold-ema-200-d1\"], \"confluence_description\": \"Автор указывает совпадение зоны с 50- и 200-дневной EMA; пересечение EMA друг с другом отдельно не утверждалось.\", \"role_source\": \"user_latest_clarification\", \"verification_status\": \"not_independently_verified\"}",
+        "timeframe": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "lower": {
+          "value": "4270",
+          "reason": null
+        },
+        "upper": {
+          "value": "4320",
+          "reason": null
+        }
+      },
+      {
+        "kind": "zone",
+        "title": "gold-projection-3865",
+        "description": "{\"id\": \"gold-projection-3865\", \"role\": \"pattern_projection_and_ema_confluence\", \"center\": 3865, \"approximate\": true, \"pattern_ref\": \"gold-hs-aug-sep\", \"confluence_refs\": [\"gold-ema-500-d1\"], \"linked_target_order\": 2, \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}",
+        "timeframe": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "lower": {
+          "value": "3865",
+          "reason": null
+        },
+        "upper": {
+          "value": "3865",
+          "reason": null
+        }
+      },
+      {
+        "kind": "fibonacci",
+        "title": "gold-fibonacci-extension-0618",
+        "description": "{\"id\": \"gold-fibonacci-extension-0618\", \"method\": \"trend_based_extension\", \"direction\": \"down\", \"coefficient\": 0.618, \"author_level_order\": \"first\", \"trend_start_context\": \"начало января\", \"trend_year\": 2026, \"year_source\": \"conversation_context\", \"anchors\": [], \"anchor_price_convention\": null, \"timeframe\": null, \"chart_scale\": null, \"calculation_scale\": null, \"author_projected_price\": 3700, \"linked_target_order\": 3, \"source\": \"user_addition\", \"verification_status\": \"user_reported_not_independently_reproduced\"}",
+        "timeframe": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "lower": {
+          "value": null,
+          "reason": "not_provided"
+        },
+        "upper": {
+          "value": null,
+          "reason": "not_provided"
+        }
+      }
+    ],
+    "shared_thesis": {
+      "thesis_id": "brent-w1-2026-inverse-head-and-shoulders",
+      "title": "Brent W1 2026: авторская гипотеза обратной корреляции",
+      "description": "Перевёрнутый ГИП: левое плечо в мае, голова в июле, правое в начале августа. Автор сообщает о пробое. Обратная корреляция с металлами не измерена.",
+      "source": {
+        "source_type": "import",
+        "original_text": "{\"schema_version\": 3, \"document_type\": \"shared_thesis\", \"id\": \"brent-w1-2026-inverse-head-and-shoulders\", \"author_summary\": \"Автор рассматривает шорт золота и серебра по споту: пробой перевёрнутой головы и плеч на Brent может сопровождаться снижением металлов при сохранении предполагаемой обратной корреляции.\", \"reference_instrument\": {\"name\": \"Brent\", \"timeframe\": \"W1\", \"pattern_year\": 2026, \"chart_symbol\": null, \"market_type\": null, \"contract\": null, \"data_provider\": null}, \"oil_pattern\": {\"type\": \"inverse_head_and_shoulders\", \"left_shoulder\": \"май 2026\", \"head\": \"июль 2026\", \"right_shoulder\": \"начало августа 2026\", \"neckline_price\": null, \"breakout\": \"Пробой зоны указан автором; трактовка зоны как линии шеи требует сверки с графиком.\", \"breakout_date\": null, \"breakout_confirmation_rule\": null, \"verification_status\": \"user_reported_not_independently_verified\"}, \"logic\": [\"Автор распознаёт перевёрнутую голову и плечи на недельном Brent.\", \"Со слов автора, зона фигуры уже пробита; авторская трактовка предполагает продолжение роста нефти.\", \"При отрицательной связи доходностей нефти и каждого металла рост Brent может сопровождаться снижением XAUUSD и XAGUSD.\", \"На этой условной межрыночной связи основаны две авторские гипотезы шорта; для каждого металла нужны собственные уровни и проверка структуры.\"], \"correlation\": {\"assumed_sign\": \"negative\", \"verification_status\": \"not_measured\", \"return_interval\": null, \"lookback_window\": null, \"gold_brent_coefficient\": null, \"silver_brent_coefficient\": null, \"interpretation\": \"Обратная корреляция является предпосылкой автора, а не установленной постоянной зависимостью или причинностью.\"}, \"revision\": 3, \"created_at\": \"2026-10-12T14:33:09+03:00\", \"updated_at\": \"2026-10-12T14:58:26+03:00\", \"timezone\": \"Europe/Moscow\", \"is_test\": true, \"status\": \"draft\", \"setup_refs\": [{\"id\": \"2026-10-12-xauusd-short\", \"path\": \"../2026-10-12-xauusd-short.json\"}, {\"id\": \"2026-10-12-xagusd-short\", \"path\": \"../2026-10-12-xagusd-short.json\"}], \"source\": {\"type\": \"user_dictation\", \"original_record_ref\": \"../archive/2026-10-12-metals-short-revision-2.json\", \"original_dictation_ref\": \"../archive/2026-10-12-metals-short-revision-2.json#/source/original_text\", \"clarifications\": [\"Нефть Brent, ТФ 1неделя, год 2026\"]}, \"review\": {\"status\": \"pending_chart_and_correlation_evidence\", \"tasks\": [\"Сверить фигуру Brent с недельными экстремумами, линией шеи и характером пробоя.\", \"Отдельно проверить связи Brent с XAUUSD и XAGUSD по доходностям на согласованных временных отметках; указать окно и интервал.\"], \"historical_context\": {\"statement\": \"Историческое исследование WGC описывает меняющуюся связь золота с нефтью. Постоянная обратная корреляция из него не следует; режим 2026 года и серебро этим источником не проверены.\", \"publisher\": \"World Gold Council\", \"title\": \"Gold: the most effective commodity investment\", \"published_on\": \"2019-09-11\", \"url\": \"https://www.gold.org/goldhub/research/gold-when-investing-in-commodities\"}}, \"history\": [{\"revision\": 3, \"recorded_at\": \"2026-10-12T14:58:26+03:00\", \"event\": \"extracted_shared_thesis\", \"previous_record_ref\": \"../archive/2026-10-12-metals-short-revision-2.json\", \"reason\": \"Общее обоснование Brent сохранено отдельно и связано с двумя самостоятельными карточками.\"}]}",
+        "reference": "setups/theses/brent-w1-2026-inverse-head-and-shoulders.json"
+      }
+    },
+    "is_test": true,
+    "related_trade_id": null,
+    "relation": null
+  },
+  "status": "draft",
+  "event_at": "2026-10-12T11:33:09Z",
+  "reason": "Перенос отдельной тестовой карточки из переписки; факты исполнения не предоставлены.",
+  "source": {
+    "source_type": "import",
+    "original_text": "{\"schema_version\": 3, \"document_type\": \"setup_card\", \"id\": \"2026-10-12-xauusd-short\", \"shared_thesis_id\": \"brent-w1-2026-inverse-head-and-shoulders\", \"symbol\": \"XAUUSD\", \"asset\": \"золото\", \"market_type\": \"spot\", \"direction\": \"short\", \"direction_source\": \"user\", \"status\": \"test_draft_with_price_geometry\", \"price_unit\": \"USD_per_troy_ounce\", \"chart_timeframe\": null, \"data_provider\": null, \"reference_price\": 4170, \"reference_price_role\": \"user_defined_entry\", \"reference_price_source\": \"user_clarification\", \"reference_price_observed_at\": null, \"execution\": {\"venue\": \"MOEX\", \"contract_code\": null, \"filled_contracts\": null, \"quantity_unit\": \"contracts\", \"recording_status\": \"not_recorded\"}, \"targets\": [{\"order\": 1, \"price\": 4100, \"approximate\": true, \"source\": \"user_clarification\", \"author_rationale\": \"Первая фиксация в окрестности окончания малого ГИПа по золоту.\", \"planned_close_share\": null, \"basis_refs\": [\"gold-original-small-pattern\"]}, {\"order\": 2, \"price\": 3900, \"approximate\": true, \"source\": \"user_dictation\", \"author_rationale\": \"Цель 3900 обоснована авторской проекцией верхнего ГИПа в зону около 3865 и нахождением 500-дневной EMA в той же зоне.\", \"planned_close_share\": null, \"basis_refs\": [\"gold-hs-aug-sep\", \"gold-projection-3865\", \"gold-ema-500-d1\"]}, {\"order\": 3, \"price\": 3700, \"approximate\": true, \"source\": \"user_dictation\", \"author_rationale\": \"Цель 3700 соответствует указанному автором первому уровню 0.618 трендового расширения Фибоначчи вниз для движения, рассматриваемого от начала января.\", \"planned_close_share\": null, \"basis_refs\": [\"gold-fibonacci-extension-0618\"]}], \"invalidation\": {\"price\": 4400, \"approximate\": true, \"source\": \"user_dictation\", \"original_wording\": \"При этом отмена сетапа в 4 где-то 400.\", \"trigger_rule\": null}, \"entry_rationale\": {\"source\": \"user_addition\", \"author_summary\": \"Шорт после выхода из верхнего ГИПа, консолидации, возврата к зоне шеи и отбоя от неё; по наблюдению автора, цена оказалась ниже 13- и 21-дневной EMA.\", \"pattern_ref\": \"gold-hs-aug-sep\", \"sequence\": [{\"order\": 1, \"event\": \"pattern_breakdown\", \"description\": \"Выход из верхнего ГИПа; цена линии шеи и дата выхода не указаны.\"}, {\"order\": 2, \"event\": \"consolidation\", \"description\": \"Некоторое время после выхода цена находилась в консолидации.\"}, {\"order\": 3, \"event\": \"neckline_retest\", \"description\": \"Цена вернулась к зоне шеи, по формулировке автора — чуть выше, затем отбилась от неё.\"}, {\"order\": 4, \"event\": \"below_daily_emas\", \"description\": \"После отбоя цена оказалась ниже EMA13 и EMA21 на дневном интервале.\"}], \"indicator_refs\": [\"gold-ema-13-d1\", \"gold-ema-21-d1\"], \"observed_at\": null, \"verification_status\": \"user_reported_not_independently_verified\"}, \"technical_context\": {\"patterns\": [{\"id\": \"gold-original-small-pattern\", \"author_label\": \"малый ГИП из исходной записи\", \"type\": null, \"orientation\": null, \"extremum_dates\": null, \"neckline_price\": null, \"linked_target_order\": 1, \"source\": \"user_original_dictation\", \"verification_status\": \"not_independently_verified\"}, {\"id\": \"gold-hs-aug-sep\", \"author_label\": \"ГИП по верхним точкам\", \"type\": \"head_and_shoulders\", \"orientation\": \"upper_peaks\", \"timeframe\": null, \"pattern_year\": 2026, \"year_source\": \"conversation_context\", \"extrema\": [{\"role\": \"left_shoulder\", \"date\": \"2026-08-13\", \"price\": null}, {\"role\": \"head\", \"date\": \"2026-08-25\", \"price\": null}, {\"role\": \"right_shoulder\", \"date\": \"2026-09-03\", \"price\": null}], \"extremum_price_convention\": null, \"neckline_price\": null, \"breakout_date\": null, \"author_projection_zone_ref\": \"gold-projection-3865\", \"relationship_to_original_small_pattern\": \"not_specified\", \"source\": \"user_addition\", \"verification_status\": \"user_reported_not_independently_verified\"}], \"indicators\": [{\"id\": \"gold-ema-13-d1\", \"type\": \"EMA\", \"period\": 13, \"timeframe\": \"D1\", \"value\": null, \"price_relation\": \"below\", \"zone_ref\": null, \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}, {\"id\": \"gold-ema-21-d1\", \"type\": \"EMA\", \"period\": 21, \"timeframe\": \"D1\", \"value\": null, \"price_relation\": \"below\", \"zone_ref\": null, \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}, {\"id\": \"gold-ema-50-d1\", \"type\": \"EMA\", \"period\": 50, \"timeframe\": \"D1\", \"value\": null, \"price_relation\": null, \"zone_ref\": \"gold-resistance-4270-4320\", \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}, {\"id\": \"gold-ema-200-d1\", \"type\": \"EMA\", \"period\": 200, \"timeframe\": \"D1\", \"value\": null, \"price_relation\": null, \"zone_ref\": \"gold-resistance-4270-4320\", \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}, {\"id\": \"gold-ema-500-d1\", \"type\": \"EMA\", \"period\": 500, \"timeframe\": \"D1\", \"value\": null, \"price_relation\": null, \"zone_ref\": \"gold-projection-3865\", \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}], \"price_zones\": [{\"id\": \"gold-resistance-4270-4320\", \"role\": \"resistance\", \"lower\": 4270, \"upper\": 4320, \"approximate\": true, \"initial_upper_in_dictation\": 4315, \"author_meaning\": \"Зона потенциального отскока.\", \"confluence_refs\": [\"gold-ema-50-d1\", \"gold-ema-200-d1\"], \"confluence_description\": \"Автор указывает совпадение зоны с 50- и 200-дневной EMA; пересечение EMA друг с другом отдельно не утверждалось.\", \"role_source\": \"user_latest_clarification\", \"verification_status\": \"not_independently_verified\"}, {\"id\": \"gold-projection-3865\", \"role\": \"pattern_projection_and_ema_confluence\", \"center\": 3865, \"approximate\": true, \"pattern_ref\": \"gold-hs-aug-sep\", \"confluence_refs\": [\"gold-ema-500-d1\"], \"linked_target_order\": 2, \"source\": \"user_addition\", \"verification_status\": \"not_independently_verified\"}], \"fibonacci\": [{\"id\": \"gold-fibonacci-extension-0618\", \"method\": \"trend_based_extension\", \"direction\": \"down\", \"coefficient\": 0.618, \"author_level_order\": \"first\", \"trend_start_context\": \"начало января\", \"trend_year\": 2026, \"year_source\": \"conversation_context\", \"anchors\": [], \"anchor_price_convention\": null, \"timeframe\": null, \"chart_scale\": null, \"calculation_scale\": null, \"author_projected_price\": 3700, \"linked_target_order\": 3, \"source\": \"user_addition\", \"verification_status\": \"user_reported_not_independently_reproduced\"}]}, \"risk_reward\": {\"status\": \"calculated_from_user_levels_with_approximate_invalidation\", \"basis\": \"price_distance_from_user_defined_entry_not_realized_pnl\", \"formula\": \"reward_to_risk = (reference_price - target_price) / (invalidation_price - reference_price)\", \"risk_distance\": 230, \"results\": [{\"target_price\": 4100, \"reward_distance\": 70, \"reward_to_risk\": 0.30434782608695654}, {\"target_price\": 3900, \"reward_distance\": 270, \"reward_to_risk\": 1.173913043478261}, {\"target_price\": 3700, \"reward_distance\": 470, \"reward_to_risk\": 2.0434782608695654}], \"costs_included\": false, \"weighted_reward_to_risk\": null, \"weighted_result_missing_input\": \"Не заданы доли фиксации на каждой цели.\"}, \"open_questions\": [\"Что означает отмена около 4400: касание, закрытие свечи или иной критерий?\", \"Какой таймфрейм фигуры, источник графика золота и время наблюдения?\", \"Какие цены вершин и линии шеи задают ГИП 13 августа — 3 сентября?\", \"Как первоначально упомянутый малый ГИП для цели 4100 связан с описанной фигурой для зоны 3865?\", \"Какие даты и цены точек построения, а также режим расчёта задают трендовое расширение Фибоначчи 0.618?\"], \"shared_thesis_ref\": \"theses/brent-w1-2026-inverse-head-and-shoulders.json\", \"introduction\": \"Золото XAUUSD, спот. Одна авторская гипотеза шорта: общее межрыночное обоснование по Brent и собственные вход, техническая структура, цели и отмена.\", \"revision\": 4, \"created_at\": \"2026-10-12T14:33:09+03:00\", \"updated_at\": \"2026-10-12T15:08:05+03:00\", \"timezone\": \"Europe/Moscow\", \"is_test\": true, \"source\": {\"type\": \"user_dictation\", \"original_record_ref\": \"archive/2026-10-12-metals-short-revision-2.json\", \"original_dictation_ref\": \"archive/2026-10-12-metals-short-revision-2.json#/source/original_text\", \"clarifications\": [\"отсчёт 4170, первая цель 4100\"], \"additions\": [{\"recorded_at\": \"2026-10-12T14:46:29+03:00\", \"setup_id\": \"2026-10-12-xauusd-short\", \"original_text\": \"Дополни карточку золотом, ну, обоснование входа. После выхода из гипа, то есть где нарисован гип. Гип: левое плечо — 13 августа, голова — 25 августа, правое плечо — 3 сентября. Ну, это верхние точки. Соответственно, после выхода из гипа золото было в консолидации какое-то время и сейчас вернулось чуть-чуть выше, ну, к зоне шеи, но отбилось оттуда и оказалось ниже 13 и 21-дневной EMA. Соответственно, там ближайшая зона поддержки — это надо тоже зафиксировать — то, что это зона 4 270–4 315, ну 4 320. Это пересечение 50-дневной EMA, а также 200-дневной. При этом по гипу, который я описал, цель максимальная достигает зоны 3 865 — там же, где находится 500-дневная EMA. То есть это вот такая дальняя дистанция. При этом это обоснование для цели 3 900, да, а обоснование для цели 3 700 — это тот факт, что там находится первый уровень по, господи, по Фибе, по расширению трендома. Соответственно, это 0.618 по трендовому расширению вниз, если смотреть тренд от начала января и проводить его дальше. Соответственно, вот такая вот цель. В принципе всё. Подумай, как это структурировать так, чтобы в будущем можно было похожим образом записывать информацию.\", \"clarifications\": [\"Сохраняем 4 170; зону записать как указано\", \"Зона сопротивления - это зона отскока потенциального\\n\\n4170 - точка входа\"]}, {\"recorded_at\": \"2026-10-12T15:08:05+03:00\", \"setup_id\": \"2026-10-12-xauusd-short\", \"type\": \"storage_requirement\", \"original_text\": \"А ещё нужно будет, чтобы в карточке можно было хранить конкретный контракт на Мосбирже и объём взятый контракта.\", \"clarifications\": [\"Ну, то есть почему я говорю про то, что отдельные контракты? Потому что есть часть принятия решения, да, основанная на споте. То есть я смотрю спот, там золото, серебро, неважно, это индексы или нефть, а понимаю решение, ну а беру, естественно, конкретные контракты фьючерсные.\"]}], \"storage_instruction\": \"Только давай разделим карточки по... как это, отдельно золото, отдельно металл, отдельно серебро, там оно ещё не заполнено. Вот, но как бы одна сделка должна быть. Ну, введение должно быть по отдельности, потому что здесь обоснование одинаковое.\"}, \"review\": {\"status\": \"pending_chart_and_correlation_evidence\", \"tasks\": [\"Отдельно проверить связь Brent с XAUUSD по доходностям на согласованных временных отметках; указать окно и интервал.\", \"Сверить верхний ГИП по золоту, ретест шеи, положение относительно дневных EMA и проекцию около 3865 с графиком.\", \"Отдельно сохранить структуру исходного малого ГИПа для цели 4100 и уточнить его связь с описанной фигурой.\", \"Воспроизвести трендовое расширение Фибоначчи после получения точек построения и режима расчёта.\"], \"shared_review_ref\": \"theses/brent-w1-2026-inverse-head-and-shoulders.json#/review\"}, \"history\": [{\"revision\": 1, \"recorded_at\": \"2026-10-12T14:33:09+03:00\", \"event\": \"created_test_draft\", \"description\": \"Сохранены исходная диктовка, уточнения автора, общая гипотеза, две карточки и расчёт геометрии золота.\"}, {\"revision\": 2, \"recorded_at\": \"2026-10-12T14:46:29+03:00\", \"event\": \"enriched_gold_rationale\", \"setup_id\": \"2026-10-12-xauusd-short\", \"reason\": \"Дополнение автора обоснованием входа и целей; уточнение роли зоны и цены 4170.\", \"changes\": [{\"field\": \"schema_version\", \"before\": 1, \"after\": 2}, {\"field\": \"reference_price_role\", \"before\": null, \"after\": \"user_defined_entry\"}, {\"field\": \"gold_pattern\", \"before\": {\"author_label\": \"малый ГИП\", \"orientation\": null, \"extremum_dates\": null, \"neckline_price\": null, \"verification_status\": \"not_independently_verified\"}, \"after\": null, \"migration_to\": \"technical_context.patterns[gold-original-small-pattern]\"}, {\"field\": \"targets[order=2].author_rationale\", \"before\": null, \"after\": \"Цель 3900 обоснована авторской проекцией верхнего ГИПа в зону около 3865 и нахождением 500-дневной EMA в той же зоне.\"}, {\"field\": \"targets[order=3].author_rationale\", \"before\": null, \"after\": \"Цель 3700 соответствует указанному автором первому уровню 0.618 трендового расширения Фибоначчи вниз для движения, рассматриваемого от начала января.\"}, {\"field\": \"risk_reward.basis\", \"before\": \"price_distance_from_reference_not_realized_pnl\", \"after\": \"price_distance_from_user_defined_entry_not_realized_pnl\"}], \"added_sections\": [\"entry_rationale\", \"technical_context.patterns\", \"technical_context.indicators\", \"technical_context.price_zones\", \"technical_context.fibonacci\"], \"clarifications_applied\": [{\"subject\": \"zone_4270_4320\", \"initial_wording\": \"поддержка\", \"final_wording\": \"сопротивление; зона потенциального отскока\", \"source\": \"user_latest_clarification\"}, {\"subject\": \"price_4170\", \"initial_role\": \"цена отсчёта\", \"final_role\": \"точка входа автора\", \"source\": \"user_latest_clarification\"}]}, {\"revision\": 3, \"recorded_at\": \"2026-10-12T14:58:26+03:00\", \"event\": \"split_into_independent_card\", \"setup_id\": \"2026-10-12-xauusd-short\", \"reason\": \"По просьбе автора: одна карточка на одну сделку, отдельные введение, статус и история; общее обоснование вынесено в связанную запись.\", \"previous_record_ref\": \"archive/2026-10-12-metals-short-revision-2.json\", \"current_record_ref\": \"2026-10-12-xauusd-short.json\", \"changes\": [{\"field\": \"storage\", \"before\": \"setups[] в общем файле\", \"after\": \"отдельный файл карточки\"}]}, {\"revision\": 4, \"recorded_at\": \"2026-10-12T15:08:05+03:00\", \"event\": \"added_moex_execution_fields\", \"setup_id\": \"2026-10-12-xauusd-short\", \"reason\": \"Автор запросил отдельное хранение конкретного контракта MOEX и количества фактически взятых контрактов. Принятие решения по базовому активу и реализация фьючерсом хранятся отдельными блоками.\", \"changes\": [{\"field\": \"execution\", \"before\": null, \"after\": {\"venue\": \"MOEX\", \"contract_code\": null, \"filled_contracts\": null, \"quantity_unit\": \"contracts\", \"recording_status\": \"not_recorded\"}}]}]}",
+    "reference": "setups/2026-10-12-xauusd-short.json"
+  }
+}

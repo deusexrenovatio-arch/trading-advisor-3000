@@ -90,7 +90,18 @@ TradeWriteBundle/TradeSnapshot/CommitReceipt, DataContext, ReviewEnvelope and
 lineage/read envelopes. These describe the full target; local Journal/Intake
 candidates have narrower executable contracts and separate delivery evidence.
 
-This docs patch adds no executable schemas, fixtures, SQL migrations or changes
+The full-target proposal alone adds no executable schemas, fixtures, SQL migrations or changes
 to the release-blocking inventory. Implementation freezes each relevant boundary
 with schema/fixture/compatibility and real producer-to-consumer proof. Existing
 `signal.*` tables remain Runtime-owned; Journal uses its own versioned writer.
+
+## Manual Journal v1 staged API
+
+The first manual slice implements [Journal v1](docs/architecture/product-plane/trade-workspace/journal-v1.md).
+`contracts/trade_workspace.py` is the executable DTO authority; its generated
+`contracts/schemas/journal.v1.json`, versioned fixtures and schema/DTO parity
+and negative tests travel together. The public boundary is
+`/api/trade-workspace/v1`: create/change, immutable snapshots, timeline and receipts.
+The sole writer is `PostgresJournal`; explicit migration001 owns `journal.*`.
+This is a narrower installed contract than the full Workspace target above;
+React, normalized Intake, Calculator/Review and data products remain separate.
