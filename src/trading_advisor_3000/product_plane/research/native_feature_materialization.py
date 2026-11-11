@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import importlib.util
 import json
 import platform
@@ -31,15 +32,19 @@ from trading_advisor_3000.product_plane.contracts.identity_v3 import validate_id
 
 from .compute_contract import kernel_contract
 from .derived_indicators.materialize import _compute_derived_frame_unmasked
-from .derived_indicators.registry import DerivedIndicatorProfile
+from .derived_indicators.registry import DerivedIndicatorProfile, core_v1_derived_indicator_profile
 from .indicators.materialize import _compute_profile_frame_unmasked
 from .indicators.registry import IndicatorProfile, core_v1_indicator_profile
 from .native_features import (
     NativeFeatureSnapshot,
+    feature_additional_outputs,
     feature_capabilities,
     feature_layout,
     feature_policy,
+    feature_policy_reference,
     feature_quality,
+    feature_requirements,
+    feature_schema,
     parent_reader,
     validate_feature_context,
     validate_feature_graph,
@@ -63,19 +68,56 @@ def worker_engines():
     }
 
 
+def _ta_source_sha256():
+    package = Path(ta.__file__).resolve().parent
+    return sha(
+        {
+            path.relative_to(package).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(package.rglob("*.py"))
+        }
+    )
+
+
+def core_worker_engines():
+    engines = worker_engines()
+    for name in ["numba", "scipy"]:
+        module = importlib.import_module(name)
+        require(
+            module.__version__ == version(name), "optional backend distribution/module mismatch"
+        )
+        engines[name] = version(name)
+        engines["ta_" + name + "_enabled"] = bool(ta.Imports.get(name))
+    return engines
+
+
 def _check_worker_engines(expected):
-    actual = worker_engines()
-    if actual != expected or actual["pandas_ta_classic"] != "0.4.47" or not actual["talib_absent"]:
+    core = "numba" in expected
+    try:
+        actual = core_worker_engines() if core else worker_engines()
+        valid = (
+            actual == expected
+            and actual["pandas_ta_classic"] == "0.4.47"
+            and actual["talib_absent"]
+        )
+        if core:
+            runtime = feature_policy("L1", "native_core_l1.v1")["runtime_profile"]
+            valid = valid and all(actual[k] == runtime[k] for k in ["numba", "scipy"])
+            valid = valid and actual["ta_numba_enabled"] and actual["ta_scipy_enabled"]
+            valid = valid and _ta_source_sha256() == runtime["ta_source_sha256"]
+    except (ImportError, OSError, KeyError, ValueError) as exc:
+        raise ValueError("unadmitted feature worker library/backend/engine profile") from exc
+    if not valid:
         raise ValueError("unadmitted feature worker library/backend/engine profile")
 
 
 def profile_for_policy(policy):
+    core = "catalog" in policy
     if policy["parent_layer"] == "L0":
-        selected = tuple(
-            spec
-            for spec in core_v1_indicator_profile().indicators
-            if spec.indicator_id in policy["requirements"]
+        origin = core_v1_indicator_profile()
+        admitted = (
+            {row["spec_id"] for row in policy["spec_admission"]} if core else policy["requirements"]
         )
+        selected = tuple(spec for spec in origin.indicators if spec.indicator_id in admitted)
         profile = IndicatorProfile(
             policy["profile_version"], "Observed-price native profile", selected
         )
@@ -84,12 +126,15 @@ def profile_for_policy(policy):
             "origin_profile": "core_v1",
             "indicators": [asdict(spec) for spec in selected],
         }
+        original = {"indicators": [asdict(spec) for spec in origin.indicators]}
     else:
+        origin = core_v1_derived_indicator_profile()
+        requirements = feature_requirements(policy)
         profile = DerivedIndicatorProfile(
             policy["profile_version"],
             "Observed-price native derived profile",
-            tuple(policy["requirements"]),
-            max(policy["requirements"].values()),
+            tuple(requirements),
+            origin.warmup_bars if core else max(requirements.values()),
         )
         actual = {
             "version": profile.version,
@@ -97,11 +142,39 @@ def profile_for_policy(policy):
             "output_columns": list(profile.output_columns),
             "warmup_bars": profile.warmup_bars,
         }
+        original = {
+            "output_columns": list(origin.output_columns),
+            "warmup_bars": origin.warmup_bars,
+        }
     require(
-        json.loads(canonical_bytes(actual)) == policy["profile"],
+        sha(actual) == policy["resolved_profile_sha256"]
+        and sha(original) == policy["origin_profile_sha256"]
+        if core
+        else json.loads(canonical_bytes(actual)) == policy["profile"],
         "resolved feature factory differs from admitted policy",
     )
     return profile
+
+
+def _require_core_inputs(columns, policy):
+    produced = set(feature_additional_outputs(policy)) if policy["layer"] == "L2" else set()
+    required = {
+        name
+        for row in policy["catalog"]
+        if row["materialized"]
+        for name in row["required_inputs"]
+        if name not in produced
+    } | {"open", "high", "low", "close", "volume_state", "open_interest_state"}
+    if policy["layer"] == "L2":
+        required.add("atr_14")
+    require(
+        required <= set(columns),
+        "missing core input dependencies: " + ", ".join(sorted(required - set(columns))),
+    )
+
+
+def _quantity_available(frame, quantities):
+    return all(frame[name + "_state"].eq("known").all() for name in quantities)
 
 
 def _compute_l1_group(frame, profile, requirements, expected_engines, grain):
@@ -109,11 +182,28 @@ def _compute_l1_group(frame, profile, requirements, expected_engines, grain):
     ordered = frame.sort_values("source_begin", kind="stable").reset_index(drop=True)
     if ordered.duplicated(grain).any():
         raise ValueError("duplicate feature group grain")
+    core = profile.version == "native_core_l1.v1"
+    policy = feature_policy("L1", profile.version) if core else None
+    if core:
+        _require_core_inputs(ordered.columns, policy)
     numeric = ordered.copy()
-    for name in ["open", "high", "low", "close"]:
+    for name in ["open", "high", "low", "close"] + (["volume"] if core else []):
         numeric[name] = pd.to_numeric(numeric[name], errors="raise").astype("float64")
+    minima = (
+        {row["spec_id"]: row["configured_group_minimum"] for row in policy["spec_admission"]}
+        if core
+        else requirements
+    )
     eligible = tuple(
-        spec for spec in profile.indicators if len(ordered) >= requirements[spec.indicator_id]
+        spec
+        for spec in profile.indicators
+        if len(ordered) >= minima[spec.indicator_id]
+        and (
+            not core
+            or _quantity_available(
+                ordered, set(spec.required_input_columns) & {"volume", "open_interest"}
+            )
+        )
     )
     computed = (
         _compute_profile_frame_unmasked(
@@ -122,9 +212,12 @@ def _compute_l1_group(frame, profile, requirements, expected_engines, grain):
         if eligible
         else pd.DataFrame(index=numeric.index)
     )
+    produced = {name for spec in eligible for name in spec.output_columns}
+    require(produced <= set(computed.columns), "missing admitted feature kernel output")
     result = ordered.loc[:, grain].copy()
-    for name in profile.expected_output_columns():
-        values = computed[name] if name in computed else pd.Series(np.nan, index=numeric.index)
+    outputs = feature_additional_outputs(policy) if core else profile.expected_output_columns()
+    for name in outputs:
+        values = computed[name] if name in produced else pd.Series(np.nan, index=numeric.index)
         result[name] = (
             pd.to_numeric(values, errors="raise")
             .replace([np.inf, -np.inf], np.nan)
@@ -138,10 +231,23 @@ def _compute_l2_group(frame, profile, requirements, expected_engines, grain):
     ordered = frame.sort_values("source_begin", kind="stable").reset_index(drop=True)
     if ordered.duplicated(grain).any():
         raise ValueError("duplicate feature group grain")
+    core = profile.version == "native_core_l2.v1"
+    policy = feature_policy("L2", profile.version) if core else None
+    if core:
+        _require_core_inputs(ordered.columns, policy)
     numeric = ordered.copy()
-    for name in ["open", "high", "low", "close"]:
+    for name in ["open", "high", "low", "close"] + (["volume"] if core else []):
         numeric[name] = pd.to_numeric(numeric[name], errors="raise").astype("float64")
-    eligible = tuple(name for name in profile.output_columns if len(ordered) >= requirements[name])
+    quantities = (
+        {row["output"]: row["quantity_requirements"] for row in policy["catalog"]} if core else {}
+    )
+    outputs = feature_additional_outputs(policy) if core else profile.output_columns
+    eligible = tuple(
+        name
+        for name in outputs
+        if len(ordered) >= requirements[name]
+        and (not core or _quantity_available(ordered, quantities[name]))
+    )
     computed = (
         _compute_derived_frame_unmasked(
             base_frame=numeric,
@@ -152,9 +258,10 @@ def _compute_l2_group(frame, profile, requirements, expected_engines, grain):
         if eligible
         else pd.DataFrame(index=numeric.index)
     )
+    require(set(eligible) <= set(computed.columns), "missing admitted derived kernel output")
     result = ordered.loc[:, grain].copy()
-    for name in profile.output_columns:
-        values = computed[name] if name in computed else pd.Series(np.nan, index=numeric.index)
+    for name in outputs:
+        values = computed[name] if name in eligible else pd.Series(np.nan, index=numeric.index)
         result[name] = (
             pd.to_numeric(values, errors="raise")
             .replace([np.inf, -np.inf], np.nan)
@@ -163,10 +270,11 @@ def _compute_l2_group(frame, profile, requirements, expected_engines, grain):
     return result
 
 
-def feature_numerical_identity(layer):
-    policy = feature_policy(layer)
+def feature_numerical_identity(layer, profile_version=None):
+    policy = feature_policy(layer, profile_version)
+    core = "catalog" in policy
     profile_for_policy(policy)
-    engines = worker_engines()
+    engines = core_worker_engines() if core else worker_engines()
     _check_worker_engines(engines)
     prefix = "trading_advisor_3000.product_plane.research."
     leaf = prefix + (
@@ -177,28 +285,56 @@ def feature_numerical_identity(layer):
     guard = prefix + "native_feature_materialization._check_worker_engines"
     adapter = prefix + "native_feature_materialization._compute_" + layer.lower() + "_group"
     result = {
-        "version": "native_research_feature_numerical.v1",
+        "version": "native_research_core_numerical.v1"
+        if core
+        else "native_research_feature_numerical.v1",
         "layer": layer,
         "basis": policy["source_basis"],
         "policy_sha256": sha(policy),
         "kernels": {
             "legacy": kernel_contract()[layer.lower()],
             "adapter": SymbolGraph(
-                Path(__file__).resolve().parents[2], leaves=(leaf, guard)
+                Path(__file__).resolve().parents[2],
+                leaves=(
+                    leaf,
+                    guard,
+                    prefix + "native_features.feature_policy",
+                    prefix + "native_observations.require",
+                ),
             ).fingerprint((adapter,)),
         },
         "engines": engines,
     }
+    if core:
+        result.update(
+            profile_sha256=policy["resolved_profile_sha256"],
+            library_source_sha256=_ta_source_sha256(),
+        )
     return {**result, "digest": sha(result)}
 
 
-def build_feature_command(source_reader, *, layer, command_id):
+def build_feature_command(source_reader, *, layer, command_id, profile_version=None):
+    policy = feature_policy(layer, profile_version)
+    core = "catalog" in policy
     source = source_reader.compute_metadata()
-    policy = feature_policy(layer)
     require(
         source["root"] == "/research-trial" and source["layer"] == policy["parent_layer"],
         "feature requires the exact admitted parent layer/root",
     )
+    if core:
+        graph = source_reader.verify()
+        if layer == "L2":
+            require(
+                graph["context"].get("contract_version") == "native_research_core_context.v1"
+                and graph["context"].get("policy")
+                == feature_policy_reference(feature_policy("L1", "native_core_l1.v1")),
+                "core L2 requires completed core L1 profile",
+            )
+        _require_core_inputs(graph["tables"][policy["parent_table"]].column_names, policy)
+        require(
+            len(source["sequences"]) <= policy["limits"]["sequences"],
+            "core sequence budget exceeded",
+        )
     intent = {
         "schema_version": 1,
         "input_mode": "native_observation_research.v1",
@@ -207,12 +343,14 @@ def build_feature_command(source_reader, *, layer, command_id):
         "source_root": "/research-trial",
         "parent_completion": source["completion"],
         "policy_sha256": sha(policy),
-        "numerical_identity": feature_numerical_identity(layer),
+        "numerical_identity": feature_numerical_identity(layer, profile_version),
         "code_sha256": producer_code_sha256(),
     }
-    validate_identity_contract(
-        "native_research_feature_intent.v1.json", intent, source["namespace"]
-    )
+    if core:
+        intent.update(
+            contract_version="native_research_core_intent.v1", profile_version=profile_version
+        )
+    validate_identity_contract(feature_schema("intent", core), intent, source["namespace"])
     return intent
 
 
@@ -227,13 +365,21 @@ def _spark_feature_counts(frame, source, policy):
         F.count(F.lit(1)).alias("rows"),
         F.sum(F.when(analysis, 1).otherwise(0)).alias("analysis_rows"),
     ]
-    for name in policy["requirements"]:
+    for name in feature_requirements(policy):
         valid = F.col(name).isNotNull()
         aggregates += [
             F.count(F.col(name)).alias(name + "_finite"),
             F.sum(F.when(analysis & valid, 1).otherwise(0)).alias(name + "_analysis"),
             F.min(F.when(valid, F.struct("bar_index", "source_begin"))).alias(name + "_first"),
         ]
+    if "catalog" in policy:
+        for name in ["volume", "open_interest"]:
+            for state in ["known", "not_applicable"]:
+                aggregates.append(
+                    F.sum(F.when(F.col(name + "_state") == state, 1).otherwise(0)).alias(
+                        name + "_" + state
+                    )
+                )
     result = []
     for row in frame.groupBy(*grouping).agg(*aggregates).limit(129).collect():
         sequence = {
@@ -250,7 +396,7 @@ def _spark_feature_counts(frame, source, policy):
         }
         sequence["context"] = {k: row[k] for k in ["provider", "venue", "market", "board"]}
         features = {}
-        for name in policy["requirements"]:
+        for name in feature_requirements(policy):
             first = row[name + "_first"]
             features[name] = {
                 "finite_count": row[name + "_finite"],
@@ -258,9 +404,13 @@ def _spark_feature_counts(frame, source, policy):
                 "first_finite_bar_index": first.bar_index if first else None,
                 "first_finite_source_begin": first.source_begin if first else None,
             }
-        result.append(
-            {"sequence": sequence, "analysis_rows": row.analysis_rows, "features": features}
-        )
+        entry = {"sequence": sequence, "analysis_rows": row.analysis_rows, "features": features}
+        if "catalog" in policy:
+            entry["quantities"] = {
+                name: {state: row[name + "_" + state] for state in ["known", "not_applicable"]}
+                for name in ["volume", "open_interest"]
+            }
+        result.append(entry)
     return result
 
 
@@ -279,11 +429,14 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
         fault in [None, "after_table", "after_snapshot", "after_completion"],
         "unknown feature fault point",
     )
-    source_reader = parent_reader(root, intent["parent_completion"], intent["layer"])
-    source = source_reader.compute_metadata()
-    validate_identity_contract(
-        "native_research_feature_intent.v1.json", intent, source["namespace"]
+    profile_version = intent.get("profile_version")
+    policy = feature_policy(intent["layer"], profile_version)
+    core = "catalog" in policy
+    source_reader = parent_reader(
+        root, intent["parent_completion"], intent["layer"], profile_version
     )
+    source = source_reader.compute_metadata()
+    validate_identity_contract(feature_schema("intent", core), intent, source["namespace"])
     input_hash = sha(intent)
     command_dir = root / "commands" / hashlib.sha256(intent["command_id"].encode()).hexdigest()
     with command_lock(root / "writer.lock"):
@@ -327,7 +480,10 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
                 attempt_id = manifest["run_id"]
             else:
                 expected = build_feature_command(
-                    source_reader, layer=intent["layer"], command_id=intent["command_id"]
+                    source_reader,
+                    layer=intent["layer"],
+                    command_id=intent["command_id"],
+                    profile_version=profile_version,
                 )
                 require(
                     expected == intent, "uncommitted feature policy/numerical/runtime code changed"
@@ -345,9 +501,9 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
                 attempt = attempts / attempt_id
                 attempt.mkdir()
                 frame, source = source_reader.read_spark(spark)
-                policy = feature_policy(intent["layer"])
                 profile = profile_for_policy(policy)
-                layout = feature_layout(intent["layer"])
+                layout = feature_layout(intent["layer"], profile_version)
+                outputs = feature_additional_outputs(policy)
                 grain = layout["grain"]
                 grouping = [k for k in grain if k != "source_begin"]
                 from pyspark.sql import functions as F
@@ -355,11 +511,11 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
 
                 udf_schema = T.StructType(
                     [frame.schema[k] for k in grain]
-                    + [T.StructField(k, T.DoubleType(), True) for k in policy["requirements"]]
+                    + [T.StructField(k, T.DoubleType(), True) for k in outputs]
                 )
                 compute = _compute_l1_group if intent["layer"] == "L1" else _compute_l2_group
                 requirements, engines = (
-                    policy["requirements"],
+                    feature_requirements(policy),
                     intent["numerical_identity"]["engines"],
                 )
                 calculated = (
@@ -385,19 +541,21 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
                 )
                 cached = (
                     frame.join(calculated, grain, "inner")
-                    .select(*frame.columns, *policy["requirements"])
+                    .select(*frame.columns, *outputs)
                     .persist()
                 )
                 counts = _spark_feature_counts(cached, source, policy)
-                quality = feature_quality()
+                quality = feature_quality(profile_version)
                 context = {
                     "schema_version": 1,
-                    "contract_version": "native_research_feature_context.v1",
+                    "contract_version": "native_research_core_context.v1"
+                    if core
+                    else "native_research_feature_context.v1",
                     "input_mode": "native_observation_research.v1",
                     "layer": intent["layer"],
                     "research_context_id": source["research_context_id"],
                     "source": source,
-                    "policy": policy,
+                    "policy": feature_policy_reference(policy),
                     "policy_sha256": intent["policy_sha256"],
                     "layout_sha256": sha({policy["table"]: layout}),
                     "numerical_identity": intent["numerical_identity"],
@@ -455,7 +613,9 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
             )
             completion = {
                 "schema_version": 1,
-                "contract_version": "native_research_feature_completion.v1",
+                "contract_version": "native_research_core_completion.v1"
+                if core
+                else "native_research_feature_completion.v1",
                 "status": "complete_unpublished",
                 "layer": intent["layer"],
                 "command_id": intent["command_id"],
@@ -469,7 +629,7 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
                 "created_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             }
             validate_identity_contract(
-                "native_research_feature_completion.v1.json", completion, source["namespace"]
+                feature_schema("completion", core), completion, source["namespace"]
             )
             atomic_json(completion_path, completion, immutable=True)
             result_pin = pin(root, completion_path)

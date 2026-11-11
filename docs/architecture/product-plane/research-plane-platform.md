@@ -265,7 +265,8 @@ the existing acquisition guard and old snapshots are not relaxed here.
 
 ## Observed core-math projection
 
-Decision status: proposed; independent design admission before dependent runtime.
+Decision status: design admitted; bounded implementation verified.
+Runtime PR/CI owns integration status; this is no production publication admission.
 Surface: product-plane; impact: contract-change. Owner: Research Data Factory.
 Solution Class: staged. Critical Contour: data-integration-closure. Forbidden
 Shortcuts: scaffold-only. Closure Evidence: planned full applicable core-math
@@ -673,3 +674,37 @@ If there is a disagreement between old phase notes and current behavior:
 - trust [STATUS.md](docs/architecture/product-plane/STATUS.md) for overall implemented reality;
 - trust this page for research-plane primary-path semantics;
 - trust the runbook for how to execute and inspect the platform today.
+
+
+### Native implementation evidence (2026-11-11)
+
+The existing opt-in Dagster job and immutable writer produced fresh L0, core L1
+and core L2 in `native-core-20261111T014015Z-8f354523` under the verification
+root. Public pinned Arrow readback matched the independent frozen original-byte
+reference for all 6,728 observations, 79 L1 and 72 L2 slots: exact types, NULL
+masks, discrete domains and parent buffers; maximum numerical difference
+`7.32e-13` against the declared `1e-10` absolute / `1e-12` relative tolerance.
+All 1,576 catalog cells match: 593 ready, 553 insufficient history, 154 N/A,
+48 missing source and 228 unverified source policy; applicable not-implemented
+cells are zero. Reference-only JSON Unicode escaping was normalized for unit
+comparison; semantic unit facts and stored parent strings remain exact.
+
+Real immutable lifecycle cases passed replay/conflict with simulated current code-identity
+drift, source/parent rejection, OS lock, retained partial attempt and fresh retry,
+saved-graph reconciliation, lost ACK and rejection of two valid saved graphs.
+The separate `native-core-workers-20261111T022519Z-6a9b6c03` verification root
+proved actual Spark worker engine/backend/optional-library rejection and rejection
+of an imported comment-modified TA source copy with unchanged library versions;
+installed source stayed read-only. The old first-seven physical snapshot remains
+readable with the prior values, masks and original source lineage.
+
+Evidence directory:
+`D:/CodexHome/visualizations/2026/11/11/01a1c83b-e7fe-7fa0-86bc-559524f1cb9a/native-core-proof`.
+The oracle receipt is `oracle/core-oracle.json` (SHA-256 `da45e6019f5e99a3105e5155270b61fc5d75645399f7ebabc523a9e1391b7ecf`);
+the native lifecycle receipt has SHA-256
+`3fac6780cbaebb8afb09ee502f945a37c122271df79a27e96e855f16130abc30`;
+worker receipts are pinned by `worker-proof/worker-proof-manifest.json`
+(SHA-256 `59e49a4f15f9b4a1f6d5f54ca022369acb015bda42571043afb656b19dd0d93d`).
+These are isolated observed-math proofs. Unknown time/session/PIT, OI,
+volume-profile, canonical Q, CF, MTF, campaign and execution facts remain outside
+this admission; production roots and current pointers were not changed.
