@@ -342,3 +342,31 @@ def test_strategy_registry_rejects_data_rebuild_before_preparing_registry(tmp_pa
             timeframes=("15m",),
             reuse_existing_materialization=False,
         )
+
+
+def test_calendar_schedule_is_snapshot_bound_and_drift_rejects_before_native_call(admitted_chain):
+    import json
+
+    config, _, _ = admitted_chain
+    fixture = Path(__file__).resolve().parents[1] / "fixtures/contracts/native_cf_inputs.v1.json"
+    schedule = json.loads(fixture.read_text(encoding="utf-8"))["calendar_roll_schedule"]
+    config = {**config, "calendar_roll_schedule": schedule, "operation": "rebuild"}
+    assert _parameters(config)["calendar_roll_schedule"] == schedule
+    value = owner.issue_admission(config, operation="rebuild")
+    calls = []
+
+    @owner.admitted_compute(output="output_dir")
+    def native(*, output_dir, dataset_version, calendar_roll_schedule=None):
+        calls.append(calendar_roll_schedule)
+
+    options = dict(output_dir=Path(config["materialized_output_dir"]), dataset_version="test")
+    with owner._owner_scope(value):
+        native(**options, calendar_roll_schedule=schedule)
+    changed = deepcopy(schedule)
+    changed["governing_rules"][0]["body"]["sha256"] = "f" * 64
+    with (
+        owner._owner_scope(value),
+        pytest.raises(ValueError, match="parameter changed: calendar_roll_schedule"),
+    ):
+        native(**options, calendar_roll_schedule=changed)
+    assert calls == [schedule]

@@ -1195,3 +1195,59 @@ def test_dagster_failure_summary_writer_ignores_non_campaign_runs() -> None:
     )
 
     assert wrote is False
+
+
+def _calendar_roll_fixture():
+    return _load_json(ROOT / "tests/product-plane/fixtures/contracts/native_cf_inputs.v1.json")[
+        "calendar_roll_schedule"
+    ]
+
+
+def test_calendar_schedule_survives_campaign_and_legacy_dagster_route(tmp_path, monkeypatch):
+    raw = _campaign_payload(tmp_path, target_stage="data_prep")
+    schedule = _calendar_roll_fixture()
+    raw["dataset"]["series_mode"] = "continuous_front"
+    raw["dataset"]["calendar_roll_schedule"] = schedule
+    normalized = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw)
+    assert normalized["dataset"]["calendar_roll_schedule"] == schedule
+    run_config = research_assets.build_research_campaign_run_config(
+        operation="rebuild",
+        campaign_config=raw,
+        repo_root=ROOT,
+        dagster_job_name=research_assets.RESEARCH_DATA_PREP_JOB_NAME,
+    )
+    config = run_config["ops"]["continuous_front_bars"]["config"]
+    assert config["calendar_roll_schedule"] == schedule
+    calls = []
+
+    def legacy_job(**kwargs):
+        calls.append(kwargs)
+        return {"status": "PASS", "output_paths": {}, "rows_by_table": {}, "qc_rows": []}
+
+    monkeypatch.setattr(research_assets, "run_continuous_front_spark_job", legacy_job)
+    monkeypatch.setattr(
+        research_assets,
+        "_canonical_contract_economics_path",
+        lambda _config: tmp_path / "economics.delta",
+    )
+    context = SimpleNamespace(op_execution_context=SimpleNamespace(op_config=config))
+    function = inspect.unwrap(research_assets.continuous_front_bars.op.compute_fn.decorated_fn)
+    function(context)
+    assert len(calls) == 1
+    assert calls[0]["calendar_roll_schedule"] == schedule
+    assert calls[0]["policy"].calendar_roll_offset_trading_days == 2
+    assert "input_mode" not in calls[0] and "definitions" not in calls[0]
+
+
+def test_calendar_source_pin_changes_materialization_identity(tmp_path):
+    raw = _campaign_payload(tmp_path, target_stage="data_prep")
+    raw["dataset"]["calendar_roll_schedule"] = _calendar_roll_fixture()
+    original = campaigns.normalize_campaign_config(repo_root=ROOT, raw=raw)
+    changed = json.loads(json.dumps(original))
+    changed["dataset"]["calendar_roll_schedule"]["governing_rules"][0]["body"]["sha256"] = "f" * 64
+    assert campaigns.build_config_fingerprint(original) != campaigns.build_config_fingerprint(
+        changed
+    )
+    assert campaigns.build_materialization_key(original) != campaigns.build_materialization_key(
+        changed
+    )
