@@ -123,7 +123,6 @@ def _ipc(table):
     return sink.getvalue().to_pybytes()
 
 
-
 def _validate_cached_read(result, envelope, expected):
     require(
         {k: v for k, v in result.envelope.items() if k != "payload"} == envelope,
