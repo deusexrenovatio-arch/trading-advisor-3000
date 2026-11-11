@@ -247,6 +247,22 @@ def core_capabilities(source, policy, counts):
     return result
 
 
+def validate_capability_policy(capabilities, catalog):
+    """Bind declared admission fields to the caller's immutable versioned catalog."""
+    by_output = {row["output"]: row for row in catalog}
+    for capability in capabilities:
+        row = by_output.get(capability["feature"])
+        require(
+            row is not None
+            and capability["materialized"] is row["materialized"]
+            and (
+                not row["materialized"]
+                or capability["required_observations"] == row["admission_minimum"]
+            ),
+            "feature capability contradicts fixed policy",
+        )
+
+
 def validate_feature_context(context, source):
     policy = feature_policy_from_context(context)
     core = "catalog" in policy
@@ -301,6 +317,8 @@ def validate_feature_context(context, source):
         len(actual) == len(expected) and set(actual) == expected,
         "incomplete/duplicate/extra feature capability matrix",
     )
+    if core:
+        validate_capability_policy(context["capabilities"], policy["catalog"])
 
 
 def feature_arrow_counts(table, source, policy):
