@@ -45,6 +45,10 @@ CONTRACTS = {
     "native_research_feature_context.v1.json",
     "native_research_feature_intent.v1.json",
     "native_research_feature_completion.v1.json",
+    "native_research_core_policy.v1.json",
+    "native_research_core_context.v1.json",
+    "native_research_core_intent.v1.json",
+    "native_research_core_completion.v1.json",
 }
 KEYWORDS = {
     "$schema",

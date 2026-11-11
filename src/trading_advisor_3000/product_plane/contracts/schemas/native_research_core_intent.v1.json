@@ -1,0 +1,5 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "native_research_core_intent.v1",
+  "$ref": "market_identity.v3.json#/$defs/native_research_core_intent"
+}
