@@ -140,3 +140,23 @@ def test_research_orchestration_contracts_are_not_listed_as_release_blocking() -
     assert "research_campaign.v1" not in release_blocking_section
     assert "research_run_summary.v1" not in release_blocking_section
     assert "## Internal Product Plane Orchestration Contracts" in text
+
+
+def test_campaign_carries_structured_calendar_roll_schedule() -> None:
+    schema = load_schema(SCHEMAS / "research_campaign.v1.json")
+    payload = _load_json(FIXTURES / "research_campaign.v1.json")
+    # The orchestration carrier keeps metadata; the CF owner admits source facts.
+    payload["dataset"]["calendar_roll_schedule"] = {
+        "version": "source_calendar_roll_schedule.v1",
+        "groups": [{"components": [{"last_trade_date": "2026-09-17"}]}],
+    }
+    validate_schema(schema, payload)
+
+
+@pytest.mark.parametrize("schedule", [None, [], "calendar.json"])
+def test_campaign_calendar_roll_schedule_requires_object(schedule) -> None:
+    schema = load_schema(SCHEMAS / "research_campaign.v1.json")
+    payload = _load_json(FIXTURES / "research_campaign.v1.json")
+    payload["dataset"]["calendar_roll_schedule"] = schedule
+    with pytest.raises(SchemaValidationError, match="expected type `object`"):
+        validate_schema(schema, payload)

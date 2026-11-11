@@ -1,0 +1,289 @@
+{
+  "role": "synthetic_shapes_only_not_exchange_facts_or_native_CF_proof",
+  "namespace": {
+    "schema_version": 1,
+    "namespace": "synthetic-cf-only",
+    "assets": [
+      {
+        "asset_id": "ASSET:SBER",
+        "kind": "equity"
+      }
+    ],
+    "instruments": [
+      {
+        "instrument_id": "SYNTH:SRU6",
+        "asset_id": "ASSET:SBER",
+        "kind": "future",
+        "instrument_role": "derivative",
+        "venue": "MOEX",
+        "market": "forts",
+        "board": "RFUD",
+        "tradable": true,
+        "execution_eligible": false,
+        "economics_state": "unknown",
+        "size_variant": {
+          "state": "unknown",
+          "value": null
+        },
+        "specification": null,
+        "expiry": null
+      },
+      {
+        "instrument_id": "SYNTH:SRZ6",
+        "asset_id": "ASSET:SBER",
+        "kind": "future",
+        "instrument_role": "derivative",
+        "venue": "MOEX",
+        "market": "forts",
+        "board": "RFUD",
+        "tradable": true,
+        "execution_eligible": false,
+        "economics_state": "unknown",
+        "size_variant": {
+          "state": "unknown",
+          "value": null
+        },
+        "specification": null,
+        "expiry": null
+      }
+    ]
+  },
+  "components": [
+    {
+      "instrument": {
+        "instrument_id": "SYNTH:SRU6",
+        "asset_id": "ASSET:SBER",
+        "kind": "future",
+        "instrument_role": "derivative",
+        "venue": "MOEX",
+        "market": "forts",
+        "board": "RFUD",
+        "tradable": true,
+        "execution_eligible": false,
+        "economics_state": "unknown",
+        "size_variant": {
+          "state": "unknown",
+          "value": null
+        },
+        "specification": null,
+        "expiry": null
+      },
+      "source_symbol": "SRU6",
+      "units": {
+        "price_currency": {
+          "state": "unknown",
+          "value": null
+        },
+        "price_unit": {
+          "state": "known",
+          "value": "original quote label"
+        },
+        "quantity_unit": {
+          "state": "unknown",
+          "value": null
+        }
+      },
+      "last_trade_date": "2026-09-17",
+      "expiration_date": "2026-09-18",
+      "expiry_utc": null,
+      "last_trade_source": {
+        "kind": "moex_iss_description",
+        "body": {
+          "path": "facts/metadata.body.json",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "path": "facts/metadata.receipt.json",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "block": "description",
+        "row_key": "name",
+        "row_value": "LSTTRADE",
+        "value_column": "value"
+      }
+    },
+    {
+      "instrument": {
+        "instrument_id": "SYNTH:SRZ6",
+        "asset_id": "ASSET:SBER",
+        "kind": "future",
+        "instrument_role": "derivative",
+        "venue": "MOEX",
+        "market": "forts",
+        "board": "RFUD",
+        "tradable": true,
+        "execution_eligible": false,
+        "economics_state": "unknown",
+        "size_variant": {
+          "state": "unknown",
+          "value": null
+        },
+        "specification": null,
+        "expiry": null
+      },
+      "source_symbol": "SRZ6",
+      "units": {
+        "price_currency": {
+          "state": "unknown",
+          "value": null
+        },
+        "price_unit": {
+          "state": "known",
+          "value": "original quote label"
+        },
+        "quantity_unit": {
+          "state": "unknown",
+          "value": null
+        }
+      },
+      "last_trade_date": "2026-12-17",
+      "expiration_date": "2026-12-18",
+      "expiry_utc": null,
+      "last_trade_source": {
+        "kind": "moex_iss_description",
+        "body": {
+          "path": "facts/metadata.body.json",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "path": "facts/metadata.receipt.json",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "block": "description",
+        "row_key": "name",
+        "row_value": "LSTTRADE",
+        "value_column": "value"
+      }
+    }
+  ],
+  "calendar_roll_schedule": {
+    "schema_version": 1,
+    "version": "source_calendar_roll_schedule.v1",
+    "date_policy": "source_label_date_selection.v1",
+    "governing_rules": [
+      {
+        "rule_id": "synthetic-september",
+        "kind": "dated_schedule",
+        "effective_from": "2026-09-14",
+        "effective_to": null,
+        "precedence": 0,
+        "body": {
+          "path": "facts/calendar.body.json",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "path": "facts/calendar.receipt.json",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    ],
+    "groups": [
+      {
+        "group_key": "SYNTHETIC-ONLY-NOT-A-MARKET-ID",
+        "roll_offset_trading_days": 2,
+        "components": [
+          {
+            "component_key": "SYNTH:SRU6",
+            "source_symbol": "SRU6",
+            "source_order": 0,
+            "last_trade_date": "2026-09-17",
+            "last_trade_source": {
+              "kind": "moex_iss_description",
+              "body": {
+                "path": "facts/metadata.body.json",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "receipt": {
+                "path": "facts/metadata.receipt.json",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "block": "description",
+              "row_key": "name",
+              "row_value": "LSTTRADE",
+              "value_column": "value"
+            }
+          },
+          {
+            "component_key": "SYNTH:SRZ6",
+            "source_symbol": "SRZ6",
+            "source_order": 1,
+            "last_trade_date": "2026-12-17",
+            "last_trade_source": {
+              "kind": "moex_iss_description",
+              "body": {
+                "path": "facts/metadata.body.json",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "receipt": {
+                "path": "facts/metadata.receipt.json",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "block": "description",
+              "row_key": "name",
+              "row_value": "LSTTRADE",
+              "value_column": "value"
+            }
+          }
+        ],
+        "coverage_from": "2026-09-14",
+        "coverage_to": "2026-09-18",
+        "planned_dates": [
+          {
+            "source_date": "2026-09-14",
+            "state": "open",
+            "governing_rule_ids": [
+              "synthetic-september"
+            ]
+          },
+          {
+            "source_date": "2026-09-15",
+            "state": "open",
+            "governing_rule_ids": [
+              "synthetic-september"
+            ]
+          },
+          {
+            "source_date": "2026-09-16",
+            "state": "open",
+            "governing_rule_ids": [
+              "synthetic-september"
+            ]
+          },
+          {
+            "source_date": "2026-09-17",
+            "state": "open",
+            "governing_rule_ids": [
+              "synthetic-september"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "parent_l0_completion": {
+    "path": "facts/parent-l0-completion.json",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "source_fact_pins": [
+    {
+      "path": "facts/source-binding.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "facts/dated-specification.json",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "used_reference": {
+    "definition_json": "synthetic-expanded-definition",
+    "timeframe": "1m",
+    "roll_ordinal": 1,
+    "side": "old",
+    "instrument_id": "SYNTH:SRU6",
+    "source_begin": "2026-09-14 23:49:00",
+    "source_end": "2026-09-14 23:49:59",
+    "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "receipt_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "row_ordinal": 0
+  }
+}
