@@ -490,127 +490,286 @@ def _with_maturity_columns(dataframe):
     )
 
 
-def _calendar_expiry_active_timeline(*, keyed, contract_keyed, policy: ContinuousFrontPolicy):
-    from pyspark.sql import Window  # type: ignore[import-not-found]
+def _calendar_source_pair(root, body_pin, receipt_pin):
+    import json
+    from urllib.parse import urlsplit
+
+    from trading_advisor_3000.product_plane.common.immutable_files import pinned_bytes
+
+    raw = pinned_bytes(Path(root), body_pin)
+    receipt = json.loads(pinned_bytes(Path(root), receipt_pin))
+    if not isinstance(receipt, dict):
+        raise ValueError("calendar source receipt must be an object")
+    body = receipt.get("body")
+    recorded = receipt.get("body_sha256") or (
+        body.get("sha256") if isinstance(body, dict) else None
+    )
+    url = urlsplit(receipt.get("final_url", ""))
+    if (
+        receipt.get("status") != 200
+        or recorded != body_pin["sha256"]
+        or receipt.get("body_bytes") != len(raw)
+        or url.scheme != "https"
+        or url.hostname not in {"www.moex.com", "moex.com", "iss.moex.com"}
+    ):
+        raise ValueError("calendar body/receipt/source association mismatch")
+    return raw, url
+
+
+def validate_calendar_sources(root, schedule, *, offset=None):
+    """Admit the reviewed bounded source interpretation, never arbitrary HTML rules."""
+    import json
+
+    from trading_advisor_3000.product_plane.contracts.identity_v3 import _Evaluator
+
+    if not isinstance(schedule, dict):
+        raise ValueError(
+            "source-bound calendar_roll_schedule is required for fresh calendar compute"
+        )
+    evaluator = _Evaluator({})
+    evaluator.check(
+        evaluator._document("market_identity.v3.json")["$defs"]["native_cf_calendar_roll_schedule"],
+        schedule,
+    )
+    intervals = calendar_active_intervals(schedule)
+    from trading_advisor_3000.product_plane.common.immutable_files import pinned_bytes
+
+    packet = json.loads(
+        pinned_bytes(
+            Path(root),
+            {
+                "path": "source-facts/temporal/facts.json",
+                "sha256": "c018f490796c58c3816152d61db40cdab8d20f09e86c61ce896d2107b090219d",
+            },
+        )
+    )
+    if packet["derived_inferences_not_raw_exchange_fields"]["planned_open_source_dates"][
+        "dates"
+    ] != ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17"]:
+        raise ValueError("reviewed planned calendar interpretation mismatch")
+    reviewed = {
+        "n94172": (
+            "annual_calendar",
+            "bc73b14f1cbea57d7e389bb5a3a76bbb4443ad8ca94db24db2d13d286f1871e9",
+            0,
+        ),
+        "n103379": (
+            "dated_schedule",
+            "79cb5b5620bdc320535665df614d4e81e22ed6890707d6f0678a4385c811fc34",
+            1,
+        ),
+        "n95564": (
+            "weekend_exception",
+            "730ede1b16eb583903c22d2e9cc1e1752317f8f03693a6785ff87a648ab3ef09",
+            2,
+        ),
+    }
+    if {r["rule_id"] for r in schedule["governing_rules"]} != set(reviewed):
+        raise ValueError("calendar source interpretation is not admitted")
+    for rule in schedule["governing_rules"]:
+        kind, digest, precedence = reviewed[rule["rule_id"]]
+        _, url = _calendar_source_pair(root, rule["body"], rule["receipt"])
+        if (rule["kind"], rule["body"]["sha256"], rule["precedence"]) != (
+            kind,
+            digest,
+            precedence,
+        ) or url.path != "/" + rule["rule_id"]:
+            raise ValueError("calendar rule differs from reviewed source interpretation")
+    for group in schedule["groups"]:
+        if offset is not None and group["roll_offset_trading_days"] != offset:
+            raise ValueError("calendar schedule offset differs from legacy policy")
+        for item in group["planned_dates"]:
+            day = item["source_date"]
+            expected = "closed" if day in {"2026-09-12", "2026-09-13"} else "open"
+            ids = {"n94172", "n95564" if expected == "closed" else "n103379"}
+            if (
+                not "2026-09-12" <= day < "2026-09-18"
+                or item["state"] != expected
+                or set(item["governing_rule_ids"]) != ids
+            ):
+                raise ValueError("calendar date lacks reviewed source admission")
+        for component in group["components"]:
+            source = component["last_trade_source"]
+            raw, url = _calendar_source_pair(root, source["body"], source["receipt"])
+            if (
+                url.hostname != "iss.moex.com"
+                or component["source_symbol"] not in url.path.split("/")[-1]
+            ):
+                raise ValueError("last-trade source symbol/URL mismatch")
+            payload = json.loads(raw)
+            block = payload[source["block"]]
+            rows = [dict(zip(block["columns"], row, strict=True)) for row in block["data"]]
+            matches = [r for r in rows if r.get(source["row_key"]) == source["row_value"]]
+            if (
+                len(matches) != 1
+                or str(matches[0][source["value_column"]]) != component["last_trade_date"]
+            ):
+                raise ValueError("last-trade date differs from pinned original field")
+            if source["kind"] == "moex_iss_description":
+                if [r.get("value") for r in rows if r.get("name") == "SECID"] != [
+                    component["source_symbol"]
+                ]:
+                    raise ValueError("description SECID differs from calendar component")
+            elif source["row_value"] != component["source_symbol"]:
+                raise ValueError("securities SECID differs from calendar component")
+    return intervals
+
+
+def calendar_active_intervals(schedule):
+    """Compile admitted source dates; observed rows never establish contract lifetime."""
+    from datetime import date, timedelta
+
+    if not isinstance(schedule, dict):
+        raise ValueError(
+            "source-bound calendar_roll_schedule is required for fresh calendar compute"
+        )
+    rules = {r["rule_id"]: r for r in schedule["governing_rules"]}
+    if len(rules) != len(schedule["governing_rules"]) or len(
+        {r["precedence"] for r in rules.values()}
+    ) != len(rules):
+        raise ValueError("duplicate calendar rule or ambiguous precedence")
+    result = []
+    for group in schedule["groups"]:
+        dates = group["planned_dates"]
+        begin, end = (
+            date.fromisoformat(group["coverage_from"]),
+            date.fromisoformat(group["coverage_to"]),
+        )
+        expected = [(begin + timedelta(days=i)).isoformat() for i in range((end - begin).days)]
+        if sorted(d["source_date"] for d in dates) != expected:
+            raise ValueError("calendar coverage must explicitly contain every date once")
+        for item in dates:
+            ids = item["governing_rule_ids"]
+            if not ids or len(set(ids)) != len(ids) or any(i not in rules for i in ids):
+                raise ValueError("missing/duplicate governing calendar rule")
+            for rule_id in ids:
+                rule = rules[rule_id]
+                if not (
+                    rule["effective_from"] <= item["source_date"]
+                    and (rule["effective_to"] is None or item["source_date"] < rule["effective_to"])
+                ):
+                    raise ValueError("calendar rule outside effective source dates")
+        components = sorted(group["components"], key=lambda c: c["source_order"])
+        if [c["source_order"] for c in components] != list(range(len(components))):
+            raise ValueError("calendar component order must be contiguous")
+        for field in ["component_key", "source_symbol", "last_trade_date"]:
+            if len({c[field] for c in components}) != len(components):
+                raise ValueError("duplicate/conflicting calendar component " + field)
+        last_dates = [c["last_trade_date"] for c in components]
+        if last_dates != sorted(last_dates):
+            raise ValueError("calendar source order disagrees with last trade dates")
+        opens = sorted(d["source_date"] for d in dates if d["state"] == "open")
+        switches = []
+        for component in components[:-1]:
+            last = component["last_trade_date"]
+            if last not in opens or opens.index(last) < group["roll_offset_trading_days"]:
+                raise ValueError("insufficient planned open dates for last-trade offset")
+            switches.append(opens[opens.index(last) - group["roll_offset_trading_days"]])
+        if switches != sorted(set(switches)):
+            raise ValueError("non-increasing planned roll dates")
+        for index, component in enumerate(components):
+            result.append(
+                {
+                    "group_key": group["group_key"],
+                    "component_key": component["component_key"],
+                    "source_order": index,
+                    "active_from": group["coverage_from"] if index == 0 else switches[index - 1],
+                    "active_to": group["coverage_to"]
+                    if index == len(components) - 1
+                    else switches[index],
+                    "planned_roll_ordinal": index,
+                }
+            )
+    return result
+
+
+def roll_gap_expression(new_close, old_close):
     from pyspark.sql import functions as F
 
+    return F.col(new_close).cast("double") - F.col(old_close).cast("double")
+
+
+def calendar_selected_frame(frame, schedule, *, group_column, component_column, source_date):
+    """Shared selector with explicit keys/date expression; preserves native buffers."""
+    from pyspark.sql import functions as F
+
+    intervals = calendar_active_intervals(schedule)
+
+    def quoted(value):
+        return "CAST(unhex('" + str(value).encode("utf-8").hex() + "') AS STRING)"
+
+    values = ",".join(
+        "("
+        + ",".join(
+            quoted(row[k]) for k in ["group_key", "component_key", "active_from", "active_to"]
+        )
+        + ","
+        + str(row["planned_roll_ordinal"])
+        + ")"
+        for row in intervals
+    )
+    dates = frame.sparkSession.sql(
+        "SELECT * FROM VALUES "
+        + values
+        + " AS t(_calendar_group,_calendar_component,_calendar_from,_calendar_to,"
+        "planned_roll_ordinal)"
+    )
+    bars = frame.withColumn("_calendar_source_date", source_date)
+    covered = F.lit(False)
+    for group in schedule["groups"]:
+        covered = covered | (
+            (F.col(group_column) == F.lit(group["group_key"]))
+            & F.col(component_column).isin([c["component_key"] for c in group["components"]])
+            & (F.col("_calendar_source_date") >= F.lit(group["coverage_from"]))
+            & (F.col("_calendar_source_date") < F.lit(group["coverage_to"]))
+        )
+    if bars.where(~covered | F.col("_calendar_source_date").isNull()).limit(1).count():
+        raise ValueError("calendar requested source lacks admitted coverage/order")
+    bars = bars.alias("bar")
+    dates = dates.alias("schedule")
+    return (
+        bars.join(
+            dates,
+            (F.col("bar." + group_column) == F.col("schedule._calendar_group"))
+            & (F.col("bar." + component_column) == F.col("schedule._calendar_component"))
+            & (F.col("bar._calendar_source_date") >= F.col("schedule._calendar_from"))
+            & (F.col("bar._calendar_source_date") < F.col("schedule._calendar_to")),
+            "inner",
+        )
+        .select("bar.*", F.col("schedule.planned_roll_ordinal").cast("long"))
+        .drop("_calendar_source_date")
+    )
+
+
+def _calendar_expiry_active_timeline(
+    *, keyed, contract_keyed, policy: ContinuousFrontPolicy, calendar_roll_schedule=None
+):
+    from pyspark.sql import Window
+    from pyspark.sql import functions as F
+
+    if any(
+        g["roll_offset_trading_days"] != policy.calendar_roll_offset_trading_days
+        for g in (calendar_roll_schedule or {}).get("groups", [])
+    ):
+        raise ValueError("calendar schedule offset differs from legacy policy")
     grouped = Window.partitionBy("instrument_id", "timeframe")
-    keyed_with_session = keyed.withColumn("session_date", _session_date(policy)).withColumn(
-        "series_input_row_count",
-        F.count(F.lit(1)).over(grouped),
+    source = keyed.withColumn("series_input_row_count", F.count(F.lit(1)).over(grouped))
+    selected = calendar_selected_frame(
+        source,
+        calendar_roll_schedule,
+        group_column="instrument_id",
+        component_column="contract_id",
+        source_date=_session_date(policy).cast("string"),
     )
-    contract_keyed_with_session = contract_keyed.withColumn("session_date", _session_date(policy))
-    contract_dates = (
-        contract_keyed_with_session.where(F.col("maturity_rank").isNotNull())
-        .select("instrument_id", "timeframe", "contract_id", "maturity_rank", "session_date")
-        .distinct()
-    )
-    contract_date_order = Window.partitionBy("instrument_id", "timeframe", "contract_id").orderBy(
-        F.col("session_date").desc()
-    )
-    ranked_contract_dates = contract_dates.withColumn(
-        "session_desc_rank",
-        F.row_number().over(contract_date_order),
-    )
-    roll_start_rank = F.lit(policy.calendar_roll_offset_trading_days + 1)
-    contract_rolls_base = ranked_contract_dates.groupBy(
-        "instrument_id", "timeframe", "contract_id", "maturity_rank"
-    ).agg(
-        F.min("session_date").alias("first_session_date"),
-        F.max("session_date").alias("last_session_date"),
-        F.count(F.lit(1)).cast("long").alias("contract_session_count"),
-        F.max(F.when(F.col("session_desc_rank") == roll_start_rank, F.col("session_date"))).alias(
-            "offset_roll_start_session_date"
-        ),
-    )
-    contract_rolls = (
-        contract_rolls_base.withColumn(
-            "series_last_session_date",
-            F.max("last_session_date").over(grouped),
-        )
-        .withColumn(
-            "series_tail_maturity_rank",
-            F.year("series_last_session_date") * F.lit(12) + F.month("series_last_session_date"),
-        )
-        .withColumn(
-            "roll_start_session_date",
-            F.when(
-                F.col("maturity_rank") < F.col("series_tail_maturity_rank"),
-                F.coalesce(F.col("offset_roll_start_session_date"), F.col("last_session_date")),
-            ),
-        )
-    )
-    sessions = keyed_with_session.select(
-        "instrument_id",
-        "timeframe",
-        "session_date",
-        "series_input_row_count",
-    ).distinct()
-    session_row = sessions.alias("session")
-    contract = contract_rolls.alias("contract")
-    active_session_candidates = session_row.join(
-        contract,
-        on=(
-            (F.col("session.instrument_id") == F.col("contract.instrument_id"))
-            & (F.col("session.timeframe") == F.col("contract.timeframe"))
-            & (F.col("session.session_date") >= F.col("contract.first_session_date"))
-            & (F.col("session.session_date") <= F.col("contract.last_session_date"))
-            & (
-                F.col("contract.roll_start_session_date").isNull()
-                | (F.col("session.session_date") < F.col("contract.roll_start_session_date"))
-            )
-        ),
-        how="inner",
-    ).select(
-        F.col("session.instrument_id").alias("instrument_id"),
-        F.col("session.timeframe").alias("timeframe"),
-        F.col("session.session_date").alias("session_date"),
-        F.col("session.series_input_row_count").alias("series_input_row_count"),
-        F.col("contract.contract_id").alias("active_contract_id"),
-        F.col("contract.maturity_rank").alias("active_maturity_rank"),
-    )
-    active_session_order = Window.partitionBy("instrument_id", "timeframe", "session_date").orderBy(
-        F.col("active_maturity_rank").asc(),
-        F.col("active_contract_id").asc(),
-    )
-    active_sessions = (
-        active_session_candidates.withColumn(
-            "active_session_rank", F.row_number().over(active_session_order)
-        )
-        .where(F.col("active_session_rank") == 1)
-        .drop("active_session_rank")
-    )
-    bar = keyed_with_session.alias("bar")
-    active_session = active_sessions.alias("active_session")
-    active_bars = active_session.join(
-        bar,
-        on=(
-            (F.col("active_session.instrument_id") == F.col("bar.instrument_id"))
-            & (F.col("active_session.timeframe") == F.col("bar.timeframe"))
-            & (F.col("active_session.session_date") == F.col("bar.session_date"))
-            & (F.col("active_session.active_contract_id") == F.col("bar.contract_id"))
-        ),
-        how="inner",
-    ).select(
-        F.col("active_session.instrument_id").alias("instrument_id"),
-        F.col("active_session.timeframe").alias("timeframe"),
-        F.col("bar.ts").alias("ts"),
-        F.col("active_session.series_input_row_count").alias("series_input_row_count"),
-        F.col("active_session.active_contract_id").alias("candidate_contract_id"),
-        F.col("active_session.active_maturity_rank").alias("candidate_maturity_rank"),
-        F.col("active_session.active_contract_id").alias("active_contract_id"),
-        F.col("active_session.active_maturity_rank").alias("active_maturity_rank"),
-    )
-    series_order = Window.partitionBy("instrument_id", "timeframe").orderBy("ts")
-    previous_contract_id = F.lag("active_contract_id").over(series_order)
+    series_order = grouped.orderBy("ts")
+    previous_contract_id = F.lag("contract_id").over(series_order)
     previous_ts = F.lag("ts").over(series_order)
     return (
-        active_bars.withColumn("ts_index", F.dense_rank().over(series_order))
+        selected.withColumn("ts_index", F.dense_rank().over(series_order))
         .withColumn(
             "decision_ts",
             F.when(
-                previous_contract_id.isNotNull()
-                & (previous_contract_id != F.col("active_contract_id")),
+                previous_contract_id.isNotNull() & (previous_contract_id != F.col("contract_id")),
                 previous_ts,
             ),
         )
@@ -621,17 +780,19 @@ def _calendar_expiry_active_timeline(*, keyed, contract_keyed, policy: Continuou
             "ts",
             "ts_index",
             "series_input_row_count",
-            "candidate_contract_id",
-            "candidate_maturity_rank",
-            "active_contract_id",
-            "active_maturity_rank",
+            F.col("contract_id").alias("candidate_contract_id"),
+            F.col("planned_roll_ordinal").alias("candidate_maturity_rank"),
+            F.col("contract_id").alias("active_contract_id"),
+            F.col("planned_roll_ordinal").alias("active_maturity_rank"),
             "decision_ts",
             "old_reference_ts",
         )
     )
 
 
-def _active_timeline(*, bars, policy: ContinuousFrontPolicy, calendar_bars=None):
+def _active_timeline(
+    *, bars, policy: ContinuousFrontPolicy, calendar_bars=None, calendar_roll_schedule=None
+):
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F
 
@@ -640,7 +801,10 @@ def _active_timeline(*, bars, policy: ContinuousFrontPolicy, calendar_bars=None)
         contract_source = calendar_bars if calendar_bars is not None else bars
         contract_keyed = _with_maturity_columns(contract_source)
         return _calendar_expiry_active_timeline(
-            keyed=keyed, contract_keyed=contract_keyed, policy=policy
+            keyed=keyed,
+            contract_keyed=contract_keyed,
+            policy=policy,
+            calendar_roll_schedule=calendar_roll_schedule,
         )
 
     primary_metric, secondary_metric = _metric_columns(policy)
@@ -900,6 +1064,7 @@ def _build_spark_native_tables(
     start_ts: str | None,
     end_ts: str | None,
     refresh_windows: tuple[ContinuousFrontRefreshWindow, ...] = (),
+    calendar_roll_schedule=None,
 ):
     from pyspark.sql import Window  # type: ignore[import-not-found]
     from pyspark.sql import functions as F
@@ -927,21 +1092,10 @@ def _build_spark_native_tables(
         ),
     )
     bars = _filter_policy_session(raw_bars, policy)
-    calendar_bars = None
-    if policy.roll_policy_mode == "calendar_expiry_v1" and refresh_windows:
-        calendar_bars = bars
-    elif policy.roll_policy_mode == "calendar_expiry_v1":
-        calendar_raw_bars = _load_filtered_bars(
-            spark=spark,
-            canonical_bars_path=canonical_bars_path,
-            instrument_ids=scoped_instrument_ids,
-            timeframes=scoped_timeframes,
-            start_ts=None,
-            end_ts=None,
-        )
-        calendar_bars = _filter_policy_session(calendar_raw_bars, policy)
     keyed_bars = _with_maturity_columns(bars)
-    timeline = _active_timeline(bars=bars, policy=policy, calendar_bars=calendar_bars)
+    timeline = _active_timeline(
+        bars=bars, policy=policy, calendar_roll_schedule=calendar_roll_schedule
+    )
     tl = timeline.alias("tl")
     kb = keyed_bars.select(
         "contract_id",
@@ -1079,7 +1233,9 @@ def _build_spark_native_tables(
                 F.format_string("%04d", F.col("roll_sequence")),
             ),
         )
-        .withColumn("additive_gap", F.col("new_reference_price") - F.col("old_reference_price"))
+        .withColumn(
+            "additive_gap", roll_gap_expression("new_reference_price", "old_reference_price")
+        )
         .withColumn("dataset_version", F.lit(dataset_version))
         .withColumn("roll_policy_version", F.lit(policy.roll_policy_version))
         .withColumn("adjustment_policy_version", F.lit(policy.adjustment_policy_version))
@@ -1432,6 +1588,7 @@ def run_continuous_front_spark_job(
     refresh_windows: Sequence[Mapping[str, object] | ContinuousFrontRefreshWindow] | None = None,
     canonical_contract_economics_path: Path | None = None,
     execution_economics_required: bool = False,
+    calendar_roll_schedule=None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     spark_session_factory: Callable[[str, str], object] | None = None,
 ) -> dict[str, object]:
@@ -1454,6 +1611,12 @@ def run_continuous_front_spark_job(
     if execution_economics_required and canonical_contract_economics_path is None:
         raise RuntimeError(
             "canonical_contract_economics_path is required when execution_economics_required=True"
+        )
+    if resolved_policy.roll_policy_mode == "calendar_expiry_v1":
+        validate_calendar_sources(
+            output_dir,
+            calendar_roll_schedule,
+            offset=resolved_policy.calendar_roll_offset_trading_days,
         )
     spark_factory = spark_session_factory or _create_spark_session
     stage_timings: StageTimings = {}
@@ -1501,6 +1664,7 @@ def run_continuous_front_spark_job(
             start_ts=start_ts,
             end_ts=end_ts,
             refresh_windows=normalized_refresh_windows,
+            calendar_roll_schedule=calendar_roll_schedule,
         )
         from pyspark import StorageLevel
 

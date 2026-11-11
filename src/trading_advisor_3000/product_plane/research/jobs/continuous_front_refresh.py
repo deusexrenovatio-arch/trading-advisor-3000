@@ -54,6 +54,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional canonical_contract_economics Delta table.",
     )
+    parser.add_argument(
+        "--calendar-roll-schedule",
+        default="",
+        help="Pinned source-calendar metadata JSON; facts relative to output-dir.",
+    )
     parser.add_argument("--spark-master", default=DEFAULT_SPARK_MASTER)
     parser.add_argument(
         "--roll-policy-version", default="front_calendar_expiry_t2_session_0900_2350_v1"
@@ -93,6 +98,7 @@ def run_continuous_front_refresh_job(
     canonical_contract_economics_path: Path | None = None,
     spark_master: str = DEFAULT_SPARK_MASTER,
     policy: ContinuousFrontPolicy | None = None,
+    calendar_roll_schedule=None,
 ) -> dict[str, object]:
     return run_continuous_front_spark_job(
         operation=operation,
@@ -111,6 +117,7 @@ def run_continuous_front_refresh_job(
         end_ts=end_ts or None,
         canonical_contract_economics_path=canonical_contract_economics_path,
         spark_master=spark_master,
+        calendar_roll_schedule=calendar_roll_schedule,
     )
 
 
@@ -143,6 +150,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     payload = run_continuous_front_refresh_job(
         operation=args.operation,
+        calendar_roll_schedule=json.loads(
+            Path(args.calendar_roll_schedule).read_text(encoding="utf-8")
+        )
+        if args.calendar_roll_schedule
+        else None,
         refresh_admission=json.loads(Path(args.admission_path).read_text(encoding="utf-8"))
         if args.admission_path
         else None,
