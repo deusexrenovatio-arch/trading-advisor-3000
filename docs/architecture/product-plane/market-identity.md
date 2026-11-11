@@ -528,3 +528,148 @@ before attaching canonical JSON read metadata under
 ta3000.native_observation_read.v1. Validate by removing only that metadata key,
 restoring the exact payload schema, and recomputing IPC/hash/count/grain/types.
 The byte budget counts the entire final IPC stream including envelope metadata.
+
+
+## Bounded native Research consumers and observation-key MTF
+
+Decision status: independently admitted design; contracts and paired runtime prepared.
+Native verification and PR integration are tracked separately; production not admitted.
+Change surface: product-plane.
+Architecture impact: contract-change. Authorization: isolated native Research consumer
+route, following the completed Data/L0 and feature slices; no production cutover.
+Owner: Research Data Factory for frames/reads, Market Data for source and temporal
+facts, Contracts for the shared schema; Interfaces consumes the public Research API.
+Solution Class: staged. This decision adds a bounded opt-in consumer boundary, not
+canonical Q, historical PIT, backtest/execution or complete temporal MTF admission.
+
+Choice: `research/native_reads.py` is the public owner of closed native L0/L1/L2
+Arrow reads and configured observation-key alignment. It composes the existing
+NativeObservationSnapshot, NativeResearchSnapshot and NativeFeatureSnapshot public
+verification boundary and common pinned Delta readers. No wrapper-only export,
+equity/index-through-futures loader, parallel analytical writer or storage owner.
+Existing strict UTC/r7 PinnedNativeSnapshot/snapshot_read_projection readers and
+DataInspector routes retain their contracts. Original source limitations stay false
+for timezone/UTC closure/session completeness/historical PIT; the new consumer does
+not rewrite them or silently dispatch source-local data into the strict UTC route.
+
+The single shared schema authority is market_identity.v3. Versioned read request,
+IPC envelope and shadow descriptor definitions have thin wrappers, matching fixtures
+and contract tests. Frame request is closed: exact immutable graph/completion pin,
+L0/L1/L2, concrete namespace/instrument/context/engine, timeframe 1m/1d, half-open
+source_begin_from/to, ordered unique projection, row_limit and full IPC byte_limit.
+No latest, valid_at, known_at, UTC-period, CF selector or active-future substitution.
+Caps reuse the observation boundary: 5000 rows and 16 MiB full wire. Requested metric
+columns derive from the actual selected layer layout/policy; unknown columns reject.
+Read-side L2 metadata does not broaden the unchanged L0/L1 compute-parent admission.
+
+Verify immutable source/receipt/context/intent associations and physical table pins
+before any cache lookup, then apply concrete context/instrument/timeframe/source-key
+predicates and requested-column projection through Delta/Arrow before materializing
+the requested data. Preserve native grain, asset/instrument, source symbol and original
+source_begin/end; exact Arrow types/field metadata, Decimal, float64 metrics, NULL/NaN
+masks and row lineage survive. Sort deterministically; reject duplicate grain, foreign
+context, truncation and row/full-wire overflow. An absent valid period is typed empty.
+Envelope binds both request and exact graph/completion/context/intent/common-snapshot
+pins, table UUID/version/schema, policy/runtime provenance and payload schema/IPC hash.
+Index remains reference/tradable=false; all observation outputs retain execution
+ineligibility. No fabricated contract_id, money/physical-unit meaning or availability.
+
+Cache: reuse SnapshotReadCache unchanged, immutable IPC bytes and bounded memory only,
+with separate native_research_read.v1 and SOURCE_KEY wire namespaces. Key includes the
+complete request/projection/window, all exact graph/source/table/context/policy/runtime
+pins and contract identity. Revalidate the source graph before every hit, decode IPC
+through the same contract and match its provenance to the freshly verified request.
+Do not share ResearchFrameCache, old snapshot-projection entries or disk spill.
+Physical trust stays the accepted open_pinned_table contract: active paths/sizes,
+Delta UUID/version/schema and separately hash-pinned metadata/source bytes. This adds
+no claim against adversarial same-size finite-value Parquet edits.
+
+Shadow graph is one canonical content-addressed immutable descriptor over the existing
+Data/L0/L1/L2 completion pins, parent common snapshots and exact table/context/policy
+references. Reject mixed generations: L1 names this L0, L2 this L1, all resolve to this
+Data completion. Exclude new UUID/creation time from descriptor identity. Save under
+its canonical content digest with existing atomic_json(immutable=True) in the unique
+authorized verification child, then reopen by explicit path/hash. Same input returns
+the same artifact; different content at that expected digest conflicts. Do not
+regenerate create_snapshot UUID/time on retry or add another receipt/recovery protocol.
+Partial save returns no accepted descriptor and leaves prior snapshots readable.
+No publish_snapshot, latest/current/accepted pointers or source/Delta table writes.
+
+DataInspector gains an explicitly supplied opt-in Research reader and a native Research
+read endpoint returning Arrow IPC; it calls this public Research owner. Nothing binds
+it to production or discovers a latest graph automatically. Missing configuration,
+invalid request and unavailable pins fail closed through existing API conventions.
+
+SOURCE_KEY MTF is configured retrospective observation-key alignment, independent of
+any temporal-mode admission. Its closed inputs name both exact lower/higher selectors,
+completion/table/context pins, projections, explicit windows and higher lookback. Match
+namespace, concrete instrument/asset and provider/venue/engine/market/board exactly;
+bounded target=1m, higher=1d. Each SBER/IMOEX/SRU6/SRZ6 aligns only within its own source
+context. Reference/execution flags stay unchanged. Never substitute another instrument,
+expand an unpinned higher window, or materialize persistent mtf_* analytical tables.
+
+Parse validated source-key strings as naive calendar datetimes for comparison only;
+preserve their original strings. Reuse Contracts' existing strict source-key validation,
+without timezone attachment or UTC conversion. Configured join_key is the reported
+higher.source_end label plus 20 minutes; select the greatest key strictly before the
+lower.source_begin label. The lag reuses selected stability-lag configuration as a
+retrospective policy, not measured publication latency or an exchange fact. Do not assume
+source_end inclusive/exclusive, close/finality or availability, or silently add a second.
+Use pandas.merge_asof backward with allow_exact_matches=false after bounded native reads,
+not a per-bar loop. Reject duplicate high matching keys/grain rather than deduplicating.
+Carry both input selectors/pins/windows, matched higher source_begin/end, configured
+join_key and policy in lineage and cache identity. Matched NULL remains matched NULL;
+never search for an earlier finite value. Unmatched target has NULL value and no matched
+higher-row lineage. Preserve lower grain, row order and all unchanged parent fields.
+
+Result declares configured_retrospective_observation_key_alignment; its false source
+limitations remain false. This proves a useful source-label relationship, not true
+market availability, exchange-time causality, historical PIT or live suitability.
+Capability evidence separates positive SOURCE_KEY from missing-facts temporal MTF.
+A temporal-mode request rejects with temporal_mode_unverified rather than falling back.
+The old backtest _reindex_strictly_before assumes UTC and silently deduplicates; retain
+its callers and do not reuse it for source-local alignment.
+
+A later temporal adapter reuses existing owners, not a separate package or parser:
+foundation._parse_moex_datetime (Moscow to UTC), its configured stable cutoff, and
+session_schedule.normalize_raw_session_schedule_rows with exact source_id/document hash
+and dated policy. The March catalog rule moex-forts-unified-weekday-2026-03-23 is stale
+for September session classification. [The later official announcement](https://www.moex.com/n103379)
+has precedence from 14 September 2026: stock/futures morning 06:50-09:00 (06:50-07:00
+auction), main 09:00-19:00, evening 19:00-23:50; index calculation/publication starts
+09:00. [Annual calendar](https://www.moex.com/n94172) uses later specific amendments;
+[weekend calendar](https://www.moex.com/n95564) excludes 12-13 September. Instrument/board
+applicability and specific exceptions require their own scoped checks; equity/index do
+not inherit futures-only rules. Scheduled hours do not prove ISS candle-end semantics,
+finality or historical availability. Retained original source bytes/receipts are in
+native-temporal-sources-20261111T014302Z-21b5347a/output under the November 11 consumer
+evidence root; n103379 SHA256 79cb5b5620bdc320535665df614d4e81e22ed6890707d6f0678a4385c811fc34.
+September SBRF specification last-trade cutoff 19:00 MSK remains distinct from expiry
+instant and ISS availability; unknown exact expiry does not block SOURCE_KEY ordering.
+
+Native Runtime Choice: Delta/Arrow predicates/projection, unchanged bounded IPC cache,
+existing immutable JSON over common snapshot references, pandas native as-of primitive
+for this configured relationship. Python assembles contracts, validates pins, adapts
+naive source keys and reports proof. No dependency/service/recurring job/recompute.
+Alternatives rejected: weakening UTC/Q contracts, fake future identity for equity/index,
+unpinned ResearchFrameCache, mutable publication heads, regenerating snapshot identity
+on metadata retry, assuming observed end is availability, and hand-written join loops.
+Cost is bounded verification, selected reads and IPC; no unproved performance claim.
+
+Planned proof before implementation acceptance: real completed native producer -> cold
+public loader -> IPC decoder -> cache hit -> HTTP for all four instruments and both TFs;
+independent values/types/NULL/masks/lineage and exact empty/budget cases. Corrupt hash-
+pinned metadata/source or detectable physical-pin changes reject before cache hit;
+different snapshot/profile/projection cannot collide. Cross-generation graph rejects;
+immutable shadow reopen/same-input retry/conflict preserves prior artifacts and no
+mutable pointer appears. Existing strict snapshot/old-reader parity remains. Independent
+SOURCE_KEY before/equal/after boundaries, matched-NULL/unmatched and future-key mutation
+plus actual day14/day15 1d-to-1m roundtrip prove only the configured label relationship.
+Temporal-mode request rejection is separate. Fixture/design PASS/CI alone do not prove
+the native producer-to-consumer path or production readiness.
+
+Implementation order: contracts/policy with fixtures and tests, public loader/cache/
+endpoint/shadow descriptor and SOURCE_KEY alignment, bound native proof, independent
+implementation review, required PR integration. Rollback: omit the opt-in reader/endpoint,
+discard cache and select the prior explicit shadow descriptor. Existing snapshots stay
+readable; no data migration, restore, source rewrite or production promotion.
