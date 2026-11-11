@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Literal
 
 import psycopg
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from trading_advisor_3000.product_plane.contracts.trade_workspace import (
     ChangeTrade,
@@ -30,7 +32,20 @@ def create_app(journal: PostgresJournal | None = None) -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def home():
-        return RedirectResponse("/docs")
+        return RedirectResponse("/journal/")
+
+    frontend = Path(__file__).parent / "frontend" / "dist"
+
+    @app.get("/journal/", include_in_schema=False)
+    def journal_ui():
+        if not (frontend / "index.html").is_file():
+            return JSONResponse(status_code=503, content={"code": "frontend_not_built"})
+        return FileResponse(frontend / "index.html", headers={"Cache-Control": "no-cache"})
+
+    if (frontend / "assets").is_dir():
+        app.mount(
+            "/journal/assets", StaticFiles(directory=frontend / "assets"), name="journal_assets"
+        )
 
     def storage() -> PostgresJournal:
         if app.state.journal is None:

@@ -1,0 +1,125 @@
+:root {
+  font: 14px system-ui;
+  color-scheme: light;
+  color: #202c3d;
+  background: #f4f6f9;
+}
+* {
+  box-sizing: border-box;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 10px;
+  border: 1px solid #d6dde8;
+  border-radius: 6px;
+  background: white;
+}
+input,
+select,
+textarea {
+  width: 100%;
+}
+p {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.prose,
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.topbar {
+  padding: 22px 30px;
+  background: white;
+}
+.topbar,
+.row,
+.actions,
+.card-header,
+.dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  justify-content: space-between;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr);
+  max-width: 1440px;
+  margin: auto;
+}
+aside,
+main {
+  padding: 24px;
+  min-width: 0;
+}
+.field,
+.list,
+.trade {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+.trade.selected {
+  background: #edf3ff;
+  border-color: #315aa8;
+}
+.panel,
+.notice {
+  background: white;
+  border: 1px solid #d6dde8;
+  padding: 22px;
+  margin-bottom: 18px;
+}
+.error {
+  color: #973d34;
+}
+.actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+dialog {
+  width: min(760px, calc(100% - 32px));
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  border: 1px solid #d6dde8;
+  border-radius: 12px;
+  padding: 24px;
+}
+fieldset {
+  border: 0;
+}
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 18px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+}
+.check input {
+  width: auto;
+}
+@media (max-width: 760px) {
+  .topbar,
+  .card-header {
+    flex-wrap: wrap;
+  }
+  .layout {
+    display: block;
+  }
+  .fields {
+    grid-template-columns: 1fr;
+  }
+  aside,
+  main {
+    padding: 18px;
+  }
+}
