@@ -689,3 +689,273 @@ def test_valid_hash_finite_metric_cache_poison_cannot_override_fresh_research(na
     with pytest.raises(SchemaValidationError, match="freshly verified role"):
         reader.read(query, cache=cache)
     assert state["verifications"] == before + 1
+
+
+def projected_feature_read(native_reader, monkeypatch, layer, core):
+    """Structural wire fixture; graph admission and numerical truth are separate proofs."""
+    from trading_advisor_3000.product_plane.research import native_features as features
+
+    reader, request, state = native_reader
+    context = load(f"native_research_feature_context.{layer.lower()}.v1.json")
+    context["research_context_id"] = state["graph"]["context"]["research_context_id"]
+    context["source"]["research_context_id"] = context["research_context_id"]
+    policy = features.feature_policy(layer, f"native_core_{layer.lower()}.v1" if core else None)
+    numerical = context["numerical_identity"]
+    numerical["engines"].update(pandas_ta_classic="0.4.47", talib_absent=True)
+    if core:
+        context["contract_version"] = "native_research_core_context.v1"
+        context["policy"] = features.feature_policy_reference(policy)
+        context["quality"]["policy"] = features.feature_quality(policy["profile_version"])
+        numerical.update(
+            version="native_research_core_numerical.v1",
+            basis=policy["source_basis"],
+            profile_sha256=policy["resolved_profile_sha256"],
+            library_source_sha256=policy["runtime_profile"]["ta_source_sha256"],
+        )
+        numerical["engines"].update(
+            numba="0.65.1", scipy="1.17.1", ta_numba_enabled=True, ta_scipy_enabled=True
+        )
+        context["capabilities"] = []
+        for row in policy["catalog"]:
+            entry = {
+                "sequence": copy.deepcopy(context["source"]["sequences"][0]),
+                "feature": row["output"],
+                "materialized": row["materialized"],
+                "analysis_rows": 1,
+                "reason": "structural fixture; not source or compute proof",
+            }
+            if row["materialized"]:
+                ready = row["admission_minimum"] <= 2
+                entry.update(
+                    state="ready" if ready else "insufficient_history",
+                    required_observations=row["admission_minimum"],
+                    finite_count=int(ready),
+                    analysis_finite_count=int(ready),
+                    first_finite_bar_index=1 if ready else None,
+                    first_finite_source_begin="2020-01-02 12:01:00" if ready else None,
+                )
+            else:
+                entry["state"] = (
+                    "unverified_policy" if row["required_source_facts"] else "not_applicable"
+                )
+            context["capabilities"].append(entry)
+    context["policy_sha256"] = owner.sha(policy)
+    layout = features.feature_layout(layer, policy["profile_version"])
+    context["layout_sha256"] = owner.sha({policy["table"]: layout})
+    context["quality"]["sha256"] = owner.sha(context["quality"]["policy"])
+    numerical["policy_sha256"] = context["policy_sha256"]
+    numerical["digest"] = owner.sha({k: v for k, v in numerical.items() if k != "digest"})
+    context["feature_context_id"] = "NFCTX:" + owner.sha(
+        {k: v for k, v in context.items() if k != "feature_context_id"}
+    )
+    schema = owner.physical_schema(layout)
+    rows = state["graph"]["tables"]["research_bar_views"].to_pylist()
+    for row in rows:
+        for field in schema:
+            row.setdefault(field.name, None if field.nullable else "structural-fixture")
+        prefix = "indicator" if layer == "L1" else "derived"
+        row[prefix + "_context_id"] = context["feature_context_id"]
+        row[prefix + "_profile_version"] = policy["profile_version"]
+    table = pa.Table.from_pylist(rows, schema=schema)
+    path = reader.root / "feature-context.json"
+    atomic_json(path, context, immutable=True)
+    completion = load(f"native_research_feature_completion.{layer.lower()}.v1.json")
+    completion["context"] = pin(reader.root, path)
+    path = reader.root / "feature-completion.json"
+    atomic_json(path, completion, immutable=True)
+    graph = {
+        "context": context,
+        "completion": completion,
+        "manifest": {
+            "tables": {policy["table"]: load("native_research_read_inputs.v1.json")["table"]}
+        },
+        "tables": {policy["table"]: table},
+    }
+
+    class FeatureOwner:
+        @classmethod
+        def _verified(cls, root, completion):
+            return None, graph
+
+    class PinnedFeature:
+        def to_pyarrow_dataset(self):
+            return ds.dataset(table)
+
+    monkeypatch.setattr(owner, "NativeFeatureSnapshot", FeatureOwner)
+    monkeypatch.setattr(owner, "open_pinned_table", lambda reference: PinnedFeature())
+    metric = "sma_20" if layer == "L1" else "rolling_high_20"
+    return (
+        reader.read(
+            {
+                **request,
+                "layer": layer,
+                "completion": pin(reader.root, path),
+                "projection": ["close", metric],
+            }
+        ),
+        policy,
+    )
+
+
+def rehashed_projected_research_wire(result, context):
+    """Rehash every inline body/ID; no claim to authenticate inaccessible storage pins."""
+    import base64
+
+    context = copy.deepcopy(context)
+    numerical = context["numerical_identity"]
+    numerical["policy_sha256"] = context["policy_sha256"]
+    numerical["digest"] = owner.sha({k: v for k, v in numerical.items() if k != "digest"})
+    identifier = "research_context_id" if context["layer"] == "L0" else "feature_context_id"
+    context[identifier] = ("NCTX:" if context["layer"] == "L0" else "NFCTX:") + owner.sha(
+        {k: v for k, v in context.items() if k != identifier}
+    )
+    envelope = result.envelope
+    envelope["source"]["context_payload"] = context
+    envelope["source"]["context"]["sha256"] = owner.sha(context)
+    table = result.table
+    if context["layer"] == "L0":
+        field = table.schema.field("research_context_id")
+        table = table.set_column(
+            table.column_names.index(field.name),
+            field,
+            pa.array([context[identifier]] * table.num_rows, type=field.type),
+        )
+    envelope["payload"] = {
+        "row_count": table.num_rows,
+        "columns": table.column_names,
+        "schema_ipc_base64": base64.b64encode(table.schema.serialize().to_pybytes()).decode(),
+        "ipc_sha256": hashlib.sha256(owner._ipc(table)).hexdigest(),
+    }
+    if context["layer"] != "L0":
+        assert envelope["payload"] == result.envelope["payload"]
+    owner.validate_identity_contract("native_research_read.v1.json", envelope, result.namespace)
+    owner._validate_payload(table, envelope)
+    metadata = {owner.native_read_rules()["metadata_key"].encode(): canonical_bytes(envelope)}
+    return owner._ipc(table.replace_schema_metadata(metadata))
+
+
+@pytest.fixture(params=["L0", "price-L1", "price-L2", "core-L1", "core-L2"])
+def projected_research_variant(native_reader, monkeypatch, request):
+    if request.param == "L0":
+        reader, query, _ = native_reader
+        result = reader.read({**query, "projection": ["close"]})
+        policy = result.envelope["source"]["context_payload"]["policy"]
+    else:
+        family, layer = request.param.split("-")
+        result, policy = projected_feature_read(native_reader, monkeypatch, layer, family == "core")
+    decoded = owner.NativeResearchRead.from_ipc(result.to_ipc())
+    assert decoded.table.equals(result.table, check_metadata=True)
+    assert decoded.table["close"][0].as_py() == LITERAL_CLOSE
+    assert "volume" not in decoded.table.column_names
+    assert "true_range" not in decoded.table.column_names
+    return result, policy
+
+
+def test_projected_wire_rejects_rehashed_omitted_unprojected_layout(projected_research_variant):
+    result, _ = projected_research_variant
+    context = result.envelope["source"]["context_payload"]
+    if context["layer"] == "L0":
+        layouts = copy.deepcopy(owner.l0_layouts())
+    else:
+        layouts = {
+            result.envelope["source"]["table_name"]: owner._layout(result.envelope["source"])
+        }
+    fields = layouts[result.envelope["source"]["table_name"]]["fields"]
+    assert any(field["name"] == "true_range" for field in fields)
+    fields[:] = [field for field in fields if field["name"] != "true_range"]
+    context["layout_sha256"] = owner.sha(layouts)
+    wire = rehashed_projected_research_wire(result, context)
+    with pytest.raises(SchemaValidationError, match="layout hash mismatch"):
+        owner.NativeResearchRead.from_ipc(wire)
+
+
+@pytest.mark.parametrize(
+    "projected_research_variant", ["price-L1", "price-L2", "core-L1", "core-L2"], indirect=True
+)
+def test_projected_wire_rejects_noncanonical_policy_minimum(projected_research_variant):
+    result, policy = projected_research_variant
+    changed = copy.deepcopy(policy)
+    if "catalog" in changed:
+        row = next(row for row in changed["catalog"] if row["materialized"])
+        row["admission_minimum"] += 1
+        assert len(changed["catalog"]) == len(policy["catalog"])
+    else:
+        changed["requirements"][next(iter(changed["requirements"]))] += 1
+    context = result.envelope["source"]["context_payload"]
+    context["policy_sha256"] = owner.sha(changed)
+    wire = rehashed_projected_research_wire(result, context)
+    with pytest.raises(SchemaValidationError, match="feature policy hash mismatch"):
+        owner.NativeResearchRead.from_ipc(wire)
+
+
+@pytest.mark.parametrize("layer", ["L1", "L2"])
+@pytest.mark.parametrize("mutation", ["minimum", "materialized"])
+def test_core_projected_wire_capability_cannot_contradict_policy(
+    native_reader, monkeypatch, layer, mutation
+):
+    result, policy = projected_feature_read(native_reader, monkeypatch, layer, True)
+    assert owner.NativeResearchRead.from_ipc(result.to_ipc()).table.equals(result.table)
+    context = result.envelope["source"]["context_payload"]
+    metric = "sma_20" if layer == "L1" else "rolling_high_20"
+    row = next(row for row in context["capabilities"] if row["feature"] == metric)
+    assert row["required_observations"] == (20 if layer == "L1" else 300)
+    if mutation == "minimum":
+        row["required_observations"] += 1
+    else:
+        row = {
+            **{key: row[key] for key in ["sequence", "feature", "analysis_rows", "reason"]},
+            "materialized": False,
+            "state": "unverified_policy",
+        }
+        context["capabilities"] = [
+            row if item["feature"] == metric else item for item in context["capabilities"]
+        ]
+    assert len(context["capabilities"]) == len(policy["catalog"])
+    assert context["policy_sha256"] == owner.sha(policy)
+    wire = rehashed_projected_research_wire(result, context)
+    with pytest.raises(SchemaValidationError, match="feature capability contradicts fixed policy"):
+        owner.NativeResearchRead.from_ipc(wire)
+
+
+@pytest.mark.parametrize("layer", ["L1", "L2"])
+def test_generated_capability_states_and_stored_descriptors_survive_projection(
+    native_reader, monkeypatch, layer
+):
+    from trading_advisor_3000.product_plane.research.native_features import feature_capabilities
+
+    result, policy = projected_feature_read(native_reader, monkeypatch, layer, True)
+    context = result.envelope["source"]["context_payload"]
+    sequence = context["source"]["sequences"][0]
+    measured = {"sequence": sequence, "analysis_rows": 1, "features": {}}
+    measured["quantities"] = {
+        "volume": {"known": 0, "not_applicable": 0},
+        "open_interest": {"known": 0, "not_applicable": 2},
+    }
+    for row in policy["catalog"]:
+        if row["materialized"]:
+            ready = row["admission_minimum"] <= 2 and not row["quantity_requirements"]
+            measured["features"][row["output"]] = {
+                "finite_count": int(ready),
+                "analysis_finite_count": int(ready),
+                "first_finite_bar_index": 1 if ready else None,
+                "first_finite_source_begin": "2020-01-02 12:01:00" if ready else None,
+            }
+    capabilities = feature_capabilities(context["source"], policy, [measured])
+    by_name = {row["feature"]: row for row in capabilities}
+    expected = {
+        "sma_20" if layer == "L1" else "rolling_high_20": "insufficient_history",
+        "obv" if layer == "L1" else "volume_change_1": "missing_source",
+        "oi_change_1": "not_applicable",
+    }
+    if layer == "L2":
+        expected["session_high"] = "unverified_policy"
+    assert {name: by_name[name]["state"] for name in expected} == expected
+    context["capabilities"] = capabilities
+    context["numerical_identity"]["kernels"]["adapter"] = "9" * 64
+    context["runtime_code_sha256"] = "8" * 64
+    decoded = owner.NativeResearchRead.from_ipc(rehashed_projected_research_wire(result, context))
+    assert decoded.table.equals(result.table, check_metadata=True)
+    stored = decoded.envelope["source"]["context_payload"]
+    assert stored["capabilities"] == capabilities
+    assert stored["numerical_identity"]["kernels"]["adapter"] == "9" * 64
+    assert stored["runtime_code_sha256"] == "8" * 64

@@ -35,6 +35,7 @@ from trading_advisor_3000.product_plane.data_plane.snapshot_reads import (
 from trading_advisor_3000.product_plane.research.snapshot_reads import read_native_frame
 
 if TYPE_CHECKING:
+    from trading_advisor_3000.product_plane.research.native_cf_reads import NativeCfReader
     from trading_advisor_3000.product_plane.research.native_reads import NativeResearchReader
 
 DATA_INSPECTOR_ROOT_ENV = "TA3000_DATA_INSPECTOR_ROOT"
@@ -630,6 +631,7 @@ def create_app(
     snapshot_cache: SnapshotReadCache | None = None,
     observation_reader: NativeObservationSnapshot | None = None,
     research_reader: NativeResearchReader | None = None,
+    cf_reader: NativeCfReader | None = None,
 ) -> FastAPI:
     resolved_data_root = resolve_data_root(data_root, env=env)
     app = FastAPI(title="TA3000 Data Inspector", version="0.2.0")
@@ -657,6 +659,20 @@ def create_app(
             raise HTTPException(status_code=503, detail="native Research reader is not configured")
         try:
             result = research_reader.read(payload, cache=snapshot_cache)
+            return Response(
+                content=result.to_ipc(), media_type="application/vnd.apache.arrow.stream"
+            )
+        except SchemaValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except SnapshotUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/data-inspector/native-cf-read")
+    def read_native_cf(payload: dict) -> Response:
+        if cf_reader is None:
+            raise HTTPException(status_code=503, detail="native CF reader is not configured")
+        try:
+            result = cf_reader.read(payload, cache=snapshot_cache)
             return Response(
                 content=result.to_ipc(), media_type="application/vnd.apache.arrow.stream"
             )
