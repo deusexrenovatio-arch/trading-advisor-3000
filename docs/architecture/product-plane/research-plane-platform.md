@@ -158,8 +158,11 @@ separately reviewed admission; do not widen this mode silently.
 
 ## Unpublished observed feature layers
 
-Decision status: proposed; independent design admission required before dependent
-implementation. Surface: product-plane; impact: contract-change. Owner: Research
+Decision status: first seven outputs delivered by PRs #267/#268; native
+producer/public reader, frozen original-byte/library oracle, actual worker guards
+and seven immutable lifecycle cases passed on the isolated 6,728-row input.
+This does not close the complete active profiles. Surface: product-plane;
+impact: contract-change. Owner: Research
 Data Factory. Solution Class: staged. Critical Contour: data-integration-closure.
 Forbidden Shortcuts: scaffold-only. Closure Evidence: planned real integration
 test from completed L0 through native L1/L2 Delta tables and public pinned reader,
@@ -259,6 +262,186 @@ execution stay unavailable without their separately admitted source boundaries.
 A targeted daily warmup prefix is authorized when a specific positive behavior
 needs it, but requires a separate source generation and source-owner amendment;
 the existing acquisition guard and old snapshots are not relaxed here.
+
+## Observed core-math projection
+
+Decision status: proposed; independent design admission before dependent runtime.
+Surface: product-plane; impact: contract-change. Owner: Research Data Factory.
+Solution Class: staged. Critical Contour: data-integration-closure. Forbidden
+Shortcuts: scaffold-only. Closure Evidence: planned full applicable core-math
+native Spark/Delta producer -> public pinned consumer -> independent frozen
+original-byte reference, complete catalog coverage and immutable lifecycle.
+Shortcut Waiver: none.
+
+The active `core_v1` catalog has 103 L1 and 94 L2 layer/output slots. Retain
+52 existing L1 specs/79 outputs and 72 existing L2 outputs: price relationships
+and explicitly observed numeric-volume arithmetic. Intraday/swing are catalog
+projections, not separate engines. The other 46 slots remain visible with typed
+source reasons: L1 five OI/19 volume-profile outputs; L2 seven OI/15 session,
+week or VWAP outputs. Do not equate this observed projection to the accepted
+CF/15m/1h/4h/1d campaign or to canonical/backtest/execution admission.
+
+Use the same completed L0 and private Research root, maximum eight sequences,
+20,000 rows, 128 files and 64 MiB per table; source/code/reference RO and only
+Research RW in one-shot pinned Spark/Delta/Dagster containers. Preserve all four
+instruments, expired SRU6 and both original 1m/1d labels. No bulk acquisition or
+publication is part of this decision. The actual input remains 6,728 observations;
+the two-row daily sequences have truthful history limitations.
+
+Reuse the one existing feature writer, root OS lock, command identity, attempts,
+replay/conflict, saved-graph 0/1/>1 handling and terminal receipt. Add two closed
+versioned core profiles to that lifecycle; do not clone the recovery protocol or
+introduce a configurable plugin engine. L1 core reads completed L0; L2 core must
+read completed core L1, not the first-seven projection. Check the expected parent
+layer in both its receipt and pinned context before recursion, and the exact
+parent profile before Spark. The fixed
+acyclic depth remains L2 -> L1 -> L0 -> completed native MD.
+
+Keep every old shared definition, first-seven policy, receipt and reader behavior
+intact. New thin wrappers and context/intent/completion/numerical definitions
+belong to `market_identity.v3.json`, the sole shape authority. The closed core
+policy is Research data, resolved by its known version and canonical hash. Store
+the complete catalog, dependencies, explicit passthroughs, output types, quantity
+bases and history admission in the versioned Research `native_core_policy.py`
+data module, following the existing policy-module pattern. Seal the
+resolved existing registry descriptors/parameters and origin catalog by hashes;
+fresh factory drift rejects compute, while old reads use the immutable policy
+version and stored numerical identity rather than today's factory.
+
+The new closed wire family is `native_research_core_policy/context/intent/
+completion.v1`, with a separate internal numerical definition. Context keeps
+the existing input mode, layer, base NCTX, completed Research compute DTO,
+NFCTX, runtime code hash, layout hash and quality. Its `policy` is a small known
+reference (version/profile/table/parent-table); `policy_sha256` binds the complete
+resolved policy data and `numerical_identity` binds the sealed profile descriptor.
+Intent adds an explicit core contract/profile identity to the existing canonical
+command/source/parent/policy/numerical/code fields. Completion retains the
+existing complete_unpublished/attempt/snapshot/context/intent/parent crosslinks
+under its own core contract label. A known contract/profile lookup selects the
+validator and policy; unknown labels/hashes fail closed.
+
+`build_feature_command` gets one optional closed profile selector, defaulting to
+the existing first-seven behavior. The same opt-in feature Dagster operation and
+`materialize_feature_command` handle both known families. `NativeFeatureSnapshot`
+dispatches the two closed receipt/context families; its existing price-family
+readback stays compatible. Shared Research compute DTO v1 is unchanged: the L1
+reader resolves its verified actual layout/profile, and L2 accepts only the
+matching core L1 parent. There is no arbitrary callable/plugin configuration.
+
+Separate spec call admission from output metadata. A multi-output spec is one
+atomic library call, not a dict whose keys ambiguously mean both spec IDs and
+columns. Use fixed configured group-history thresholds grounded in the pinned
+backend/prefix reference; these are conservative profile policies, not universal
+mathematical minima or source facts. Keep observed call-safe thresholds distinct
+from native first-finite positions. For example this backend is call-safe for
+MACD at 26 observations but signal/histogram first become finite at 34; KST is
+safe at 30 but its signal first becomes finite at 53. Configure complete-group
+admission without a blanket warmup mask: after a group is admitted, preserve all
+native seed values/NULLs through the full observed history.
+
+The fixed L1 mapping is deterministic from the pinned prefix summary
+`45af19385e67b3eaf19ab8fb85b5a965ec8d63fd19188582760d3227295e13cc`:
+for each retained spec, take the maximum of its stable-all-sequences call-safe
+suffix start and one plus every non-NULL n300 first-finite index of its outputs
+over applicable source vectors. This maximum is the configured atomic-group
+admission minimum for every output of that spec; keep the observed call-safe
+minimum separately. Seal the resulting 52-entry mapping in the versioned policy.
+This deliberately conservative sample-based policy gives MACD34, STOCH18,
+KST53, HMA200213, close-slope21, realized-volatility21, volume-normalization20,
+PVT2 and passthrough TR1. It is not an assertion of universal minimum history.
+
+Below this configured minimum, omit the complete spec and report
+insufficient_history; do not call it and then replace its native output mask.
+At or above the minimum, compute the full group with all native seeds. An output
+with no finite analysis value is never ready. Only independently verified
+arithmetic degeneracy or confirmed-pivot absence may receive those specific
+reasons. An unexplained all-NULL/warmup-only result after declared admission
+fails the candidate rather than being silently relabeled history/arithmetic or
+counted as full-math success. Shape-valid library output alone is not acceptance.
+
+For L2 use the existing core profile's configured warmup300 as conservative
+whole-group history admission, not as a first-finite mask. The already proven
+close-change1 and numeric volume-change1 retain two-observation admission;
+passthrough capabilities inherit the corresponding L1 admission. Missing history
+excludes an operation before its kernel call. Actual finite masks/counts/first
+keys and positive analysis-slice finite counts determine observed readiness.
+Undefined arithmetic and absence of confirmed pivots are explicit reasons, not
+placeholder success or invented values. Other prefix classes need their own
+admission evidence before weakening these configured thresholds.
+
+Numeric volume is an observed float64 working copy with
+`observed_numeric_quantity.v1` basis. An unknown unit does not block arithmetic;
+it grants no lots/contracts/notional interpretation, unit stability, cross-asset
+comparability, money or execution meaning. Index volume/OI and equity OI remain
+N/A; absent futures OI remains missing source. Never turn NULL into zero. Preserve
+raw Decimal, source units, NULL reasons and lineage outside the Pandas adapter.
+No calendar, `ts`, session date, roll epoch, CF offset or canonical bar flags are
+created to satisfy an old wrapper. Missing flags provide no compute permission.
+
+Continue the existing unmasked L1/L2 kernels only after this explicit gate.
+Pass exactly admitted spec groups/output dependencies and temporary numeric
+columns to Arrow/Pandas; join only genuinely new outputs to original Spark
+buffers on the complete unique native grain, with both anti-joins empty and
+conserved cardinality. L1 true_range is an exact L0 passthrough. L2 close_slope20
+and rvol20 are exact L1 passthroughs; do not overwrite or duplicate them. The
+151 layer slots represent 148 new unique numeric fields above L0. Parent refs,
+all parent fields/features and base NCTX remain exact; each child has a separately
+hashed NFCTX and known profile/layout identity.
+
+The new context carries complete 103/94 catalog coverage per admitted sequence,
+not just the retained physical fields. Validate the exact unique cross-product
+(up to 824/752 entries for this scope), with no extra/missing operation. Retained
+fields have recomputed physical stats, analysis rows, finite counts and first
+keys. Non-materialized unavailable entries explicitly say so; they have no fake
+numeric value/statistics. States distinguish ready, history, N/A, missing source,
+unverified semantic policy and arithmetic/pivot absence. An applicable
+not_implemented entry fails the full-math gate. Origin subset projections must
+preserve these unavailable entries rather than silently dropping them.
+
+Each coverage entry names its exact source sequence/output, materialized flag,
+state, configured admission minimum or unavailable reason, and analysis-row
+count. Materialized fields carry physical finite/analysis-finite counts and
+first finite index/source key; unmaterialized fields omit numerical statistics.
+Validate counts against sequence/analysis rows, NULL first-key consistency and
+known discrete value sets. N/A/source-fact unavailability takes precedence over
+history; positive numeric volume with unknown units remains admissible. If a new
+input makes an excluded numeric group applicable (for example actual reported
+OI), reject that unsupported policy/input combination instead of relabeling it
+missing source or pretending the full-math catalog is implemented.
+
+Numerical identity binds the actual existing family/adapter AST, sealed resolved
+profile parameters, full history/gap/seed/zero-offset/no-fill policy, actual
+Python/NumPy/Pandas/Spark/Delta/Arrow versions, pandas-ta-classic0.4.47 native
+backend and TA-Lib absence. Also bind installed TA Python-source digest and
+optional Numba/SciPy presence/versions/selection flags; absence of traced Python
+calls does not prove those optional runtimes irrelevant. Check the actual Spark
+worker against the admitted profile. Keep numerical identity separate from raw
+application source provenance, quality and Git labels. Raw-byte reproduction uses
+the frozen source capsule; a Git checkout may differ only in line endings.
+
+Freeze comparison before producer execution: source/parent/NULL masks and
+discrete direction/cross codes exact; other new features use
+`abs(actual-reference) <= 1e-10 + 1e-12*abs(reference)`; nonfinite values forbidden.
+The independent full reference manifest is
+`1027fed609485e757df307467b72e008a9c1eaa1036480b2faf3cf4b8b7309df`:
+151 retained slots over 6,728 original-byte observations, no missing expected;
+L1 direct pinned public-library compatibility and independent custom operations,
+L2 independent NumPy/Pandas relationships. It is reference-only, not Research
+materialization. Its 1,576 catalog assessments are 593 finite/553 history/154
+N/A/48 missing OI/228 semantic gaps; actual producer parity remains required.
+The separate prefix manifest
+`33bace727062cf19cad019b5b3e5a6e1a0530846659e746988c4ef3bf3753194`
+records 59,192 fixed dispatcher trials over n1..300 and actual daily n1..2;
+its minima are empirical for these vectors/backend, not universal guarantees.
+
+Acceptance requires one complete real core L1 -> core L2 rebuild and pinned public
+readback against that frozen reference, all catalog states/stats and passthrough
+buffers, discrete values, actual backend/mounts and old first-seven/L0 readback.
+Regress missing dependencies before worker, duplicate/missing output, passthrough
+mutation, unknown quantity units with present numeric volume, N/A/missing OI,
+forbidden time/CF outputs, worker drift and immutable replay/recovery. Source
+clock/session/finality/availability, VP tick/grid/coverage, CF/PIT and execution
+remain separately unavailable; no promotion or production claim follows here.
 
 ## Purpose
 This page is the stable map of the current research platform.
