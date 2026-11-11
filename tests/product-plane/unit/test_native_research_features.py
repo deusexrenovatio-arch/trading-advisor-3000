@@ -177,3 +177,20 @@ def test_parent_layer_checked_before_recursive_reader(monkeypatch, layer, parent
     monkeypatch.setattr(reader_owner, "NativeFeatureSnapshot", forbidden)
     with pytest.raises(SchemaValidationError, match="parent layer mismatch"):
         reader_owner.parent_reader(Path("/research-trial"), {}, layer)
+
+
+def test_parent_context_layer_checked_before_recursive_reader(monkeypatch):
+    def pinned(_root, reference):
+        return json.dumps(
+            {"layer": "L1", "context": {"path": "context"}}
+            if reference["path"] == "receipt"
+            else {"layer": "L2"}
+        ).encode()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("forged parent context reached recursive reader")
+
+    monkeypatch.setattr(reader_owner, "pinned_bytes", pinned)
+    monkeypatch.setattr(reader_owner, "NativeFeatureSnapshot", forbidden)
+    with pytest.raises(SchemaValidationError, match="parent context layer mismatch"):
+        reader_owner.parent_reader(Path("/research-trial"), {"path": "receipt"}, "L2")
