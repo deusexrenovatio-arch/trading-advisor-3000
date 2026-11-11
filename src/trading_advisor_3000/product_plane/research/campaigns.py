@@ -97,6 +97,7 @@ RESEARCH_DATA_PREP_KWARGS = {
     "split_method",
     "series_mode",
     "continuous_front_policy",
+    "calendar_roll_schedule",
     "dataset_contract_ids",
     "dataset_instrument_ids",
     "spark_master",
@@ -217,6 +218,8 @@ def build_materialization_key(normalized_config: dict[str, Any]) -> str:
         "volume_profile": dict(normalized_config.get("volume_profile", {})),
         "validation": dict(normalized_config.get("validation", {})),
     }
+    if dataset.get("calendar_roll_schedule"):
+        payload["calendar_roll_schedule"] = dataset["calendar_roll_schedule"]
     return _stable_hash(payload)
 
 
@@ -254,6 +257,11 @@ def _dagster_common_kwargs(
         "validation_plan": validation_plan,
         "series_mode": str(dataset["series_mode"]),
         "continuous_front_policy": dict(dataset["continuous_front_policy"]),
+        **(
+            {"calendar_roll_schedule": dataset["calendar_roll_schedule"]}
+            if "calendar_roll_schedule" in dataset
+            else {}
+        ),
         "dataset_contract_ids": tuple(str(item) for item in dataset["contract_ids"]),
         "dataset_instrument_ids": tuple(str(item) for item in dataset["instrument_ids"]),
         "indicator_set_version": str(profiles["indicator_set_version"]),
@@ -1007,7 +1015,7 @@ def _normalize_dataset(*, payload: dict[str, Any]) -> dict[str, Any]:
     continuous_front_policy = ContinuousFrontPolicy.from_config(
         dict(payload.get("continuous_front_policy") or payload.get("continuous_front") or {})
     ).to_config_dict()
-    return {
+    result = {
         "dataset_version": _normalized_non_empty(payload["dataset_version"]),
         "dataset_name": _normalized_non_empty(payload["dataset_name"]),
         "universe_id": _normalized_non_empty(payload["universe_id"]),
@@ -1030,6 +1038,9 @@ def _normalize_dataset(*, payload: dict[str, Any]) -> dict[str, Any]:
         "contract_ids": _sorted_unique_strings(payload["contract_ids"]),
         "instrument_ids": _sorted_unique_strings(payload["instrument_ids"]),
     }
+    if "calendar_roll_schedule" in payload:
+        result["calendar_roll_schedule"] = dict(payload["calendar_roll_schedule"])
+    return result
 
 
 def _normalize_profiles(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1681,6 +1692,11 @@ def _write_materialization_lock(
             "dataset_name": str(dataset["dataset_name"]),
             "series_mode": str(dataset["series_mode"]),
             "continuous_front_policy": dict(dataset["continuous_front_policy"]),
+            **(
+                {"calendar_roll_schedule": dataset["calendar_roll_schedule"]}
+                if "calendar_roll_schedule" in dataset
+                else {}
+            ),
             "timeframes": list(dataset["timeframes"]),
             "indicator_set_version": str(profiles["indicator_set_version"]),
             "indicator_profile_version": str(profiles["indicator_profile_version"]),

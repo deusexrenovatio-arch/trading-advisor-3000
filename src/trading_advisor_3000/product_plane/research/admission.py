@@ -480,6 +480,11 @@ def _native_domain_checks(function, options, value, *, sources, input_roots):
             Path(expected).resolve().as_posix() if expected else None
         ):
             raise ValueError(f"refresh admission native input path changed: {key}")
+    if not domain.get("native_entry") and "calendar_roll_schedule" in options:
+        actual = _native_value(options["calendar_roll_schedule"] or {})
+        expected = _native_value(domain.get("calendar_roll_schedule") or {})
+        if actual != expected:
+            raise ValueError("refresh admission native parameter changed: calendar_roll_schedule")
     aliases = {
         "instrument_ids": "dataset_instrument_ids",
         "contract_ids": "dataset_contract_ids",

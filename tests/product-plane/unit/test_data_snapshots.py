@@ -1015,3 +1015,80 @@ def test_canonical_parameter_renewal_requires_bound_money_effects(tmp_path, defe
         previous_tables=previous,
     )
     assert (name in scope["covered_tables"]) is (mutation is None)
+
+
+@pytest.mark.parametrize("calendar_case", ["absent", "same", "added", "changed_pin"])
+def test_upstream_cf_reuse_requires_exact_calendar_metadata(tmp_path, calendar_case):
+    from trading_advisor_3000.dagster_defs import research_assets  # registers actual roles
+    from trading_advisor_3000.product_plane.research import data_snapshots as owner
+
+    assert research_assets.continuous_front_bars is not None
+    outputs = owner._STAGE_OUTPUTS["continuous_front_bars"]
+    tables = {}
+    for name in outputs:
+        table_path = tmp_path / (name + ".delta")
+        write_deltalake(str(table_path), pa.table({"id": [1]}))
+        tables[name] = snapshots.capture_table(table_path)
+    config = {
+        "materialized_output_dir": str(tmp_path / "research"),
+        "dataset_version": "fixture",
+        "series_mode": "continuous_front",
+    }
+    success = SimpleNamespace(value="SUCCESS")
+    instance = SimpleNamespace(
+        get_run_by_id=lambda _: SimpleNamespace(job_name="moex_cf_catch_up_job", status=success),
+        get_run_step_stats=lambda _: [
+            SimpleNamespace(step_key="continuous_front_bars", status=success)
+        ],
+    )
+    context = SimpleNamespace(
+        run_id="downstream",
+        op_config=config,
+        instance=instance,
+        dagster_run=SimpleNamespace(
+            tags={
+                "ta3000/upstream_job": "moex_cf_catch_up_job",
+                "ta3000/upstream_run_id": "upstream",
+            }
+        ),
+    )
+    fixture = Path(__file__).resolve().parents[1] / "fixtures/contracts/native_cf_inputs.v1.json"
+    schedule = json.loads(fixture.read_text(encoding="utf-8"))["calendar_roll_schedule"]
+    parameters = owner._parameters(config)
+    if calendar_case in {"same", "changed_pin"}:
+        parameters["calendar_roll_schedule"] = schedule
+    result = {
+        "status": "PASS",
+        "dataset_version": "fixture",
+        "output_paths": {name: ref["table_path"] for name, ref in tables.items()},
+        "rows_by_table": {name: 1 for name in tables},
+        "qc_rows": [{"status": "PASS"}],
+    }
+    source = {
+        "run_id": "upstream",
+        "dataset_version": "fixture",
+        "runtime_provenance": {},
+        "parents": ["pinned-data"],
+        "parent_manifest_sha256": "a" * 64,
+        "parameters": parameters,
+        "tables": tables,
+        "quality_checks": {"continuous_front_bars": "PASS"},
+        "quality_owners": {"continuous_front_bars": "upstream"},
+        "quality_evidence": {"continuous_front_bars": {"cf_result": result}},
+    }
+    snapshots.atomic_json(owner._pending_path(context, config, "upstream"), source)
+    pending = copy.deepcopy(source)
+    pending.update(run_id="downstream", quality_checks={}, quality_evidence={})
+    if calendar_case == "added":
+        pending["parameters"]["calendar_roll_schedule"] = schedule
+    if calendar_case == "changed_pin":
+        pending["parameters"]["calendar_roll_schedule"]["governing_rules"][0]["body"]["sha256"] = (
+            "f" * 64
+        )
+    actual = owner._upstream_cf_result(context, config, pending)
+    if calendar_case in {"added", "changed_pin"}:
+        assert actual is None
+        assert pending["quality_checks"] == {}
+    else:
+        assert actual["status"] == "PASS-NOOP"
+        assert actual["reused_from_run_id"] == "upstream"
