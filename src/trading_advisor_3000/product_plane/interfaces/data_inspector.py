@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 
 from deltalake import DeltaTable
 from fastapi import FastAPI, HTTPException, Query
@@ -33,6 +33,9 @@ from trading_advisor_3000.product_plane.data_plane.snapshot_reads import (
     read_native_bars,
 )
 from trading_advisor_3000.product_plane.research.snapshot_reads import read_native_frame
+
+if TYPE_CHECKING:
+    from trading_advisor_3000.product_plane.research.native_reads import NativeResearchReader
 
 DATA_INSPECTOR_ROOT_ENV = "TA3000_DATA_INSPECTOR_ROOT"
 DEFAULT_DATA_ROOT = Path("D:/TA3000-data/trading-advisor-3000-primary-20261011")
@@ -626,6 +629,7 @@ def create_app(
     snapshot_reader: PinnedNativeSnapshot | None = None,
     snapshot_cache: SnapshotReadCache | None = None,
     observation_reader: NativeObservationSnapshot | None = None,
+    research_reader: NativeResearchReader | None = None,
 ) -> FastAPI:
     resolved_data_root = resolve_data_root(data_root, env=env)
     app = FastAPI(title="TA3000 Data Inspector", version="0.2.0")
@@ -641,6 +645,20 @@ def create_app(
             return Response(
                 content=result.to_ipc(observation_reader.namespace),
                 media_type="application/vnd.apache.arrow.stream",
+            )
+        except SchemaValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except SnapshotUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/data-inspector/native-research-read")
+    def read_native_research(payload: dict) -> Response:
+        if research_reader is None:
+            raise HTTPException(status_code=503, detail="native Research reader is not configured")
+        try:
+            result = research_reader.read(payload, cache=snapshot_cache)
+            return Response(
+                content=result.to_ipc(), media_type="application/vnd.apache.arrow.stream"
             )
         except SchemaValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

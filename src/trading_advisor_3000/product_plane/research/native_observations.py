@@ -223,14 +223,13 @@ def tree_rows(context, counts):
     return result
 
 
-def _source_rows(reader):
-    graph = reader.verify()
+def _source_rows(reader, graph):
     return pa.concat_tables(
-        [reader.read(request).table for request in graph["intent"]["selection"]]
+        [reader._read_verified(graph, request).table for request in graph["intent"]["selection"]]
     )
 
 
-def validate_l0_tables(root, manifest, context, source_reader):
+def validate_l0_tables(root, manifest, context, source):
     tables = {}
     layouts = l0_layouts()
     require(
@@ -272,7 +271,6 @@ def validate_l0_tables(root, manifest, context, source_reader):
         tables[name] = data.sort_by([(k, "ascending") for k in layout["grain"]])
     bars = tables["research_bar_views"]
     require(bars.num_rows == context["source"]["row_count"], "Research row conservation failed")
-    source = _source_rows(source_reader)
     native = contract_constants()["storage_layout"]["native_bars"]
     fields = [f["name"] for f in native["fields"]]
     require(
@@ -342,10 +340,10 @@ def validate_l0_tables(root, manifest, context, source_reader):
 def validate_l0_graph(root, *, snapshot_pin, context_pin, intent_pin, input_sha256):
     context = json.loads(pinned_bytes(root, context_pin))
     require(context["source"]["source_root"] == "/trial", "Research source mount mismatch")
-    source_reader = NativeObservationSnapshot(
+    source_reader, source_graph = NativeObservationSnapshot._verified(
         Path(context["source"]["source_root"]), context["source"]["completion"]
     )
-    source = source_reader.compute_metadata()
+    source = source_reader._compute_metadata(source_graph)
     validate_l0_context(context, source)
     intent = json.loads(pinned_bytes(root, intent_pin))
     validate_identity_contract("native_research_l0_intent.v1.json", intent, source["namespace"])
@@ -388,7 +386,9 @@ def validate_l0_graph(root, *, snapshot_pin, context_pin, intent_pin, input_sha2
         "context": context,
         "intent": intent,
         "manifest": manifest,
-        "tables": validate_l0_tables(root, manifest, context, source_reader),
+        "tables": validate_l0_tables(
+            root, manifest, context, _source_rows(source_reader, source_graph)
+        ),
     }
 
 
@@ -501,9 +501,17 @@ class NativeResearchSnapshot:
     """Public readback of one explicit, completed, unpublished L0 graph."""
 
     def __init__(self, root: Path, completion_pin: dict):
+        self._initialize_verified(root, completion_pin)
+
+    def _initialize_verified(self, root, completion_pin):
         self.root = root.resolve()
         self._completion_json = canonical_bytes(completion_pin).decode()
-        self.verify()
+        return self.verify()
+
+    @classmethod
+    def _verified(cls, root, completion_pin):
+        reader = cls.__new__(cls)
+        return reader, reader._initialize_verified(root, completion_pin)
 
     def verify(self):
         try:

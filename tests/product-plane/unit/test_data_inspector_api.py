@@ -304,3 +304,56 @@ def test_data_inspector_sorts_rows_by_time_desc_by_default_and_selected_column(
             },
         )
         assert missing_sort.status_code == 400
+
+
+def test_native_research_route_requires_explicit_reader(tmp_path):
+    client = TestClient(create_app(data_root=tmp_path))
+    response = client.post("/api/data-inspector/native-research-read", json={})
+    assert response.status_code == 503
+
+
+def test_native_research_route_calls_public_reader_and_preserves_ipc(tmp_path):
+    from trading_advisor_3000.product_plane.common.snapshot_read_cache import SnapshotReadCache
+
+    calls = []
+    wire = b"native IPC bytes returned by the public Research owner"
+
+    class Result:
+        def to_ipc(self):
+            return wire
+
+    class Reader:
+        def read(self, payload, *, cache=None):
+            calls.append((payload, cache))
+            return Result()
+
+    cache = SnapshotReadCache(max_bytes=1000)
+    payload = {"selected": "explicit pin"}
+    client = TestClient(
+        create_app(data_root=tmp_path, research_reader=Reader(), snapshot_cache=cache)
+    )
+    response = client.post("/api/data-inspector/native-research-read", json=payload)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/vnd.apache.arrow.stream"
+    assert response.content == wire
+    assert calls == [(payload, cache)]
+
+
+def test_native_research_route_uses_existing_invalid_and_unavailable_statuses(tmp_path):
+    from trading_advisor_3000.product_plane.common.data_snapshots import SnapshotUnavailableError
+    from trading_advisor_3000.product_plane.contracts.schema_validation import SchemaValidationError
+
+    for error, status in [
+        (SchemaValidationError("invalid request"), 422),
+        (SnapshotUnavailableError("unavailable pins"), 409),
+    ]:
+
+        class Reader:
+            def read(self, payload, *, cache=None):
+                raise error
+
+        response = TestClient(create_app(data_root=tmp_path, research_reader=Reader())).post(
+            "/api/data-inspector/native-research-read", json={}
+        )
+        assert response.status_code == status
+        assert response.json() == {"detail": str(error)}
