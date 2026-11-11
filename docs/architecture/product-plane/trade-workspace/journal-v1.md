@@ -138,3 +138,22 @@ The compact JSON export is generated from readable DTOs and checked for exact
 semantic parity. It is not a second hand-maintained validation authority.
 Existing Journal, Intake, market/research, model and production services are
 outside this delivery. No deployment or full Workspace acceptance is claimed.
+
+## Manual React forms, 2026-11-11
+
+Status: decision accepted; implementation staged; deployment separate.
+React/TypeScript/Vite serves `/journal/` on the FastAPI origin. Server v1 DTOs and PostgreSQL remain the only contract/writer; no SQL or wire changes.
+
+Scope: bounded list/search, manual card create/edit, notes and pinned history. Unedited targets, technical fields, links, sources, unknowns and execution facts stay intact and inspectable.
+Advanced target/technical/execution/status editors follow separately. No inferred values or executions.
+
+Drafts retain their original trade/revision in sessionStorage. Before POST, localStorage retains the frozen route/payload/command_id.
+Only its matching receipt marks a save complete; status/retry uses the same identity.409 preserves draft/revision; reset is explicit. No automatic rebase or second unresolved write.
+One Journal destination per browser origin bounds this local deployment.
+
+Reuse Stage1 pinned client/types and React/TS/Vite with native labels/dialog focus/cancel and React text escaping. Vite native JSX suffices; dev FastRefresh is omitted.
+The full Stage1 UI is a larger follow-up; another framework duplicates the owner, while JSON-only editing fails the manual-entry goal.
+
+Build before API startup and wheel packaging. Assets are uncommitted artifacts; missing build returns503 while API works. Rollback replaces binaries/builds and leaves PostgreSQL intact.
+Proof: TS/build/format, focused draft/receipt/unknown tests, actual browser/HTTP/separate `journal_ui_test` PG for create/edit/note/reload, stale CAS, lost response/replay and reconciliation; desktop/mobile, static routes and wheel assets.
+Local UI uses separate `journal_ui`; current-main gates and independent implementation review own final admission. Broader Workspace/data/production remain separate.

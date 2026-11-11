@@ -2,24 +2,25 @@
 
 Change surface: product-plane. Solution Intent: staged. Date: 2026-11-11.
 Contract: [Journal v1](docs/architecture/product-plane/trade-workspace/journal-v1.md).
-This slice provides manual HTTP entry through FastAPI `/docs`, backed by PostgreSQL.
-React forms follow separately. Journal starts independently of RuntimeStack,
+React forms at `/journal/` provide manual cards and notes; `/docs` remains the API. Journal starts independently of RuntimeStack,
 market data, Spark, Intake and models. Saving an author plan creates no execution.
 
 ## Local database and launch
 
-Python >=3.11; install this checkout's `runtime-api` and `dev-test` extras.
+Python >=3.11 and Node>=22.12; install this checkout's `runtime-api` and `dev-test` extras.
 Run from the repository root. The example uses a new, separate PostgreSQL16
 container/volume and loopback ports; the password is for this local proof only.
 
 ```powershell
 docker run --pull=never --name ta3000-journal-pr-20261111 `
-  -e POSTGRES_USER=journal -e POSTGRES_PASSWORD=journal_local_test -e POSTGRES_DB=journal_local `
+  -e POSTGRES_USER=journal -e POSTGRES_PASSWORD=journal_local_test -e POSTGRES_DB=journal_ui `
   -p 127.0.0.1:55446:5432 -v ta3000-journal-pr-20261111:/var/lib/postgresql/data -d postgres:16
 $env:PYTHONPATH = Join-Path (Get-Location) 'src'
-$env:TA3000_JOURNAL_DSN = 'host=127.0.0.1 port=55446 dbname=journal_local user=journal password=journal_local_test'
+$env:TA3000_JOURNAL_DSN = 'host=127.0.0.1 port=55446 dbname=journal_ui user=journal password=journal_local_test'
 python -m trading_advisor_3000.product_plane.domain.journal.store migrate
-python -m uvicorn trading_advisor_3000.product_plane.interfaces.trade_workspace:create_app --factory --host 127.0.0.1 --port 8106
+npm --prefix src/trading_advisor_3000/product_plane/interfaces/frontend ci
+npm --prefix src/trading_advisor_3000/product_plane/interfaces/frontend run build
+python -m uvicorn trading_advisor_3000.product_plane.interfaces.trade_workspace:create_app --factory --host 127.0.0.1 --port 8107
 ```
 
 Create the container only once; use `docker start ta3000-journal-pr-20261111`
@@ -27,7 +28,8 @@ for subsequent launches. The named volume preserves records. Keep it for restart
 and rollback; removing it destroys this local Journal. Existing local Journal
 and production databases are not migration targets for this first delivery.
 
-Open [API forms](http://127.0.0.1:8106/docs). `/health` proves HTTP liveness;
+Existing API-only containers need `docker exec ta3000-journal-pr-20261111 createdb -U journal journal_ui` once, before migration.
+Open [Journal](http://127.0.0.1:8107/journal/) or [API forms](http://127.0.0.1:8107/docs). `/health` proves HTTP liveness;
 `/ready` checks the installed migration set and checksums read-only. Missing or
 incompatible migrations produce503; neither startup nor readiness repairs DDL.
 Migration001 is preserved from the Stage1 source. Application rollback retains
@@ -59,12 +61,15 @@ docker exec ta3000-journal-pr-20261111 createdb -U journal journal_test
 docker exec ta3000-journal-pr-20261111 createdb -U journal journal_restore
 $env:TA3000_JOURNAL_TEST_DSN = 'host=127.0.0.1 port=55446 dbname=journal_test user=journal password=journal_local_test'
 python -m pytest tests/product-plane/contracts/test_trade_workspace_contracts.py tests/product-plane/integration/test_trade_workspace_journal.py -q
-docker exec ta3000-journal-pr-20261111 pg_dump -U journal -d journal_local -Fc -f /tmp/journal.dump
+docker exec ta3000-journal-pr-20261111 pg_dump -U journal -d journal_ui -Fc -f /tmp/journal.dump
 docker exec ta3000-journal-pr-20261111 pg_restore -U journal -d journal_restore /tmp/journal.dump
 ```
 
 Restore into an empty separate database, then read the same snapshots and
 receipts with a new app instance configured for that database. Compare full
 canonical payloads, not only counts. Restart the API/database and repeat pinned
-readback. This local proof establishes the bounded manual slice; React,
+readback. This local proof establishes the bounded manual slice; advanced editors,
 Intake/model quality, current market compatibility and deployment remain separate.
+
+Browser proof: start another API on8108 with separate `journal_ui_test`; set `TA3000_JOURNAL_UI_TEST_BASE=http://127.0.0.1:8108` and run frontend `npm run e2e`.
+Run frontend `npm test` and `npm run build` before wheel packaging; missing frontend returns503 while the API stays available.
