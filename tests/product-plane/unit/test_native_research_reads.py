@@ -668,3 +668,24 @@ def test_hash_pinned_scalar_receipt_is_unavailable_before_cache(native_reader, r
     with pytest.raises(SnapshotUnavailableError, match="completion must be an object"):
         reader.read(query, cache=cache)
     assert cache.gets == 0
+
+
+def test_valid_hash_finite_metric_cache_poison_cannot_override_fresh_research(native_reader):
+    reader, query, state = native_reader
+    query = {**query, "projection": [*query["projection"], "true_range"]}
+    cache = RecordingCache()
+    cold = reader.read(query, cache=cache)
+    assert cold.table["true_range"].to_pylist() == [0.0, 0.0]
+    assert reader.read(query, cache=cache).table.equals(cold.table, check_metadata=True)
+    poisoned = cold.table.set_column(
+        cold.table.column_names.index("true_range"),
+        cold.table.schema.field("true_range"),
+        pa.array([0.0, 1.0], type=pa.float64()),
+    )
+    wire = owner.make_native_research_read(poisoned, cold.envelope).to_ipc()
+    assert owner.NativeResearchRead.from_ipc(wire).table["true_range"].to_pylist() == [0.0, 1.0]
+    cache.put(*cache.last_slot, wire)
+    before = state["verifications"]
+    with pytest.raises(SchemaValidationError, match="freshly verified role"):
+        reader.read(query, cache=cache)
+    assert state["verifications"] == before + 1

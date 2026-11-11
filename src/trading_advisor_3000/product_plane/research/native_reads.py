@@ -123,6 +123,18 @@ def _ipc(table):
     return sink.getvalue().to_pybytes()
 
 
+def _validate_cached_read(result, envelope, expected):
+    require(
+        {k: v for k, v in result.envelope.items() if k != "payload"} == envelope,
+        "cache provenance mismatch",
+    )
+    require(
+        result.table.schema.equals(expected.schema, check_metadata=True)
+        and result.table.equals(expected),
+        "cache payload differs from freshly verified role",
+    )
+
+
 def _validate_payload(table, envelope):
     payload = envelope["payload"]
     require(
@@ -462,15 +474,6 @@ class NativeResearchReader:
                 **envelope,
             }
         )
-        if cache is not None:
-            wire = cache.get(rules["metadata_key"], key)
-            if wire is not None:
-                result = NativeResearchRead.from_ipc(wire, namespace)
-                require(
-                    {k: v for k, v in result.envelope.items() if k != "payload"} == envelope,
-                    "native Research cache provenance mismatch",
-                )
-                return result
         predicate = ds.field("instrument_id") == request["instrument_id"]
         for name, value in {
             "namespace": request["namespace"],
@@ -496,6 +499,12 @@ class NativeResearchReader:
         data = data.sort_by(
             [(name, "ascending") for name in _layout(source)["grain"]]
         ).combine_chunks()
+        if cache is not None:
+            wire = cache.get(rules["metadata_key"], key)
+            if wire is not None:
+                result = NativeResearchRead.from_ipc(wire, namespace)
+                _validate_cached_read(result, envelope, data)
+                return result
         result = make_native_research_read(data, envelope, namespace)
         if cache is not None:
             cache.put(rules["metadata_key"], key, result.to_ipc())
