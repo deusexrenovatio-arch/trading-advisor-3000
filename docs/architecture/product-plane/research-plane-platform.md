@@ -1034,3 +1034,106 @@ source coverage and staging, strict-v3 facts, actual availability/UTC/PIT and
 production activation remain separate. Final C6 design/implementation reviews
 must bind the resulting immutable C6 head, exact 16-file scope, this updated
 record and the unchanged architecture standard before merge.
+
+### Bounded native CF implementation and verification status
+
+The C6 contract-only checkpoint above remains historical. Its accepted design,
+sealed mathematics, limitations and old receipts are unchanged. As of 2026-11-11,
+**the bounded Stage6 native implementation and verification are delivered**: all
+native proofs, independent implementation review, required backend CI and code
+merge passed. This records no deployment admission.
+
+| Surface | Accepted / implemented | Delivery | Actual verification | Deployed |
+| --- | --- | --- | --- | --- |
+| C6 contracts/policy | Accepted; closed contracts implemented | [PR274](https://github.com/deusexrenovatio-arch/trading-advisor-3000/pull/274), `fd33c2ef` | Historical seven-wrapper admission above | Not claimed |
+| CF-base runtime | Accepted; bounded opt-in implemented | [PR276](https://github.com/deusexrenovatio-arch/trading-advisor-3000/pull/276), `57ef0b78` | Exact `a940ef1f` producer/public Snapshot; separate Linux execution of the three host-bootstrap-failed tests | Not claimed |
+| Legacy calendar carrier | Accepted; implemented | [PR277](https://github.com/deusexrenovatio-arch/trading-advisor-3000/pull/277), `7027df87` | Exact `48bc2acd` fresh producer/readback, same-runtime reuse and calendar-only negative | Not claimed |
+| CF/Research consumer guards and public CF wire | Accepted; implemented | [PR278](https://github.com/deusexrenovatio-arch/trading-advisor-3000/pull/278), `d5be8172` | Exact `1238358a`: CF16/34, Core199, Price58/raw13, SOURCE_KEY4; required CI successful | Not claimed |
+| CF-L1/CF-L2 | Accepted; implemented and native-verified at `45176f64` | [PR280](https://github.com/deusexrenovatio-arch/trading-advisor-3000/pull/280) merged, `11be9361` | Fresh L1/L2,151/788, own-role8/12/2, actual29-prefix and controlled USED PASS | Not claimed |
+
+Evidence root remains
+`D:/CodexHome/visualizations/2026/11/11/01a1c83b-e7fe-7fa0-86bc-559524f1cb9a`.
+The original producer head and the later delivery merge are separate bindings:
+
+| Proof source | Immutable head | Application CodeFP | Runtime source SHA-256 |
+| --- | --- | --- | --- |
+| CF base | `a940ef1f95a2f41f04f45d671149ea81c9c88360` | `88b79dc84b9f3ddfe5a170f1953132c7cae3901f6ef025d034b1417f44f79290` | `07a95dfbf4b3c4da5bb8ef636085396533144e45181b1ee35e3207a9ce758997` |
+| Legacy calendar | `48bc2acd888f8acf71c478e1302114009673be50` | `a99f33fbc8b5c8fa3d716a32aacdde2d9f0bcffffbe5cd07f24b7a82c3af831e` | `629c41bc023b40ab9b23197b53367be3378f00730981b33df255a7b80ea9369e` |
+| Consumer | `1238358aad5d790341c38278d94d0a2e1e1ef2df` | `7c39ffc9532ef8243acdaa232f85364edb5bff06120067ce30b23b913f08324f` | `b1789bc54d016bd98473351f7970e7a3e15d795ba86c235b1a22a3b6a15188f6` |
+| Sidecars | `45176f64b79e0fa82a52ecaf4b6cc03b2bf74324` | `3c124f3dc06e2f154879b26fee49ce73ef67b427aee26bdf737e722c9309c49d` | `df05071a24a1d8ff26fc69d81a659b7bf0388d0d2e4072fcdfea29536d3c1002` |
+
+The 417-blob consumer/backend source includes the Journal main integration.
+Earlier `89d`/`bef7` and paired ECB proofs retain their original identities.
+Main merge `d5be8172` has the exact tested consumer tree (`c7dcdd33`); the backend
+contains all five merged consumer files (`22c2dd61`). These bindings do not relabel
+old producer receipts or rerun unchanged mathematics.
+
+Concrete receipt pointers (paths relative to the evidence root):
+
+- Exact CF-base producer/public readback: `native-cf-r6a-exacthead-a940ef1f95a2-20261111T095716Z-r2/producer-proof.json`, SHA-256 `bf318b115802eb3c0ac087b67a7c91b4323e651220b9f8117336a56536654e8b`.
+- Exact a940 pinned-Linux three-test execution: `native-cf-r6a-three-linux-a940-20261111T103200Z/test-proof.json`, SHA-256 `5b38b7fb7074cd31bc45f90a8cd8d07fd6f47d7dae26b3e66e081e1058f1b772`.
+- Exact calendar route and three guarantees: `native-cf-calendar-exact-head-proof.json`, SHA-256 `8b5963a0d883cbaa8e63b83130d081a4d98240d25265c1abc6027df904cf06b8`.
+- Exact1238 consumer native summary: `native-cf-consumer-exact-1238358-20261111T120539Z/consumer-head-proof.json`, SHA-256 `72098a6b6781177e2f13d367114549ece1232fa6aba398e492657544646723bf`.
+- Fresh4517 L1/L2 producer: `cf-45176-native-20261111T120849Z-3dcd43dc/output/producer-proof.json`, SHA-256 `d6564075bbd5ea057727940ec509861f0e0fe4d46f02bc4166d7bf58741312bf`.
+- Producer evidence seal: `cf-45176-native-20261111T120849Z-3dcd43dc/producer-seal.json`, SHA-256 `90b55fe78b529c22d8b8daba54f782a699d0b6b67d9959b6eac5d5761cbd6612`.
+- Independent sidecar consumer summary: `native-cf-backend-independent-45176-20261111T120439Z/independent-consumer-proof.json`, SHA-256 `efbac34a46c339c4507817e6f4fac9a0803a002c1275fc6b5c51bfb556bf5e33`.
+- Full151/788 matrix: `native-cf-backend-independent-45176-20261111T120439Z/matrix/full-matrix/proof.json`, SHA-256 `4cf6b14c948de83646eccd9ac1ff5d9bccf97204520603480a61598c148e8eac`.
+- Independent own-role wire: `native-cf-backend-independent-45176-20261111T120439Z/wire/own-wire/proof.json`, SHA-256 `004b1b9cf540d3a5cdc87489fa1a1dac80985f37cf26f86ab938feae2bcbc12f`.
+- Actual29 prefix reinvocations: `cf-45176-native-20261111T120849Z-3dcd43dc/prefix-phase/result/proof.json`, SHA-256 `acce3989c51446cb3645f333e3911caefacf3d8497d52e8b58bdf234742e4d91`.
+
+Combined eight successful native jobs are sealed by `cf-45176-native-20261111T120849Z-3dcd43dc/final-runtime-proof.json`, SHA-256 `0e5be967788dc6db362cae57fdd232b6c289c4eb920b0e49eb4ced435a9acd55`; its evidence manifest is `fbe40af48fb2e3ff77269d3d7877075035c722a2583e7a6adc49f705ae7362bc`.
+Controlled USED R2 is `cf-45176-native-20261111T120849Z-3dcd43dc/used-r2-phase/result/proof.json`, SHA-256 `10c7887f28fe2b3f8111338286f0f9150d4f9ea35c309660c2795f15c4f29acb`. Independent prefix/USED audit `1d976cb12f9ab8ced74208ce73171e1b646dcf37df9820daf6831406c0268b91` and own-wire/combined consumer audit `99d85eb997226938d6c85be5f959ce0334eb23ee90120fc0e5b9eb2b72a1f3e9` close the native components.
+
+The a940 host outcome remains45 PASS/3 bootstrap failures; the three exact tests
+subsequently executed and passed on pinned Linux (`5b38b7fb`). Calendar evidence
+uses11 real calendar/last-trade pins with synthetic price/economic controls. It
+proves neither actual market-price economics nor a full calendar-B campaign.
+
+Consumer1238 checks actual saved Core2018x199 and Price2018x58 IPC buffers
+(including13 raw source columns), CF16 roundtrips/34 negatives, and the existing Core-root SOURCE_KEY4/4.
+Cold/hot, rehashed finite cache poison, replay/conflict and1161 protected files are
+covered. Required CI43020750316/job130523180875 succeeded. The147 focused unit
+report397ddf9d, independent reviewfdd2a806 and audit9218e9fb retain their own scope;
+they do not substitute for sidecar numerical acceptance.
+
+Backend4517 freshly materialized CF-L1 `bb4f752b` and CF-L2 `c4da38b6` from the
+exact saved CF parent `da008a9e`; that parent keeps its historical ECB producer
+identity and original L0/fact pins. Each new layer has3651 selected rows. Full
+parent buffers remain exact (43 then123 columns); L1/L2 physical/public schemas
+have123/195 columns. The788 cells are312 ready,292 insufficient_history,
+48 missing_source,136 unverified_policy,0 not_implemented and0 not_applicable.
+All151 outputs/four sequences were checked;788 is catalog count, not usable count.
+Ready requires finite analysis values; warmup NULLs remain, not all rows are finite.
+Eight own-role IPC cases,12 mixed negatives and two historical descriptor controls
+passed; inherited roles do not gain an IPC route. Producer audit `a7d51eda` and
+matrix audit `5a4392f9` preserve this scope and all protected inputs.
+
+Pinned prefix proof `acce3989` records604 full arrays,788 capabilities,29 actual
+reinvocations and4379 prefix-array checks, including MACD33/34, PVT1/2, late quantity
+and future UNUSED-reference boundaries. Prefix stability requires the same effective
+prefix observations, USED references and policy/domains. Changed USED references
+create a new immutable context/snapshot/cache identity and may change values. The
+controlled USED R2 metadata/identity/cache proof passed (`10c7887f`); B stays
+explicitly UNADMITTED, never an alternate-source campaign. R1 unknown projection
+is retained; R2 changed only the harness name to `close_change_1`. The288 host units
+(`f83b9f87`, two retained flat-input warnings) remain separate evidence.
+
+Accepted, implemented, native-verified, merged and deployed statuses remain distinct.
+Full nightly/universe source and admission coverage, staging,3.2 migration, bulk
+history, canonical-v3 Q/specification/UTC-expiry, actual availability/UTC/PIT, money
+execution and production/current-pointer activation remain outside this bounded
+work. Existing snapshot compatibility and rollback via older immutable completions
+remain in force. Final implementation review `b008792f` passed. Required CI
+43025741084/job130539876858 succeeded; PR280 merged as
+`11be9361effa854b2c298da2a12c34f7823c1549`. Its complete tree equals the tested
+`45176f64` tree, retaining CodeFP `3c124f3d`; no unchanged mathematics was rerun.
+
+Final implementation review: `native-cf-backend-implementation-review.json`,
+SHA-256 `b008792faad1bbc421f0abdc6af91e1096f9918b4d3bd82b0ab8de87ca83f0ea`.
+The eight successful jobs comprise five backend4517 jobs and three consumer1238
+jobs. The29 prefix checks are kernel reinvocations, not physical prefix snapshots.
+Protected original bytes remained unchanged in their declared scopes (consumer1161,
+backend734); these overlapping scopes are not added together. Capability counts
+are copied from the saved matrix, without a new calculation: receipt
+`native-cf-4517-capability-state-counts.json`, SHA-256
+`4c88fa88207ba18474f2063d9b73ff6cd8e382075868a271bff1d0d0a1531c34`.
