@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "command_id": "import-2026-10-12-xagusd-short-v1",
+  "trade_id": "2026-10-12-xagusd-short",
+  "card": {
+    "title": "Серебро · XAGUSD · шорт",
+    "introduction": "Серебро XAGUSD, спот. Отдельная авторская гипотеза шорта с общим межрыночным обоснованием по Brent. Собственные вход, техническая структура, цели и отмена пока не заполнены.",
+    "analysis": {
+      "symbol": "XAGUSD",
+      "asset": "серебро",
+      "market_type": "spot",
+      "price_unit": "USD_per_troy_ounce",
+      "timeframe": {
+        "value": null,
+        "reason": "not_provided"
+      },
+      "data_provider": {
+        "value": null,
+        "reason": "not_provided"
+      }
+    },
+    "direction": "short",
+    "entry": {
+      "price": {
+        "value": null,
+        "reason": "not_provided"
+      },
+      "approximate": false,
+      "rationale": "Авторское обоснование ещё не предоставлено."
+    },
+    "invalidation": {
+      "price": {
+        "value": null,
+        "reason": "not_provided"
+      },
+      "approximate": false,
+      "rationale": "Уровень отмены ещё не указан."
+    },
+    "targets": [],
+    "technical_items": [],
+    "shared_thesis": {
+      "thesis_id": "brent-w1-2026-inverse-head-and-shoulders",
+      "title": "Brent W1 2026: авторская гипотеза обратной корреляции",
+      "description": "Перевёрнутый ГИП: левое плечо в мае, голова в июле, правое в начале августа. Автор сообщает о пробое. Обратная корреляция с металлами не измерена.",
+      "source": {
+        "source_type": "import",
+        "original_text": "{\"schema_version\": 3, \"document_type\": \"shared_thesis\", \"id\": \"brent-w1-2026-inverse-head-and-shoulders\", \"author_summary\": \"Автор рассматривает шорт золота и серебра по споту: пробой перевёрнутой головы и плеч на Brent может сопровождаться снижением металлов при сохранении предполагаемой обратной корреляции.\", \"reference_instrument\": {\"name\": \"Brent\", \"timeframe\": \"W1\", \"pattern_year\": 2026, \"chart_symbol\": null, \"market_type\": null, \"contract\": null, \"data_provider\": null}, \"oil_pattern\": {\"type\": \"inverse_head_and_shoulders\", \"left_shoulder\": \"май 2026\", \"head\": \"июль 2026\", \"right_shoulder\": \"начало августа 2026\", \"neckline_price\": null, \"breakout\": \"Пробой зоны указан автором; трактовка зоны как линии шеи требует сверки с графиком.\", \"breakout_date\": null, \"breakout_confirmation_rule\": null, \"verification_status\": \"user_reported_not_independently_verified\"}, \"logic\": [\"Автор распознаёт перевёрнутую голову и плечи на недельном Brent.\", \"Со слов автора, зона фигуры уже пробита; авторская трактовка предполагает продолжение роста нефти.\", \"При отрицательной связи доходностей нефти и каждого металла рост Brent может сопровождаться снижением XAUUSD и XAGUSD.\", \"На этой условной межрыночной связи основаны две авторские гипотезы шорта; для каждого металла нужны собственные уровни и проверка структуры.\"], \"correlation\": {\"assumed_sign\": \"negative\", \"verification_status\": \"not_measured\", \"return_interval\": null, \"lookback_window\": null, \"gold_brent_coefficient\": null, \"silver_brent_coefficient\": null, \"interpretation\": \"Обратная корреляция является предпосылкой автора, а не установленной постоянной зависимостью или причинностью.\"}, \"revision\": 3, \"created_at\": \"2026-10-12T14:33:09+03:00\", \"updated_at\": \"2026-10-12T14:58:26+03:00\", \"timezone\": \"Europe/Moscow\", \"is_test\": true, \"status\": \"draft\", \"setup_refs\": [{\"id\": \"2026-10-12-xauusd-short\", \"path\": \"../2026-10-12-xauusd-short.json\"}, {\"id\": \"2026-10-12-xagusd-short\", \"path\": \"../2026-10-12-xagusd-short.json\"}], \"source\": {\"type\": \"user_dictation\", \"original_record_ref\": \"../archive/2026-10-12-metals-short-revision-2.json\", \"original_dictation_ref\": \"../archive/2026-10-12-metals-short-revision-2.json#/source/original_text\", \"clarifications\": [\"Нефть Brent, ТФ 1неделя, год 2026\"]}, \"review\": {\"status\": \"pending_chart_and_correlation_evidence\", \"tasks\": [\"Сверить фигуру Brent с недельными экстремумами, линией шеи и характером пробоя.\", \"Отдельно проверить связи Brent с XAUUSD и XAGUSD по доходностям на согласованных временных отметках; указать окно и интервал.\"], \"historical_context\": {\"statement\": \"Историческое исследование WGC описывает меняющуюся связь золота с нефтью. Постоянная обратная корреляция из него не следует; режим 2026 года и серебро этим источником не проверены.\", \"publisher\": \"World Gold Council\", \"title\": \"Gold: the most effective commodity investment\", \"published_on\": \"2019-09-11\", \"url\": \"https://www.gold.org/goldhub/research/gold-when-investing-in-commodities\"}}, \"history\": [{\"revision\": 3, \"recorded_at\": \"2026-10-12T14:58:26+03:00\", \"event\": \"extracted_shared_thesis\", \"previous_record_ref\": \"../archive/2026-10-12-metals-short-revision-2.json\", \"reason\": \"Общее обоснование Brent сохранено отдельно и связано с двумя самостоятельными карточками.\"}]}",
+        "reference": "setups/theses/brent-w1-2026-inverse-head-and-shoulders.json"
+      }
+    },
+    "is_test": true,
+    "related_trade_id": null,
+    "relation": null
+  },
+  "status": "draft",
+  "event_at": "2026-10-12T11:33:09Z",
+  "reason": "Перенос отдельной тестовой карточки из переписки; факты исполнения не предоставлены.",
+  "source": {
+    "source_type": "import",
+    "original_text": "{\"schema_version\": 3, \"document_type\": \"setup_card\", \"id\": \"2026-10-12-xagusd-short\", \"shared_thesis_id\": \"brent-w1-2026-inverse-head-and-shoulders\", \"symbol\": \"XAGUSD\", \"asset\": \"серебро\", \"market_type\": \"spot\", \"direction\": \"short\", \"direction_source\": \"user\", \"status\": \"test_draft_missing_levels\", \"price_unit\": \"USD_per_troy_ounce\", \"chart_timeframe\": null, \"data_provider\": null, \"reference_price\": null, \"reference_price_observed_at\": null, \"execution\": {\"venue\": \"MOEX\", \"contract_code\": null, \"filled_contracts\": null, \"quantity_unit\": \"contracts\", \"recording_status\": \"not_recorded\"}, \"targets\": [], \"invalidation\": {\"price\": null, \"approximate\": null, \"trigger_rule\": null}, \"risk_reward\": {\"status\": \"insufficient_inputs\", \"risk_distance\": null, \"results\": [], \"weighted_reward_to_risk\": null}, \"open_questions\": [\"Цена отсчёта, цели и отмена для XAGUSD.\", \"Таймфрейм и источник графика серебра; собственная структура сетапа.\"], \"shared_thesis_ref\": \"theses/brent-w1-2026-inverse-head-and-shoulders.json\", \"introduction\": \"Серебро XAGUSD, спот. Отдельная авторская гипотеза шорта с общим межрыночным обоснованием по Brent. Собственные вход, техническая структура, цели и отмена пока не заполнены.\", \"revision\": 4, \"created_at\": \"2026-10-12T14:33:09+03:00\", \"updated_at\": \"2026-10-12T15:08:05+03:00\", \"timezone\": \"Europe/Moscow\", \"is_test\": true, \"source\": {\"type\": \"user_dictation\", \"original_record_ref\": \"archive/2026-10-12-metals-short-revision-2.json\", \"original_dictation_ref\": \"archive/2026-10-12-metals-short-revision-2.json#/source/original_text\", \"clarifications\": [], \"additions\": [{\"recorded_at\": \"2026-10-12T15:08:05+03:00\", \"setup_id\": \"2026-10-12-xagusd-short\", \"type\": \"storage_requirement\", \"original_text\": \"А ещё нужно будет, чтобы в карточке можно было хранить конкретный контракт на Мосбирже и объём взятый контракта.\", \"clarifications\": [\"Ну, то есть почему я говорю про то, что отдельные контракты? Потому что есть часть принятия решения, да, основанная на споте. То есть я смотрю спот, там золото, серебро, неважно, это индексы или нефть, а понимаю решение, ну а беру, естественно, конкретные контракты фьючерсные.\"]}], \"storage_instruction\": \"Только давай разделим карточки по... как это, отдельно золото, отдельно металл, отдельно серебро, там оно ещё не заполнено. Вот, но как бы одна сделка должна быть. Ну, введение должно быть по отдельности, потому что здесь обоснование одинаковое.\"}, \"review\": {\"status\": \"pending_chart_and_correlation_evidence\", \"tasks\": [\"Получить собственные вход, цели, отмену и техническую структуру XAGUSD.\", \"Отдельно проверить связь Brent с XAGUSD по доходностям на согласованных временных отметках; указать окно и интервал.\"], \"shared_review_ref\": \"theses/brent-w1-2026-inverse-head-and-shoulders.json#/review\"}, \"history\": [{\"revision\": 1, \"recorded_at\": \"2026-10-12T14:33:09+03:00\", \"event\": \"created_test_draft\", \"description\": \"Сохранены исходная диктовка, уточнения автора, общая гипотеза, две карточки и расчёт геометрии золота.\"}, {\"revision\": 3, \"recorded_at\": \"2026-10-12T14:58:26+03:00\", \"event\": \"split_into_independent_card\", \"setup_id\": \"2026-10-12-xagusd-short\", \"reason\": \"По просьбе автора: одна карточка на одну сделку, отдельные введение, статус и история; общее обоснование вынесено в связанную запись.\", \"previous_record_ref\": \"archive/2026-10-12-metals-short-revision-2.json\", \"current_record_ref\": \"2026-10-12-xagusd-short.json\", \"changes\": [{\"field\": \"storage\", \"before\": \"setups[] в общем файле\", \"after\": \"отдельный файл карточки\"}]}, {\"revision\": 4, \"recorded_at\": \"2026-10-12T15:08:05+03:00\", \"event\": \"added_moex_execution_fields\", \"setup_id\": \"2026-10-12-xagusd-short\", \"reason\": \"Автор запросил отдельное хранение конкретного контракта MOEX и количества фактически взятых контрактов. Принятие решения по базовому активу и реализация фьючерсом хранятся отдельными блоками.\", \"changes\": [{\"field\": \"execution\", \"before\": null, \"after\": {\"venue\": \"MOEX\", \"contract_code\": null, \"filled_contracts\": null, \"quantity_unit\": \"contracts\", \"recording_status\": \"not_recorded\"}}]}], \"reference_price_role\": \"user_defined_entry\", \"entry_rationale\": {\"source\": null, \"author_summary\": null, \"pattern_ref\": null, \"sequence\": [], \"indicator_refs\": [], \"observed_at\": null, \"verification_status\": \"not_provided\"}, \"technical_context\": {\"patterns\": [], \"indicators\": [], \"price_zones\": [], \"fibonacci\": []}}",
+    "reference": "setups/2026-10-12-xagusd-short.json"
+  }
+}
