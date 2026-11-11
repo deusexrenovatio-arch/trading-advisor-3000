@@ -117,11 +117,12 @@ def test_index_volume_does_not_call_quantity_library(monkeypatch):
     assert result[["obv", "ad", "pvt"]].isna().all().all()
 
 
-def test_core_missing_dependency_rejects_before_numerical_work(monkeypatch):
+def test_core_missing_dependency_identifies_only_removed_parent_field():
     policy = core_policy("L2")
-    frame = observed_frame(2).drop(columns="atr_14")
-    with pytest.raises(SchemaValidationError, match="missing.*input"):
-        owner._require_core_inputs(frame.columns, policy)
+    columns = [field["name"] for field in owner.feature_layout("L1", "native_core_l1.v1")["fields"]]
+    owner._require_core_inputs(columns, policy)
+    with pytest.raises(SchemaValidationError, match="^missing core input dependencies: atr_14$"):
+        owner._require_core_inputs([name for name in columns if name != "atr_14"], policy)
 
 
 @pytest.mark.parametrize(
