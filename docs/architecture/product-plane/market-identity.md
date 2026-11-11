@@ -702,7 +702,7 @@ opens453->20; full source/receipt/context/intent/table/parent checks still prece
 cache hit. The unchanged wire SHA256 is6dd1483ea0642092998172574a7601abe3736977f8b21e52cc987d1f26f8e672.
 These are bounded Windows-bind observations, not SLA, throughput or live suitability.
 
-Consumer read-code identity a8695a8a232af829d9ed109fada29faf9b44bbf1693130ee04c9c96d57127033
+Full24-case consumer read-code identity a8695a8a232af829d9ed109fada29faf9b44bbf1693130ee04c9c96d57127033
 covers package Python, contract YAML and identity schemas; it is distinct from producer
 code provenance. Full consumer receipt SHA2564578c3512fa270b18b2e67ba622f736aac77134b40b79683cf44174c14c88bd6
 is under the November11 consumer evidence root native-consumers-proof/native-20261111T034911Z-26ed92dd/full-retry2.
@@ -710,3 +710,12 @@ The unchanged original-byte/library oracle also reopens the old first7 physical 
 snapshots with the new reader code:6728 rows/eight sequences each, unchanged values,
 Decimal/NULL/lineage. Contracts and runtime are separate reviewable PR patch sets;
 this evidence does not admit production, canonicalQ, actual availability, UTC or PIT.
+
+
+A final import-ownership cleanup uses common.immutable_files.canonical_bytes directly
+instead of its market-data re-export. The exact function object and all non-import AST
+remain unchanged. Final read-code2d87b89565d523c7429b2c345aef69d8eb545b0e350c8c2b3acdc80f90271f97
+has fresh native L2 cold/hot/loopbackHTTP and all four SOURCE_KEY wires byte-equal to the
+saved full-run oracle; receipt SHA2565e379193314b1d903a6bf056cde2065060d2b1ddbb30da283c7f81a50f87dd68.
+The24-case/25-negative, old physical and profiled evidence retains its actual a869
+identity; it is not relabeled as a full rerun on the import-only final version.
