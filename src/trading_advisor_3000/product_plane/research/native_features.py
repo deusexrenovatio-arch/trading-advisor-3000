@@ -121,15 +121,17 @@ def feature_layout(layer, profile_version=None):
     return {"fields": fields, "grain": base["grain"]}
 
 
-def parent_reader(root, completion_pin, layer, profile_version=None):
+def _parent_type(root, completion_pin, layer, profile_version=None):
     require(layer in {"L1", "L2"}, "unsupported feature layer")
     policy = feature_policy(layer, profile_version)
     receipt = json.loads(pinned_bytes(root, completion_pin))
+    require(isinstance(receipt, dict), "feature parent receipt must be an object")
     require(
         receipt.get("layer") == policy["parent_layer"],
         "feature parent layer mismatch",
     )
     context = json.loads(pinned_bytes(root, receipt["context"]))
+    require(isinstance(context, dict), "feature parent context must be an object")
     require(context.get("layer") == receipt["layer"], "feature parent context layer mismatch")
     if "catalog" in policy and layer == "L2":
         require(
@@ -137,11 +139,11 @@ def parent_reader(root, completion_pin, layer, profile_version=None):
             and context.get("policy") == core_policy_ref("L1"),
             "core L2 requires completed core L1 profile",
         )
-    return (
-        NativeResearchSnapshot(root, completion_pin)
-        if layer == "L1"
-        else NativeFeatureSnapshot(root, completion_pin)
-    )
+    return NativeResearchSnapshot if layer == "L1" else NativeFeatureSnapshot
+
+
+def parent_reader(root, completion_pin, layer, profile_version=None):
+    return _parent_type(root, completion_pin, layer, profile_version)(root, completion_pin)
 
 
 def feature_capabilities(source, policy, counts):
@@ -348,10 +350,10 @@ def validate_feature_graph(root, *, snapshot_pin, context_pin, intent_pin, input
     require(context["source"]["root"] == "/research-trial", "feature source mount mismatch")
     policy = feature_policy_from_context(context)
     core = "catalog" in policy
-    source_reader = parent_reader(
+    parent_type = _parent_type(
         root, context["source"]["completion"], context["layer"], policy["profile_version"]
     )
-    parent = source_reader.verify()
+    _, parent = parent_type._verified(root, context["source"]["completion"])
     source = research_compute_metadata(root, context["source"]["completion"], parent)
     validate_feature_context(context, source)
     intent = json.loads(pinned_bytes(root, intent_pin))
@@ -495,9 +497,17 @@ class NativeFeatureSnapshot:
     """Explicit completed L1/L2 snapshot; no current or source-path discovery."""
 
     def __init__(self, root: Path, completion_pin: dict):
+        self._initialize_verified(root, completion_pin)
+
+    def _initialize_verified(self, root, completion_pin):
         self.root = root.resolve()
         self._completion_json = canonical_bytes(completion_pin).decode()
-        self.verify()
+        return self.verify()
+
+    @classmethod
+    def _verified(cls, root, completion_pin):
+        reader = cls.__new__(cls)
+        return reader, reader._initialize_verified(root, completion_pin)
 
     def verify(self):
         try:

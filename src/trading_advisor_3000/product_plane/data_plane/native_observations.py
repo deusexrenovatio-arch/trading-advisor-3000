@@ -441,9 +441,29 @@ class NativeObservationSnapshot:
     """Explicit opt-in source-time boundary; the legacy UTC/r7 route is untouched."""
 
     def __init__(self, root: Path, completion_pin: dict):
+        self._initialize_verified(root, completion_pin)
+
+    def _initialize_verified(self, root, completion_pin):
         self.root = root.resolve()
         self._completion_json = canonical_bytes(completion_pin).decode()
-        self._namespace_json = canonical_bytes(self.verify()["metadata"]["namespace"]).decode()
+        graph = self.verify()
+        self._namespace_json = canonical_bytes(graph["metadata"]["namespace"]).decode()
+        return graph
+
+    @classmethod
+    def _verified(cls, root, completion_pin):
+        reader = cls.__new__(cls)
+        return reader, reader._initialize_verified(root, completion_pin)
+
+    def _require_graph_scope(self, graph):
+        _require(
+            graph["completion_pin"] == json.loads(self._completion_json)
+            and all(
+                Path(ref["table_path"]).resolve().is_relative_to(self.root)
+                for ref in graph["manifest"]["tables"].values()
+            ),
+            "verified observation graph has foreign root/completion scope",
+        )
 
     @property
     def namespace(self) -> dict:
@@ -454,7 +474,10 @@ class NativeObservationSnapshot:
 
     def compute_metadata(self) -> dict:
         """Full-source compute admission, with physical budgets before Spark IO."""
-        graph = self.verify()
+        return self._compute_metadata(self.verify())
+
+    def _compute_metadata(self, graph):
+        self._require_graph_scope(graph)
         definitions = json.loads((SCHEMAS / "market_identity.v3.json").read_bytes())["$defs"]
         policy = definitions["native_observation_compute"]["properties"]["policy"]["const"]
         reference = graph["manifest"]["tables"]["native_bars"]
@@ -590,7 +613,12 @@ class NativeObservationSnapshot:
     def read(self, request: dict) -> NativeObservationRead:
         request = json.loads(canonical_bytes(request))
         validate_identity_contract("native_observation_request.v1.json", request, self.namespace)
-        graph = self.verify()
+        return self._read_verified(self.verify(), request)
+
+    def _read_verified(self, graph, request):
+        request = json.loads(canonical_bytes(request))
+        validate_identity_contract("native_observation_request.v1.json", request, self.namespace)
+        self._require_graph_scope(graph)
         matches = [
             b
             for b in graph["assignments"]["bindings"]

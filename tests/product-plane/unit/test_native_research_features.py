@@ -1,6 +1,7 @@
 """Observed adapters retain native seeds without admitting time or execution."""
 
 import copy
+import hashlib
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -194,3 +195,40 @@ def test_parent_context_layer_checked_before_recursive_reader(monkeypatch):
     monkeypatch.setattr(reader_owner, "NativeFeatureSnapshot", forbidden)
     with pytest.raises(SchemaValidationError, match="parent context layer mismatch"):
         reader_owner.parent_reader(Path("/research-trial"), {"path": "receipt"}, "L2")
+
+
+@pytest.mark.parametrize("header", ["receipt", "context"])
+@pytest.mark.parametrize("value", [[], None], ids=["array", "null"])
+def test_non_object_parent_header_rejects_before_recursion(tmp_path, monkeypatch, header, value):
+    def write_header(name, payload):
+        raw = json.dumps(payload, allow_nan=False).encode("utf-8")
+        path = tmp_path / name
+        path.write_bytes(raw)
+        reference = {"path": name, "sha256": hashlib.sha256(raw).hexdigest()}
+        assert reader_owner.pinned_bytes(tmp_path, reference) == raw
+        return reference
+
+    context_pin = write_header("context.json", {"layer": "L1"})
+    receipt = {"layer": "L1", "context": context_pin}
+    receipt_pin = write_header("completion.json", receipt)
+    calls = []
+    admitted = object()
+
+    def recursive_reader(root, completion):
+        calls.append((root, completion))
+        return admitted
+
+    monkeypatch.setattr(reader_owner, "NativeFeatureSnapshot", recursive_reader)
+    assert reader_owner.parent_reader(tmp_path, receipt_pin, "L2") is admitted
+    assert calls == [(tmp_path, receipt_pin)]
+    calls.clear()
+    if header == "receipt":
+        receipt_pin = write_header("completion.json", value)
+    else:
+        receipt["context"] = write_header("context.json", value)
+        receipt_pin = write_header("completion.json", receipt)
+    with pytest.raises(
+        SchemaValidationError, match="feature parent " + header + " must be an object"
+    ):
+        reader_owner.parent_reader(tmp_path, receipt_pin, "L2")
+    assert not calls
