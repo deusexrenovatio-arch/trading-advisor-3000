@@ -708,3 +708,329 @@ worker receipts are pinned by `worker-proof/worker-proof-manifest.json`
 These are isolated observed-math proofs. Unknown time/session/PIT, OI,
 volume-profile, canonical Q, CF, MTF, campaign and execution facts remain outside
 this admission; production roots and current pointers were not changed.
+
+
+## Unpublished observed continuous-front composition
+
+Change surface: product-plane; architecture impact: contract-change. Decision:
+bounded observation design, independently reviewed at draft checkpoint on
+2026-11-11; final record/contract review binding remains required before dependent
+implementation. Implementation, native CF acceptance and deployment are pending.
+Research Data Factory owns composition/sidecars; Market Data owns source facts;
+Contracts remains the sole wire-shape authority. Authorization covers isolated
+native work and PR integration after the completed Research route; bulk history,
+production promotion/current pointers, live mappings and legacy retirement remain
+separate. Solution Class: staged; Critical Contour: data-integration-closure;
+Forbidden Shortcuts: scaffold-only; Shortcut Waiver: none.
+
+Use a closed `native_cf_observation.v1` family for exact SRU6/SRZ6 source
+observations of 14–15 September 2026. It is an observed selection/number-transform
+boundary, not canonical `continuous_front_bars.v3` or general economic CF
+equivalence. Strict v3 Q/scope/specification/UTC-expiry checks are unchanged and
+still reject these incompletely qualified inputs. No UTC candle clock/closure,
+actual finality/availability, historical knowledge/PIT, execution or production
+admission follows. Date-only expiry and last-trade cutoff remain distinct facts.
+
+### Source, schedule and fixed observation definition
+
+Reuse the retained official SBRF packet
+`stage6-source-spec-20261110T201111Z-c8939e2f` in the 2026-10-31 evidence directory
+for chat `01a19403-e9da-7011-bc5b-51fbe3ea3be9`. The specification effective
+18 August–9 November 2026 has SHA-256
+`21c7ee7f2aae50ed037d5961df1efdb3f2b1822c9d2ae4df97af7dbc246835cc`.
+SRU6 last trade is 17 September, expiration date 18 September; SRZ6 dates are
+17/18 December. The scheduled 19:00 MSK cutoff concerns last trading, never an
+expiration UTC instant. Ordinary Sber shares/ISIN, lot100, physical delivery and
+RUB-per-contract-lot quote facts do not invent a size-variant or quantity-unit fact.
+
+The new retained original notices [annual2026](https://www.moex.com/n94172),
+[schedule from14September](https://www.moex.com/n103379) and
+[weekend calendar](https://www.moex.com/n95564) support planned open dates
+14,15,16,17 September. Configured Research offset2 from source last-trade17th gives
+15 September; this is not an exchange roll mandate or actual override-completeness
+proof. Reuse the existing source/hash session normalizer with dated-rule precedence:
+September main09:00–19:00/evening19:00–23:50 supersedes the March morning/main
+split. A chosen Research hours subset is a policy, not full exchange coverage.
+
+Evidence root:
+`D:/CodexHome/visualizations/2026/11/11/01a1c83b-e7fe-7fa0-86bc-559524f1cb9a/native-temporal-sources-20261111T014302Z-21b5347a`.
+Its artifact manifest SHA-256 is
+`4b35ecc36a10ec091ff71bff9b59c0a3eab389f15c2206322d8dc953d2b42db3`
+(69 file pins); facts SHA-256 is
+`c018f490796c58c3816152d61db40cdab8d20f09e86c61ce896d2107b090219d`.
+The three required notices have original bodies/HTTP receipts; both source-only
+containers were stopped with exit0, scriptRO/new-outputRW and no production bind.
+The packet also has current ISS descriptors and four exact daily candle/history
+OHLCV comparisons. Bind these to the actual frozen parent HTTP bytes before CF
+proof. Raw UNIT strings differ for expired/current SBRF; retain them. RFUD unitP
+and dated quote/step facts support only a scoped common numeric price basis, not
+P=RUB for every future or a universal API unit conversion. Candle value0 differs
+from positive history VALUE: no zero-turnover truth or implicit candle-OI backfill.
+
+`source_label_date_selection.v1` applies planned dates to the validated ISO date
+part of original `source_begin`. This is a bounded source-label selection rule,
+not an assertion of actual Moscow session date or candle timezone. Source labels
+remain naive strings. Ambiguous/missing calendar precedence, required dates,
+source facts, quote scale or references reject; do not infer lifetime from candles.
+
+Fix T−2 in the existing shared Spark CF timeline, reaching its actual callers:
+use pinned planned calendar and explicit source last-trade/order metadata. Remove
+reverse observed-date ranking, maturity-month completion inference and last-row
+fallback. Missing metadata blocks a new recompute; old saved snapshots stay
+readable. No new default production admission is granted.
+
+The new observed family seals only calendar offsets1 and2. The primary accepted
+roll proof uses T2 (15September); a simultaneous T1 definition (16September) is the
+bounded distinct-definition/zero-event probe within the same14-15September inputs.
+Their expanded roll definitions and output keys remain separate. This does not
+widen the existing legacy Spark policy guard, which continues to admit offset2.
+
+Legacy CLI/Dagster/nightly inputs retain their existing family and offset2 guard;
+they never select native_cf_observation implicitly. The native family remains an
+explicit isolated opt-in. The shared selector fix changes the fresh legacy
+calendar-recompute launch contract: calendar_roll_schedule must supply verified
+last-trade facts, planned-date coverage and bound body/receipt pins. Missing facts
+fail before compute; no observed-tail fallback or invented default schedule.
+Previously completed snapshots stay readable under recorded inputs/policies, not
+silently recomputed or relabeled. Before rollout, stage sufficient source facts
+for the actual nightly universe, forward identical metadata/pins through CLI,
+Dagster, materialization identity and admission, and pass isolated staging proof.
+An existing nightly configuration without these facts is not ready for fresh
+recompute on the changed code. The bounded two-future proof does not establish
+full nightly coverage or authorize a production run, deployment or activation.
+
+The expanded observation definition contains source/namespace/full venue context,
+asset, sorted exact eligible concrete instruments and their factual/unknown specs,
+source numeric-price/quantity basis, configured roll/calendar versions, adjustment
+method/direction/anchor/knowledge version, timeframe and source-key basis. Add
+profile/set/rule versions for Research. Its row key is the full definition plus
+source opening label; hashes are content/cache references, not opaque economic
+series/family/product IDs. Active/previous/new instruments and components are FKs
+and source-label contribution lineage, never the permanent CF identity. Changing
+active instrument preserves definition; different venue/units/size/scope/R/A does
+not. Exact enumeration does not declare unknown structural facts equivalent.
+
+Preserve selected native Decimal OHLC/quantity buffers, NULL/state masks and full
+source grain/lineage. New numeric metrics explicitly use float64. Project native
+fields from L0; do not inherit its per-instrument metrics as composed CF metrics.
+Retain unknown UTC expiry/size/quantity facts and execution eligibility false.
+`reference_calculation_embargo_source_label` is max of the exact old/new reference
+source-end labels; a dependent metric's configured embargo also covers its own
+end label. This is retrospective calculation/alignment policy, not actual known_at,
+UTC watermark or market availability. Invalid/missing/foreign labels reject.
+
+### Closed graph and existing immutable protocol
+
+```mermaid
+flowchart LR
+  L0["Completed native L0"] --> CF["CF: selected bars / events / ladder / QC"]
+  CF --> L1["CF-L1: roll-aware sidecar"]
+  L1 --> L2["CF-L2: derived sidecar"]
+```
+
+CF requires exact completed native L0 in the same isolated `/research-trial` root;
+CF-L1 requires this CF family/layer; CF-L2 requires its exact CF-L1 profile. Keep
+standalone price/core L2→L1→L0 unchanged. New policy/context/intent/completion and
+`native_cf_compute.v1` live under shared `market_identity.v3` with thin wrappers,
+fixtures and tests. Do not weaken the old compute DTO, schemas or public defaults.
+The new compute DTO carries family/layer/root, exact completion/context/snapshot/
+parent/L0/fact pins, namespace/full definitions, profile/rule/numerical IDs, native
+table roles/layouts/grains/counts, source selection/sequence extents, capabilities,
+limits and limitations. No row-list prices or fabricated timestamps/session flags.
+
+The CF reader assembles output refs from the completed manifest. Persisted context
+does not contain its own output-file hashes or completion, avoiding a table/context
+hash cycle. Row context ID derives from source/policy/layout/selection metadata;
+manifest binds context and every physical output; completion pins manifest/intent.
+
+CF bars equal the source-key set independently selected from pinned L0 by the
+declared rule, not all parent rows; require one selected analysis row per sequence,
+exact anti-joins and selected buffers. Events equal observed active transitions;
+ladder has one matching row per event; QC one row per definition/timeframe. CF-L1
+and CF-L2 each retain exact selected cardinality and parent fields. Zero-event/
+zero-ladder scopes have typed readable empty Delta tables; missing table or missing
+reference for an actual transition fails. A zero-event scope cannot prove a roll.
+
+Factor only the existing `native_feature_materialization` command protocol for
+explicit known price/core-feature and CF family branches. Keep its existing
+entrypoint/opt-in Dagster job, one root lock, immutable full canonical intent,
+attempts and receipt path. Private compute branches return known Spark frame sets,
+layouts, prepared validated context and exact parent manifest; no third writer,
+plugin registry, arbitrary callbacks/imports or second production pipeline.
+Same command with changed family/layer/definition/profile/parent conflicts. Replay
+validates the committed family receipt; it does not reinterpret it through another
+factory. Saved zero complete graphs means a fresh attempt with partial files
+retained; one valid complete graph recovers; two reject even if metadata agree.
+A corrupt present manifest fails closed. Write all declared tables with existing
+`write_delta_once`, validate role-specific pins/counts, persist context, then save
+snapshot manifest last; validate the whole graph before atomic completion. Lost
+ACK reconciles the same receipt; use the same cleanup/fault/lock owner.
+
+One explicit `NativeCfSnapshot` public reader owns this family/compute DTO through
+existing pinned Arrow/Spark table utilities. Validate receipt/context layer and
+allowed parent version/layer before recursion. Reject visited root/path/pin cycles,
+cross-root lookup, wrong edges and depth beyond four Research receipt nodes
+(CF-L2, CF-L1, CF, L0); the existing Market Data base validator remains its owner.
+Old readers keep their fixed graph/cardinality and old receipts remain readable.
+
+### Roll-aware math and new pointwise CF profile
+
+Spark frame transforms own bars/events/ladder/QC; accepted pandas-ta-classic/CF
+relationship kernels own sidecars; Delta owns storage; existing opt-in Dagster
+owns invocation. Expose only necessary frame-input/key/source-date boundaries in
+existing owners; no row-object Delta fallback, fake canonical bars or exported UTC
+ordering coordinate. Existing native-price CF bars are not relabelled adjusted
+OHLC. Gap is new-reference close minus old-reference close; P0/epoch offsets reuse
+existing sidecar/indicator transforms. No future gap changes a prior point.
+
+Recompute on the composed frame with its own verified ladder, using existing CF
+indicator and derived kernels; do not join native SRU6/SRZ6 indicator values and
+call them continuous. Every join/window/unique key/filter/hash uses full CF
+definition, timeframe/source key and relevant profile/rule versions, not nullable
+instrument_id or active ID. New public consumers/cache use a separate family and
+all exact pins. Do not force equity/index/CF through a legacy futures loader.
+
+Seal separate `native_cf_prefix_l1.v1`/`native_cf_prefix_l2.v1` with
+`pointwise_configured_prefix_admission.v1`. Reuse core formulas/seeds/catalog and
+runtime pins, preserving standalone core policy/unmasked mathematics/frozen oracle.
+Each output has a sealed invocation, pointwise-mask and quantity/dependency domain:
+composed prefix for accepted carry rules; current epoch for actual reset rules;
+existing non-crossing windows remain masked across rolls. Do not derive invocation
+scope solely from a broad CalculationGroup.reset_on_roll flag: the current owner
+actually recomputes OBV/AD/ADOSC/PVT/PVO by epoch; EFI/CMF/MFI and non-crossing
+window rules must retain their explicit accepted operation path unless this sealed
+CF policy/review deliberately changes it. No undocumented extra resets.
+
+Before every epoch-prefix spec call and every reset-segment recompute, enforce
+that actual invocation's known safe-call threshold, configured atomic minimum and
+required quantities. No full-snapshot permission for a short segment. Thread a
+sealed optional admission map through actual CF owners, defaultNone retaining old
+behavior. CF skips reset operations' redundant cross-epoch first pass, computes
+them only in the guarded reset phase, and disables its full-future invariant cache.
+Ineligible calls emit typed NULLs without invoking the library. Vectorized row
+masks keep every output NULL before its domain's configured minimum, so later
+admission does not backfill native early seeds; after admission native math stays.
+Quantity/dependency checks are causal in that declared source domain; future rows
+cannot veto earlier admitted values. No per-bar library loop or fabricated flags.
+
+Prefix stability is conditional on unchanged effective prefix source observations,
+the exact reference pins used by that prefix, and the same policy/domain versions.
+Appending later irrelevant rows or reference facts must not backfill early seeds
+or alter an already admitted prefix. This is a numerical prefix guarantee, not
+equality of whole read envelopes whose completed snapshot pins can differ.
+Recomputing with different used roll-reference pins creates a new immutable
+context/snapshot/cache identity and may change dependent values; it never rewrites
+an older completion. Each dependent row's configured calculation embargo is
+max(own source_end, all used old/new reference source_end labels). These labels
+establish no UTC, actual availability, known_at or historical PIT guarantee.
+
+MACD call-safe26/group-min34 remain different: prefix33 all NULL; prefix34 may
+compute, but rows1–33 remain NULL despite native index25 seed. One-bar PVT reset
+epoch makes no native call; a second row cannot backfill its first. L2 consumes
+only admitted CF-L1 values: close_change1 needs two composed rows; volume_change1
+two in one epoch; close_slope20/rvol20 pass through exact CF-L1 admission21/20.
+Other materialized L2 outputs retain conservative300 plus finite dependencies.
+Source-fact-dependent/session/week/OI/volume-profile gaps stay distinct from N/A,
+insufficient history and undefined arithmetic. Ready needs finite analysis values;
+unexplained all-NULL after applicable admission fails, never a blanket success.
+
+Shared-owner edits may rebind dynamic AST descriptors without changing standalone
+core formulas/policy. Record source/AST drift separately, run relevant unchanged
+numeric parity and bind new commands/proofs to new source. Do not duplicate math
+to freeze a hash or reinterpret old immutable receipts with a current factory.
+
+### Evidence, alternatives and rollback
+
+Before dependent code: final independent design admission on this record and
+contract binding. Planned checks cover source-calendar T−2 regression on14/15
+September (last-trade17th; expected old→new on15th), unchanged decision after
+unrelated tail changes, strict-v3 rejection, quote/venue/FK/label negatives,
+MACD33/34 and PVT1/2 invocation/mask regressions, independent source-byte selection/
+gap/ladder oracle and all-output CF prefix values/masks/codes. Actual isolated
+Spark/Delta CF→CF-L1→CF-L2, public pinned readback/consumer/cache roundtrip, complete
+capability matrix and old snapshot parity are required. Prove typed zero-event
+tables, partial named-table retry, saved0/1/2-graph recovery, changed-family conflict,
+lost ACK, OS lock and wrong/cyclic/deep reader rejection with the one owner. Then
+independent implementation review and small sequential PRs/required CI. Fixtures,
+source-only captures and earlier core math proof do not establish native CF proof.
+
+Use existing14–15September inputs first; later candles are not needed to infer
+lifetime. A narrowly necessary isolated reference/warmup extension is allowed.
+Waiting for full canonical UTC/PIT facts would block authorized observation math;
+inventing them or weakening v3 is rejected. Reuse owners rather than add a service,
+dependency, parallel writer or formula engine. Work remains bounded by sealed
+native input limits (max8 sequences/20k rows/128 files/64MiB per table), finite
+definition/receipt graph and existing isolated runtime budget; do not invent an SLA.
+Rollback selects an older immutable completion/opt-in invocation, retaining all
+evidence and old readers. No destructive migration/backfill, pointer switch or
+production promotion. Revisit canonical projection only after its actual missing
+specification/clock/availability/PIT facts are admitted under its separate contract.
+
+### C6 contract delivery evidence — 11 November 2026
+
+The C6 delivery contains the closed contracts, sealed policy metadata, fixtures,
+contract tests, optional campaign metadata carrier and this record. Its 23
+additive definitions preserve all previous 79 definitions and authority root
+fields. The policy seal remains
+`24dfecc092db2cc95d184ae252cd348ddbeda31ba45d5a0ac29dcf62be7a5627`;
+catalog mathematics and invocation/mask domains are unchanged. The accepted
+Research cache-fix base is main commit
+`9d424d4bc5b34d518791871f98a395fc376d67ee`.
+
+A paired isolated runtime now supplies the real C6 producer/consumer example:
+completed native L0 → CF bars/events/ladder/QC → closed metadata → public
+Arrow IPC/decoder/cache/HTTP. Both simultaneous expanded T2/T1 definitions and
+1m/1d sequences remain separate. The R3 completion is
+`da008a9e63442fb210024eec4c13e8ed3eeb0fdf1a02f41565e830135f31b8cb`.
+It has 3651/2/2/4 role rows and 3651 rows through public Spark handoff. The exact
+L0 parent `e67524fc0779f01d88d44bba93aa106b16ea5cae8e20dcccde5a07c3564066d0`
+is the successful earlier fresh L0 phase under recorded source8067847f; R3 did
+not overwrite or claim to rematerialize that parent.
+
+R3 evidence root:
+`D:/CodexHome/visualizations/2026/11/11/01a1c83b-e7fe-7fa0-86bc-559524f1cb9a/native-cf-proof/20261111T060150Z-d657fee2`.
+The producer `producer-completion-r3/producer-proof.json` has SHA-256
+`d88dd9a129fb35faa2dbb8c5e50d68103aa4225ceff2d1d8a291f29ae1e9d415`;
+independent `independent-r3-retry2/cf-base-consumer/proof.json` has
+`4e1d62d38b1c4ec84de360024b2169d6901a6eac914d168750fa57473069fb39`;
+`wire-r3/cf-wire-consumer/proof.json` has
+`6e068964df13cf75a3b682a3405068fca071def4d09d890c3ef23b8df1346178`.
+The independent comparison covers every selected source buffer/FK, P0, gap and
+used reference. Wire proof has 16 cases and 34 negatives, including correctly
+pinned malformed metadata before cache, finite payload poison and old-family
+rejection. All seven closed wrappers are exercised by actual base metadata and
+public request/read IPC; this is not a sidecar producer example. Producer code
+`ecb7c93806960feccfe102c193b057895dfac52313547cae23d6451119324bfb`
+and reader-code `50f0a3617a589a23b28f77a7639e2b0889f11b8ae61ba493c9508894d24e6004`
+are separate recorded bindings.
+
+The separately sealed `native-cf-lifecycle-proof.json` in the November11 evidence
+root has SHA-256
+`b69d3a9341e410d3f620b73debd6048345a8cd73acd2f107ce14bf5b3b2aa28c`.
+All six CF-only cases completed with exit0: actual isolated T1 Delta tables
+(1887/0/0/2 rows, eight public IPC decodes), saved0, saved1, two-saved ambiguity,
+lost ACK and OS writer lock. This supplies physically empty event/ladder proof;
+R3's T1 empty projections alone do not make its global event tables empty.
+The same 350 source files, R3 graph, L0 parent and 128 original fact files remain
+unchanged. Earlier R2 saved-graph finalization is separate recovery, not compute:
+`saved-graph-recovery-finalizer/saved-graph-recovery.json` SHA-256
+`289131c47ccda9d83e53dfe14b5e9315066a56f8f41ffd2d9f41d19785fbfb51`
+preserves 47 original files, context/snapshot IDs, table refs and Delta versions.
+
+Final-producer-code old native price/core read, IPC and replay compatibility is
+recorded in `native-cf-old-replay/actual-final-ecb7/proof-summary.json` under the
+November11 evidence root, SHA-256
+`31ec5e014082ca03b85c83f3fea6ba539856c42b65470d2284d5436ed0a2522c`.
+These receipts support contract admission; the C6 commit does not deliver the
+paired runtime files. Runtime, caller forwarding and public wire delivery remain
+separate changes with their own immutable scope, reviews and CI.
+
+Stage6 remains open. CF-L1/CF-L2 runtime is not implemented or admitted by this
+delivery. Frozen 151-output/788-cell sidecar oracles are expected results only.
+The full Spark/Delta CF→CF-L1→CF-L2, capability, actual invocation/prefix and
+public-consumer requirements above remain unchanged and required for Stage6
+closure. The current base proof cannot substitute for them. Fresh legacy/nightly
+source coverage and staging, strict-v3 facts, actual availability/UTC/PIT and
+production activation remain separate. Final C6 design/implementation reviews
+must bind the resulting immutable C6 head, exact 16-file scope, this updated
+record and the unchanged architecture standard before merge.
