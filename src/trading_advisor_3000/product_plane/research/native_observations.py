@@ -13,6 +13,8 @@ from trading_advisor_3000.product_plane.common.data_snapshots import (
     SnapshotUnavailableError,
     load_snapshot,
     open_pinned_table,
+    read_spark_delta,
+    snapshot_read_scope,
 )
 from trading_advisor_3000.product_plane.common.immutable_files import (
     canonical_bytes,
@@ -390,6 +392,111 @@ def validate_l0_graph(root, *, snapshot_pin, context_pin, intent_pin, input_sha2
     }
 
 
+def research_compute_metadata(root, completion_pin, graph):
+    context = graph["context"]
+    layer = context["layer"]
+    require(layer in {"L0", "L1"}, "unsupported Research compute parent layer")
+    definition = json.loads((SCHEMAS / "market_identity.v3.json").read_bytes())["$defs"][
+        "native_research_compute"
+    ]
+    policy = definition["properties"]["policy"]["const"]
+    name = "research_bar_views" if layer == "L0" else "research_indicator_frames"
+    reference = graph["manifest"]["tables"][name]
+    for field, limit in [("row_count", "rows"), ("file_count", "files")]:
+        require(
+            0 < reference[field] <= policy["limits"][limit],
+            "Research compute " + limit + " budget exceeded",
+        )
+    table = open_pinned_table(reference)
+    size = sum(table.get_add_actions().column("size_bytes").to_pylist())
+    require(
+        0 < size <= policy["limits"]["physical_bytes"],
+        "Research compute physical byte budget exceeded",
+    )
+    source = context["source"]
+    completion = graph["completion"]
+    metadata = {
+        "schema_version": 1,
+        "contract_version": "native_research_compute.v1",
+        "input_mode": "native_observation_research.v1",
+        "root": root.as_posix(),
+        "layer": layer,
+        "namespace": source["namespace"],
+        "completion": completion_pin,
+        "snapshot": completion["snapshot"],
+        "context": completion["context"],
+        "research_context_id": context["research_context_id"],
+        "context_id": context["research_context_id"]
+        if layer == "L0"
+        else context["feature_context_id"],
+        "analysis_start": context["analysis_start"] if layer == "L0" else source["analysis_start"],
+        "table_name": name,
+        "limitations": source["limitations"],
+        "policy": policy,
+        "row_count": reference["row_count"],
+        "file_count": reference["file_count"],
+        "physical_bytes": size,
+        "sequences": source["sequences"],
+    }
+    validate_identity_contract("native_research_compute.v1.json", metadata, source["namespace"])
+    require(
+        sum(s["rows"] for s in source["sequences"]) == reference["row_count"],
+        "Research compute sequence count mismatch",
+    )
+    return metadata
+
+
+def read_research_spark(root, completion_pin, graph, layout, spark):
+    from pyspark.sql import functions as F
+
+    metadata = research_compute_metadata(root, completion_pin, graph)
+    reference = graph["manifest"]["tables"][metadata["table_name"]]
+    with snapshot_read_scope(graph["manifest"]):
+        frame = read_spark_delta(spark, reference["table_path"], version=reference["delta_version"])
+    require(
+        [(f.name, f.dataType.simpleString()) for f in frame.schema]
+        == [(f["name"], f["sql_type"]) for f in layout["fields"]],
+        "Research compute schema mismatch",
+    )
+    require(frame.count() == metadata["row_count"], "Research compute actual row count mismatch")
+    require(
+        not frame.groupBy(*layout["grain"]).count().where("count > 1").limit(1).count(),
+        "Research compute duplicate grain",
+    )
+    invalid = F.lit(False)
+    for field in layout["fields"]:
+        if not field["nullable"]:
+            invalid = invalid | F.col(field["name"]).isNull()
+    invalid = invalid | (F.col("research_context_id") != metadata["research_context_id"])
+    if metadata["layer"] == "L1":
+        invalid = invalid | (F.col("indicator_context_id") != metadata["context_id"])
+    require(not frame.where(invalid).limit(1).count(), "Research compute invalid source field")
+    native = contract_constants()["storage_layout"]["native_bars"]
+    grouping = [name for name in native["grain"] if name != "source_begin"] + [
+        "asset_id",
+        "source_symbol",
+    ]
+    actual = []
+    for row in frame.groupBy(*grouping).count().limit(129).collect():
+        actual.append(
+            {
+                "namespace": row.namespace,
+                "asset_id": row.asset_id,
+                "instrument_id": row.instrument_id,
+                "engine": row.engine,
+                "source_symbol": row.source_symbol,
+                "timeframe": row.timeframe,
+                "context": {key: row[key] for key in ["provider", "venue", "market", "board"]},
+                "rows": row["count"],
+            }
+        )
+    require(
+        sorted(actual, key=canonical_bytes) == sorted(metadata["sequences"], key=canonical_bytes),
+        "Research compute actual sequence mismatch",
+    )
+    return frame, metadata
+
+
 class NativeResearchSnapshot:
     """Public readback of one explicit, completed, unpublished L0 graph."""
 
@@ -432,3 +539,17 @@ class NativeResearchSnapshot:
 
     def read_tree(self):
         return self.verify()["tables"]["research_instrument_tree"]
+
+    def compute_metadata(self):
+        return research_compute_metadata(
+            self.root, json.loads(self._completion_json), self.verify()
+        )
+
+    def read_spark(self, spark):
+        return read_research_spark(
+            self.root,
+            json.loads(self._completion_json),
+            self.verify(),
+            l0_layouts()["research_bar_views"],
+            spark,
+        )

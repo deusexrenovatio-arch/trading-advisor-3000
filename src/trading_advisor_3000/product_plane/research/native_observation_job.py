@@ -29,3 +29,26 @@ def materialize_native_research_l0(context):
 @job
 def native_research_l0_materialization_job():
     materialize_native_research_l0()
+
+
+@op(config_schema={"root": str, "intent_path": str, "fault": Field(str, is_required=False)})
+def materialize_native_research_features(context):
+    from .native_feature_materialization import materialize_feature_command
+
+    config = context.op_config
+    root = Path(config["root"]).resolve()
+    intent = json.loads(child(root, config["intent_path"]).read_bytes())
+    result = materialize_feature_command(root, intent, fault=config.get("fault"))
+    context.add_output_metadata(
+        {
+            "completion_sha256": result["completion"]["sha256"],
+            "replayed": result["replayed"],
+            "recovered": result["recovered"],
+        }
+    )
+    return result
+
+
+@job
+def native_research_features_materialization_job():
+    materialize_native_research_features()
