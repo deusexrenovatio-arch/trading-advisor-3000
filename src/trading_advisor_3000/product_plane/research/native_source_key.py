@@ -9,14 +9,12 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from trading_advisor_3000.product_plane.common.immutable_files import canonical_bytes
 from trading_advisor_3000.product_plane.contracts.identity_v3 import (
     _source_key_time,
     validate_identity_contract,
 )
 from trading_advisor_3000.product_plane.contracts.schema_validation import SchemaValidationError
-from trading_advisor_3000.product_plane.data_plane.moex.observation_acquisition import (
-    canonical_bytes,
-)
 
 from .native_observations import require
 
