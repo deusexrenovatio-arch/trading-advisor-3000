@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "command_id": "note-example-v1",
+  "expected_revision": 1,
+  "event_at": "2026-10-12T14:00:00Z",
+  "reason": "Новое наблюдение автора",
+  "source": {
+    "source_type": "manual",
+    "original_text": "Проверить ретест шеи",
+    "reference": null
+  },
+  "operations": [
+    {
+      "kind": "add_entry",
+      "entry": {
+        "kind": "note",
+        "text": "Проверить ретест шеи",
+        "event_at": "2026-10-12T14:00:00Z",
+        "source": {
+          "source_type": "manual",
+          "original_text": "Проверить ретест шеи",
+          "reference": null
+        },
+        "execution": null,
+        "supersedes_entry_id": null
+      }
+    }
+  ]
+}
