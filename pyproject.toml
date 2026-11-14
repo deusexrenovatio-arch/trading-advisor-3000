@@ -78,12 +78,15 @@ package-dir = {"" = "src"}
 [tool.setuptools.package-data]
 trading_advisor_3000 = [
   "product_plane/interfaces/static/*.html",
+  "product_plane/interfaces/frontend/dist/index.html",
+  "product_plane/interfaces/frontend/dist/assets/*",
   "product_plane/domain/journal/migrations/*.sql",
   "product_plane/contracts/schemas/journal.v1.json",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["trading_advisor_3000.product_plane.interfaces.frontend*"]
 
 [tool.pytest.ini_options]
 addopts = "--basetemp=.tmp/pytest --strict-markers"

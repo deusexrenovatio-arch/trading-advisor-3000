@@ -523,9 +523,28 @@ def test_status_filter_and_desc_timeline_are_bounded_and_pinned(store):
         store.get_timeline(trade_id, order="invalid-order")
 
 
-def test_manual_root_opens_public_api_docs():
+def test_manual_root_opens_journal_and_keeps_public_api_docs():
     with TestClient(create_app()) as client:
         response = client.get("/", follow_redirects=False)
-        assert response.status_code == 307 and response.headers["location"] == "/docs"
+        assert response.status_code == 307 and response.headers["location"] == "/journal/"
         assert client.get("/docs").status_code == 200
         assert PREFIX + "/trades" in client.get("/openapi.json").json()["paths"]
+
+
+def test_frontend_missing_build_and_local_assets(tmp_path, monkeypatch):
+    from trading_advisor_3000.product_plane.interfaces import trade_workspace as module
+
+    monkeypatch.setattr(module, "__file__", str(tmp_path / "trade_workspace.py"))
+    with TestClient(module.create_app()) as client:
+        assert client.get("/journal/").status_code == 503
+        assert client.get("/docs").status_code == 200
+    frontend = tmp_path / "frontend" / "dist"
+    assets = frontend / "assets"
+    assets.mkdir(parents=True)
+    (frontend / "index.html").write_text("<main>Local Journal</main>", encoding="utf-8")
+    (assets / "journal.js").write_text("// local asset", encoding="utf-8")
+    with TestClient(module.create_app()) as client:
+        response = client.get("/journal/")
+        assert response.status_code == 200 and "Local Journal" in response.text
+        assert response.headers["cache-control"] == "no-cache"
+        assert client.get("/journal/assets/journal.js").status_code == 200
