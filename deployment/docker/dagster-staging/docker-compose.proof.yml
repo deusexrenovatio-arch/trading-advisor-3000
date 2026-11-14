@@ -1,0 +1,58 @@
+# Session-only native Dagster. No builds, host socket, counter or production mount.
+services:
+  worker:
+    image: ${STAGING_IMAGE:?pinned image required}
+    pull_policy: never
+    init: true
+    restart: "no"
+    working_dir: /workspace
+    mem_limit: 9g
+    memswap_limit: 9g
+    cpus: 2
+    pids_limit: 512
+    entrypoint: [timeout, --signal=KILL, "${STAGING_SECONDS:?time limit required}"]
+    command:
+      - sh
+      - -c
+      - >-
+        dagster-daemon run -m trading_advisor_3000.product_plane.common.staging_execution
+        -a product_plane_definitions -d /workspace &
+        exec dagster-webserver -m trading_advisor_3000.product_plane.common.staging_execution
+        -a product_plane_definitions -d /workspace -h 0.0.0.0 -p 3000
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      PYTHONPATH: /workspace/src:/workspace/scripts
+      PYTHONDONTWRITEBYTECODE: "1"
+      TA3000_STAGING_PLAN: /staging-control/plan.json
+      TA3000_RESEARCH_DATA_PREP_DATASET_VERSION: ${STAGING_DATASET_VERSION:?consumer dataset required}
+      TA3000_MOEX_HISTORICAL_DATA_ROOT: /ta3000-data/moex-historical
+      TA3000_MOEX_PRODUCT_RUNTIME_STAGING_ROOT: /ta3000-data/moex-historical
+      TA3000_MOEX_CANONICALIZATION_SPARK_PROFILE: local
+      TA3000_MOEX_RUNTIME_INSTANCES_REGISTRY: /workspace/deployment/runtime-instances/moex-runtime-instances.v1.yaml
+      PYSPARK_SUBMIT_ARGS: --driver-memory 3g pyspark-shell
+      JAVA_TOOL_OPTIONS: -Djava.io.tmpdir=/tmp -Djava.util.concurrent.ForkJoinPool.common.parallelism=2
+    tmpfs:
+      - /tmp:size=2147483648,mode=1777,exec
+    volumes:
+      - type: bind
+        source: ${STAGING_CODE:?}
+        target: /workspace
+        read_only: true
+      - type: bind
+        source: ${STAGING_CONTROL:?}
+        target: /staging-control
+        read_only: true
+      - type: bind
+        source: ${STAGING_FIXTURE:?}
+        target: /staging-control/fixture
+        read_only: true
+      - type: bind
+        source: ${STAGING_HOME:?}
+        target: /opt/dagster/dagster_home
+      - type: bind
+        source: ${STAGING_DATA:?}
+        target: /ta3000-data/moex-historical
+    networks: [proof]
+networks:
+  proof:
+    internal: ${STAGING_INTERNAL:?}
