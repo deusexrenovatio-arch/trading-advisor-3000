@@ -666,28 +666,42 @@ def _with_continuous_front_projection(
     frame: pd.DataFrame,
     *,
     adjustment_ladder_rows: tuple[dict[str, object], ...],
+    series_key: dict | None = None,
+    sequence_column: str = "roll_sequence",
 ) -> pd.DataFrame:
     if frame.empty or "roll_epoch" not in frame.columns:
         return frame
     result = frame.copy()
     roll_epoch = pd.to_numeric(result["roll_epoch"], errors="coerce").fillna(0).astype(int)
     max_epoch = int(roll_epoch.max() or 0)
-    if max_epoch == 0:
+    if max_epoch == 0 and series_key is None:
         return result
+    if series_key is not None and (
+        set(series_key) != {"cf_definition_json", "timeframe"}
+        or sequence_column != "roll_ordinal"
+        or len(result[list(series_key)].drop_duplicates()) != 1
+        or any(result[name].iloc[0] != value for name, value in series_key.items())
+    ):
+        raise ValueError("CF projection requires one full definition/timeframe")
     instrument_id = str(result["instrument_id"].iloc[0])
     timeframe = str(result["timeframe"].iloc[0])
     series_ladder_rows = tuple(
         row
         for row in adjustment_ladder_rows
-        if str(row.get("instrument_id")) == instrument_id and str(row.get("timeframe")) == timeframe
+        if (
+            all(row.get(name) == value for name, value in series_key.items())
+            if series_key is not None
+            else str(row.get("instrument_id")) == instrument_id
+            and str(row.get("timeframe")) == timeframe
+        )
     )
-    if not series_ladder_rows:
+    if not series_ladder_rows and max_epoch > 0:
         raise ValueError(
             "continuous_front derived indicator materialization requires adjustment ladder rows "
             f"for {instrument_id}|{timeframe}"
         )
     gap_by_sequence = {
-        int(row["roll_sequence"]): float(row["additive_gap"]) for row in series_ladder_rows
+        int(row[sequence_column]): float(row["additive_gap"]) for row in series_ladder_rows
     }
     missing_sequences = [
         sequence for sequence in range(1, max_epoch + 1) if sequence not in gap_by_sequence

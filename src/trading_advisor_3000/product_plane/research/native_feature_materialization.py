@@ -517,7 +517,9 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
         from .native_cf import NativeCfSnapshot, _parent, validate_cf_graph
         from .native_cf_policy import TABLES
 
-        require(intent.get("layer") == "CF", "CF sidecar producer not implemented")
+        require(
+            intent.get("layer") in {"CF", "CF-L1", "CF-L2"}, "CF sidecar producer not implemented"
+        )
         source_reader, parent_graph = _parent(root, intent["parent_completion"], intent["layer"])
         policy, core = None, False
     else:
@@ -611,7 +613,7 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
                     from .native_cf import build_cf_frames, validate_cf_facts
 
                     role_frames, role_layouts, context, parent = build_cf_frames(
-                        root, intent, source_reader, parent_graph, spark
+                        root, intent, source_reader, parent_graph, spark, resources
                     )
                     frames = {TABLES[role]: frame for role, frame in role_frames.items()}
                     layouts = {
@@ -619,7 +621,15 @@ def materialize_feature_command(root: Path, intent: dict, *, spark=None, fault=N
                         for role, layout in role_layouts.items()
                         if role in role_frames
                     }
-                    validate_cf_facts(root, intent, parent_graph)
+                    if intent["layer"] == "CF":
+                        validate_cf_facts(root, intent, parent_graph)
+                    else:
+                        validate_cf_facts(
+                            root,
+                            intent,
+                            parent_graph["l0_graph"],
+                            l0_completion=parent_graph["l0_completion"],
+                        )
                 else:
                     frames, layouts, context, parent = _build_feature_frames(
                         intent, source_reader, source, policy, spark, resources

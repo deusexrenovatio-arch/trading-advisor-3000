@@ -116,7 +116,7 @@ def _component_expiration(root, component):
     )
 
 
-def validate_cf_facts(root, intent, l0_graph):
+def validate_cf_facts(root, intent, l0_graph, *, l0_completion=None):
     """Actual bytes and native source controls, never admission booleans."""
     from decimal import Decimal
 
@@ -141,7 +141,7 @@ def validate_cf_facts(root, intent, l0_graph):
     for definition in intent["definitions"]:
         basis = definition["numeric_price_basis"]
         require(
-            basis["parent_l0_completion"] == intent["parent_completion"],
+            basis["parent_l0_completion"] == (l0_completion or intent["parent_completion"]),
             "CF numeric basis requires exact original L0 completion",
         )
         required += [basis["source_binding"], basis["dated_specification"]]
@@ -333,6 +333,400 @@ def validate_cf_facts(root, intent, l0_graph):
     validate_calendar_sources(root, intent["calendar_roll_schedule"])
 
 
+def cf_l1_profile(policy):
+    from .indicators.registry import IndicatorProfile
+    from .native_core_policy import core_policy
+    from .native_feature_materialization import profile_for_policy
+
+    origin_policy = core_policy("L1")
+    require(
+        sha(origin_policy) == policy["origin_core_policy_sha256"], "CF origin core policy changed"
+    )
+    origin = profile_for_policy(origin_policy)
+    ids = {
+        r["spec_id"] for r in policy["catalog"] if r["materialized"] and r["passthrough"] is None
+    }
+    selected = tuple(spec for spec in origin.indicators if spec.indicator_id in ids)
+    expected = {
+        r["output"] for r in policy["catalog"] if r["materialized"] and r["passthrough"] is None
+    }
+    require(
+        {n for spec in selected for n in spec.output_columns} == expected,
+        "CF L1 resolved output factory mismatch",
+    )
+    return IndicatorProfile(policy["profile_version"], "Observed CF pointwise profile", selected)
+
+
+def cf_call_admission(policy, profile):
+    rows = [r for r in policy["catalog"] if r["materialized"] and r["passthrough"] is None]
+    return {
+        "version": policy["history_policy"],
+        "series_columns": ("cf_definition_json", "timeframe"),
+        "specs": {
+            spec.indicator_id: [r for r in rows if r["spec_id"] == spec.indicator_id]
+            for spec in profile.indicators
+        },
+    }
+
+
+def _cf_l1_values(frame, profile, call_admission, ladder_rows):
+    import pandas as pd
+
+    from .indicators.materialize import _compute_continuous_front_profile_frame
+
+    ordered = frame.sort_values("source_begin", kind="stable").reset_index(drop=True)
+    grain = ["cf_definition_json", "timeframe", "source_begin"]
+    if ordered.duplicated(grain).any():
+        raise ValueError("duplicate CF L1 source grain")
+    numeric = ordered.copy()
+    for name in ["open", "high", "low", "close", "volume"]:
+        numeric[name] = pd.to_numeric(numeric[name], errors="raise").astype("float64")
+    for name in ["open", "high", "low", "close"]:
+        numeric["native_" + name] = numeric[name]
+    result = _compute_continuous_front_profile_frame(
+        numeric, profile, adjustment_ladder_rows=ladder_rows, call_admission=call_admission
+    )
+    output = ordered[grain].copy()
+    for name in profile.expected_output_columns():
+        output[name] = (
+            pd.to_numeric(result[name], errors="raise")
+            .replace([np.inf, -np.inf], np.nan)
+            .astype("float64")
+        )
+    return output
+
+
+def cf_l2_profile(policy):
+    from .derived_indicators.registry import DerivedIndicatorProfile
+    from .native_core_policy import core_policy
+    from .native_feature_materialization import profile_for_policy
+
+    origin_policy = core_policy("L2")
+    require(
+        sha(origin_policy) == policy["origin_core_policy_sha256"], "CF origin core policy changed"
+    )
+    origin = profile_for_policy(origin_policy)
+    outputs = tuple(
+        row["output"]
+        for row in policy["catalog"]
+        if row["materialized"] and row["passthrough"] is None
+    )
+    require(set(outputs) <= set(origin.output_columns), "CF L2 resolved output factory mismatch")
+    return DerivedIndicatorProfile(
+        policy["profile_version"],
+        "Observed CF pointwise derived profile",
+        outputs,
+        origin.warmup_bars,
+    )
+
+
+def _cf_l2_inputs(columns, policy):
+    produced = {
+        row["output"]
+        for row in policy["catalog"]
+        if row["materialized"] and row["passthrough"] is None
+    }
+    required = {
+        name for row in policy["catalog"] if row["materialized"] for name in row["required_inputs"]
+    } - produced
+    required |= {
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "volume_state",
+        "open_interest_state",
+        "atr_14",
+    }
+    missing = required - set(columns)
+    if missing:
+        raise ValueError("missing CF L2 input dependencies: " + ", ".join(sorted(missing)))
+
+
+def _cf_output_admission(frame, row):
+    import pandas as pd
+
+    from .indicators.materialize import _cf_row_admission
+
+    permitted = _cf_row_admission(frame, row)
+    if "dependency_admission" in row and row["passthrough"] is None:
+        for name in row["required_inputs"]:
+            values = pd.to_numeric(frame[name], errors="raise")
+            permitted &= values.notna() & np.isfinite(values)
+    return permitted
+
+
+def _cf_l2_values(frame, profile, policy, ladder_rows):
+    import pandas as pd
+
+    from .derived_indicators.materialize import (
+        _compute_derived_frame_unmasked,
+        _with_continuous_front_projection,
+    )
+    from .derived_indicators.registry import DerivedIndicatorProfile
+    from .indicators.materialize import _cf_row_admission
+
+    ordered = frame.sort_values("source_begin", kind="stable").reset_index(drop=True)
+    grain = ["cf_definition_json", "timeframe", "source_begin"]
+    if ordered.duplicated(grain).any():
+        raise ValueError("duplicate CF L2 source grain")
+    _cf_l2_inputs(ordered.columns, policy)
+    numeric = ordered.copy()
+    for name in ["open", "high", "low", "close", "volume"]:
+        numeric[name] = pd.to_numeric(numeric[name], errors="raise").astype("float64")
+    for name in ["open", "high", "low", "close"]:
+        numeric["native_" + name] = numeric[name]
+    numeric = _with_continuous_front_projection(
+        numeric,
+        adjustment_ladder_rows=ladder_rows,
+        series_key={name: ordered[name].iloc[0] for name in ["cf_definition_json", "timeframe"]},
+        sequence_column="roll_ordinal",
+    )
+    rows = [row for row in policy["catalog"] if row["materialized"] and row["passthrough"] is None]
+    eligible = tuple(row["output"] for row in rows if _cf_row_admission(ordered, row).any())
+    computed = (
+        _compute_derived_frame_unmasked(
+            base_frame=numeric,
+            profile=DerivedIndicatorProfile(
+                profile.version, profile.description, eligible, profile.warmup_bars
+            ),
+        )
+        if eligible
+        else numeric
+    )
+    result = ordered[grain].copy()
+    for row in rows:
+        name = row["output"]
+        values = computed[name] if name in eligible else pd.Series(np.nan, index=numeric.index)
+        values = pd.to_numeric(values, errors="raise").replace([np.inf, -np.inf], np.nan)
+        if name in eligible:
+            values = values.where(_cf_output_admission(computed, row))
+        result[name] = values.astype("float64")
+    return result
+
+
+def _cf_analysis_keys(l0):
+    table = l0["tables"]["research_bar_views"]
+    fields = [
+        "namespace",
+        "provider",
+        "venue",
+        "engine",
+        "market",
+        "board",
+        "instrument_id",
+        "timeframe",
+        "source_begin",
+    ]
+    return frozenset(
+        tuple(row[k] for k in fields)
+        for row in table.filter(pc.equal(table["slice_role"], "analysis"))
+        .select(fields)
+        .to_pylist()
+    )
+
+
+def _cf_undefined_reason(frame, row, ladder_rows, eligible_analysis):
+    import pandas as pd
+
+    from .indicators.materialize import _zero_anchor_price_frame
+
+    targets = frame.index[eligible_analysis]
+    prefix = frame.loc[: targets[-1]]
+    key, tf = prefix["cf_definition_json"].iloc[0], prefix["timeframe"].iloc[0]
+    gaps = {
+        int(r["roll_ordinal"]): float(r["additive_gap"])
+        for r in ladder_rows
+        if r["cf_definition_json"] == key and r["timeframe"] == tf
+    }
+    prices = _zero_anchor_price_frame(prefix, gap_by_sequence=gaps)
+    operation, name = row.get("operation_key"), row["output"]
+    if operation in {"rsi", "stochrsi", "tsi"} and prices["close"].diff().dropna().eq(0).all():
+        return "zero_price_change_denominator"
+    if operation in {"stoch", "willr"} and (prices["high"].max() - prices["low"].min()) == 0:
+        return "zero_price_range_denominator"
+    if operation == "bop" and (prices["high"] - prices["low"]).eq(0).all():
+        return "zero_bar_range_denominator"
+    if (
+        operation == "cci"
+        and ((prices["high"] + prices["low"] + prices["close"]) / 3).nunique() == 1
+    ):
+        return "zero_typical_price_deviation"
+    if operation == "adx" and (
+        prices["high"].diff().dropna().eq(0).all() and prices["low"].diff().dropna().eq(0).all()
+    ):
+        return "zero_directional_index_denominator"
+    volume = pd.to_numeric(prefix["volume"], errors="raise")
+    if operation == "pvo":
+        epochs = prefix.loc[targets, "roll_epoch"].unique()
+        if all(
+            volume.loc[
+                (prefix["roll_epoch"] == epoch)
+                & (prefix.index <= targets[prefix.loc[targets, "roll_epoch"].eq(epoch)][-1])
+            ]
+            .eq(0)
+            .all()
+            for epoch in epochs
+        ):
+            return "zero_volume_denominator_in_current_epoch"
+    if name in {"rvol_20", "volume_z_20", "volume_zscore_20"}:
+        length = row.get("parameters", {}).get("length", 20)
+        if row["quantity_domain"] == "current_epoch_prefix":
+            groups = volume.groupby(prefix["roll_epoch"], sort=False)
+            mean = groups.transform(
+                lambda values: values.rolling(length, min_periods=length).mean()
+            )
+            std = groups.transform(
+                lambda values: values.rolling(length, min_periods=length).std(ddof=0)
+            )
+        else:
+            mean = volume.rolling(length, min_periods=length).mean()
+            std = volume.rolling(length, min_periods=length).std(ddof=0)
+        denominator = mean if name == "rvol_20" else std
+        if denominator.loc[targets].eq(0).all():
+            return (
+                "zero_volume_window_mean" if name == "rvol_20" else "zero_volume_window_deviation"
+            )
+    if operation == "cmf":
+        length = row["parameters"]["length"]
+        if volume.rolling(length, min_periods=length).sum().loc[targets].eq(0).all():
+            return "zero_volume_window_denominator"
+    if operation == "mfi":
+        typical = (prices["high"] + prices["low"] + prices["close"]) / 3
+        if typical.diff().dropna().eq(0).all():
+            return "zero_directed_money_flow_denominator"
+        zero_flow = typical.diff().eq(0) | volume.eq(0)
+        length = row["parameters"]["length"]
+        if zero_flow.rolling(length, min_periods=length).sum().loc[targets].eq(length).all():
+            return "zero_directed_money_flow_denominator"
+    if "dependency_admission" in row:
+        if name in {
+            "rolling_position_20",
+            "bb_position_20_2",
+            "kc_position_20_1_5",
+            "donchian_position_20",
+            "donchian_position_55",
+        }:
+            _, lower, upper = row["required_inputs"]
+            if (prefix[upper] - prefix[lower]).loc[targets].eq(0).all():
+                return "zero_price_position_range"
+        if name == "price_volume_corr_20":
+            price_variance = prices["close"].diff().rolling(20, min_periods=20).var(ddof=0)
+            volume_variance = volume.diff().rolling(20, min_periods=20).var(ddof=0)
+            if (price_variance.eq(0) | volume_variance.eq(0)).loc[targets].all():
+                return "zero_change_window_variance"
+        if name in {"swing_high_10", "swing_low_10"}:
+            changes = prices["high" if name == "swing_high_10" else "low"].diff().dropna()
+            if changes.gt(0).all() or changes.lt(0).all():
+                return "no_confirmed_swing_in_strictly_monotonic_prefix"
+    return None
+
+
+def cf_sidecar_capabilities(frame, policy, analysis_keys, ladder_rows):
+    import pandas as pd
+
+    from .indicators.materialize import _cf_quantity_prefix_mask
+
+    ordered = frame.sort_values("source_begin", kind="stable").reset_index(drop=True)
+    require(
+        len(ordered[["cf_definition_json", "timeframe"]].drop_duplicates()) == 1,
+        "mixed CF capability sequence",
+    )
+    definition = json.loads(ordered["cf_definition_json"].iloc[0])
+    tf = ordered["timeframe"].iloc[0]
+    keys = [
+        "namespace",
+        "provider",
+        "venue",
+        "engine",
+        "market",
+        "board",
+        "source_instrument_id",
+        "timeframe",
+        "source_begin",
+    ]
+    analysis = pd.Series(
+        [tuple(row) in analysis_keys for row in ordered[keys].itertuples(index=False, name=None)],
+        index=ordered.index,
+    )
+    require(analysis.any(), "CF sidecar sequence has no analysis observation")
+    result = []
+    for row in policy["catalog"]:
+        name = row["output"]
+        quantity_state = None
+        for quantity in row["quantity_requirements"]:
+            states = ordered[quantity + "_state"]
+            if states.eq("not_applicable").all():
+                quantity_state = "not_applicable"
+                break
+            if not states.eq("known").all():
+                quantity_state = "missing_source"
+        if not row["materialized"]:
+            state = quantity_state or (
+                "unverified_policy" if row["required_source_facts"] else "not_implemented"
+            )
+            entry = {
+                "sequence": {"definition": definition, "timeframe": tf},
+                "feature": name,
+                "materialized": False,
+                "analysis_rows": int(analysis.sum()),
+                "state": state,
+                "reason": policy["profile_version"] + "/" + name + "/" + state,
+            }
+        else:
+            values = pd.to_numeric(ordered[name], errors="raise")
+            finite = values.notna() & np.isfinite(values)
+            require(not (values.notna() & ~np.isfinite(values)).any(), "nonfinite CF sidecar value")
+            permitted = _cf_output_admission(ordered, row)
+            require(
+                not (finite & ~permitted).any(),
+                "CF value emitted without pointwise admission: " + name,
+            )
+            eligible_analysis = permitted & analysis
+            arithmetic = None
+            if (finite & analysis).any():
+                state = "ready"
+            elif not eligible_analysis.any():
+                quantity_allowed = _cf_quantity_prefix_mask(ordered, row)
+                state = (
+                    (quantity_state or "missing_source")
+                    if not (quantity_allowed & analysis).any()
+                    else "insufficient_history"
+                )
+            else:
+                arithmetic = _cf_undefined_reason(ordered, row, ladder_rows, eligible_analysis)
+                require(
+                    arithmetic is not None,
+                    "unexplained all-NULL CF output after admission: " + name,
+                )
+                state = "undefined_arithmetic"
+            positions = np.flatnonzero(finite.to_numpy(dtype=bool))
+            first = int(positions[0]) if len(positions) else None
+            entry = {
+                "sequence": {"definition": definition, "timeframe": tf},
+                "feature": name,
+                "materialized": True,
+                "analysis_rows": int(analysis.sum()),
+                "state": state,
+                "reason": policy["profile_version"]
+                + "/"
+                + name
+                + "/"
+                + state
+                + ("/" + arithmetic if arithmetic else ""),
+                "required_observations": row["admission_minimum"],
+                "finite_count": int(finite.sum()),
+                "analysis_finite_count": int((finite & analysis).sum()),
+                "first_finite_bar_index": first,
+                "first_finite_source_begin": ordered["source_begin"].iloc[first]
+                if first is not None
+                else None,
+            }
+        result.append(entry)
+    return result
+
+
 def cf_numerical_identity(layer):
     from .native_feature_materialization import _check_worker_engines, core_worker_engines
     from .semantic_fingerprint import SymbolGraph
@@ -348,6 +742,22 @@ def cf_numerical_identity(layer):
         "derived": prefix
         + "product_plane.research.derived_indicators.materialize._with_continuous_front_projection",
     }
+    if layer in {"CF-L1", "CF-L2"}:
+        roots["adapter"] = (
+            prefix
+            + "product_plane.research.native_cf."
+            + ("_cf_l1_values" if layer == "CF-L1" else "_cf_l2_values")
+        )
+        roots["indicators"] = (
+            prefix + "product_plane.research.indicators.materialize."
+            "_compute_continuous_front_profile_frame"
+        )
+    if layer == "CF-L2":
+        roots["derived"] = (
+            prefix
+            + "product_plane.research.derived_indicators.materialize."
+            + "_compute_derived_frame_unmasked"
+        )
     result = {
         "version": "native_cf_numerical.v1",
         "layer": layer,
@@ -373,9 +783,28 @@ def cf_numerical_identity(layer):
 def build_cf_command(
     source_reader, *, command_id, layer="CF", definitions, calendar_roll_schedule, source_fact_pins
 ):
-    require(layer == "CF", "CF sidecar producer not implemented")
+    require(layer in NEW_ROLES, "unsupported CF producer layer")
     graph = source_reader.verify()
-    require(graph["completion"]["layer"] == "L0", "CF requires completed native L0")
+    reference = cf_policy_ref(layer)
+    require(
+        graph["completion"]["layer"] == reference["parent_layer"]
+        and graph["completion"]["contract_version"] == reference["parent_contract_version"],
+        "CF requires exact completed parent",
+    )
+    if layer != "CF":
+        require(
+            all(
+                value == graph["context"][key]
+                for key, value in {
+                    "definitions": definitions,
+                    "calendar_roll_schedule": calendar_roll_schedule,
+                    "source_fact_pins": source_fact_pins,
+                }.items()
+            ),
+            "CF sidecar changed composition/source facts",
+        )
+    if layer == "CF-L2":
+        _cf_l2_inputs(graph["tables"][TABLES["indicators"]].column_names, cf_policy(layer))
     root = source_reader.root
     completion_pin = json.loads(source_reader._completion_json)
     intent = {
@@ -399,7 +828,10 @@ def build_cf_command(
     validate_identity_contract(
         "native_cf_intent.v1.json", intent, graph["context"]["source"]["namespace"]
     )
-    validate_cf_facts(root, intent, graph)
+    if layer == "CF":
+        validate_cf_facts(root, intent, graph)
+    else:
+        validate_cf_facts(root, intent, graph["l0_graph"], l0_completion=graph["l0_completion"])
     return intent
 
 
@@ -771,9 +1203,12 @@ def expected_cf_base(parent, intent, layouts, context_id):
     }
 
 
-def build_cf_frames(root, intent, source_reader, parent, spark):
+def build_cf_frames(root, intent, source_reader, parent, spark, resources=None):
     """Native Spark composition; the existing writer persists this frame set."""
 
+    if intent["layer"] != "CF":
+        require(resources is not None, "CF sidecar requires owned compute resources")
+        return _build_cf_sidecar_frames(root, intent, source_reader, parent, spark, resources)
     policy = cf_policy("CF")
     layouts = policy["layouts"]
     validate_cf_facts(root, intent, parent)
@@ -822,6 +1257,193 @@ def build_cf_frames(root, intent, source_reader, parent, spark):
         "CF Spark selection cardinality mismatch",
     )
     return frames, layouts, context, parent["manifest"]
+
+
+def _build_cf_sidecar_frames(root, intent, source_reader, parent, spark, resources):
+    from pyspark.sql import functions as F
+    from pyspark.sql import types as T
+
+    layer = intent["layer"]
+    require(layer in {"CF-L1", "CF-L2"}, "unsupported CF sidecar producer layer")
+    policy = cf_policy(layer)
+    profile = cf_l1_profile(policy) if layer == "CF-L1" else cf_l2_profile(policy)
+    call_admission = cf_call_admission(policy, profile) if layer == "CF-L1" else None
+    layouts = policy["layouts"]
+    role = NEW_ROLES[layer][0]
+    parent_role = "bars" if layer == "CF-L1" else "indicators"
+    grain = layouts[role]["grain"]
+    outputs = [
+        row["output"]
+        for row in policy["catalog"]
+        if row["materialized"] and row["passthrough"] is None
+    ]
+    l0, l0_completion = parent["l0_graph"], parent["l0_completion"]
+    validate_cf_facts(root, intent, l0, l0_completion=l0_completion)
+    require(
+        all(
+            intent[name] == parent["context"][name]
+            for name in ["definitions", "calendar_roll_schedule", "source_fact_pins"]
+        ),
+        "CF sidecar changed composition/source facts",
+    )
+    frame, _ = source_reader.read_spark(spark)
+    ladder_rows = tuple(parent["tables"][TABLES["ladder"]].to_pylist())
+    analysis_keys = _cf_analysis_keys(l0)
+    engines = intent["numerical_identity"]["engines"]
+
+    def guarded_values(pdf):
+        from .native_feature_materialization import _check_worker_engines
+
+        _check_worker_engines(engines)
+        if layer == "CF-L1":
+            return _cf_l1_values(pdf, profile, call_admission, ladder_rows)
+        return _cf_l2_values(pdf, profile, policy, ladder_rows)
+
+    schema = T.StructType(
+        [frame.schema[name] for name in grain]
+        + [T.StructField(name, T.DoubleType(), True) for name in outputs]
+    )
+    values = (
+        frame.groupBy("cf_definition_json", "timeframe")
+        .applyInPandas(guarded_values, schema=schema)
+        .persist()
+    )
+    resources.append(values)
+    require(
+        values.count() == parent["tables"][TABLES[parent_role]].num_rows,
+        "CF sidecar returned cardinality mismatch",
+    )
+    require(
+        not values.groupBy(*grain).count().where("count > 1").limit(1).count(),
+        "CF sidecar returned duplicate grain",
+    )
+    require(
+        not frame.join(values, grain, "left_anti").limit(1).count()
+        and not values.join(frame, grain, "left_anti").limit(1).count(),
+        "CF sidecar returned missing/extra keys",
+    )
+    joined = frame.join(values, grain, "inner").select(*frame.columns, *outputs).persist()
+    resources.append(joined)
+
+    def summarize(pdf):
+        import pandas as pd
+
+        entries = cf_sidecar_capabilities(pdf, policy, analysis_keys, ladder_rows)
+        return pd.DataFrame({"summary": [canonical_bytes(entries).decode("utf-8")]})
+
+    summaries = (
+        joined.groupBy("cf_definition_json", "timeframe")
+        .applyInPandas(summarize, schema="summary string")
+        .limit(LIMITS["sequences"] + 1)
+        .collect()
+    )
+    require(len(summaries) == len(parent["context"]["sequences"]), "CF sidecar sequence mismatch")
+    capabilities = [entry for summary in summaries for entry in json.loads(summary.summary)]
+    capabilities.sort(
+        key=lambda entry: (
+            definition_json(entry["sequence"]["definition"]),
+            entry["sequence"]["timeframe"],
+            entry["feature"],
+        )
+    )
+    context = {
+        **{
+            key: value
+            for key, value in parent["context"].items()
+            if key not in {"cf_context_id", "capabilities"}
+        },
+        "layer": layer,
+        "source": _source(intent["parent_completion"], parent),
+        "policy": intent["policy"],
+        "policy_sha256": intent["policy_sha256"],
+        "policy_payload": policy,
+        "layouts": layouts,
+        "numerical_identity": intent["numerical_identity"],
+        "runtime_code_sha256": intent["code_sha256"],
+        "capabilities": capabilities,
+    }
+    context["cf_context_id"] = "CFCTX:" + sha(context)
+    validate_identity_contract("native_cf_context.v1.json", context, context["source"]["namespace"])
+    output = (
+        joined.withColumn(role + "_context_id", F.lit(context["cf_context_id"]))
+        .withColumn(role + "_profile_version", F.lit(policy["profile_version"]))
+        .select(*[field["name"] for field in layouts[role]["fields"]])
+    )
+    return {role: output}, layouts, context, parent["manifest"]
+
+
+def _cf_inherited_values(actual, parent, grain):
+    ordered = parent.sort_by([(key, "ascending") for key in grain]).combine_chunks()
+    inherited = actual.select(ordered.column_names)
+    require(inherited.equals(ordered), "CF sidecar changed parent buffers/lineage")
+    for field in ordered.schema:
+        if pa.types.is_floating(field.type):
+            left = inherited[field.name].drop_null().to_numpy()
+            right = ordered[field.name].drop_null().to_numpy()
+            require(
+                np.array_equal(left.view("uint64"), right.view("uint64")),
+                "CF sidecar changed parent float bits: " + field.name,
+            )
+
+
+def _validate_cf_sidecar(context, parent, tables):
+    layer = context["layer"]
+    require(layer in {"CF-L1", "CF-L2"}, "unsupported CF sidecar reader layer")
+    policy = context["policy_payload"]
+    fixed_policy = cf_policy(layer)
+    require(
+        policy == fixed_policy,
+        "CF fixed family policy/catalog mismatch",
+    )
+    role = NEW_ROLES[layer][0]
+    parent_role = "bars" if layer == "CF-L1" else "indicators"
+    data = tables[TABLES[role]]
+    _cf_inherited_values(
+        data, parent["tables"][TABLES[parent_role]], context["layouts"][role]["grain"]
+    )
+    for name, value in [
+        (role + "_context_id", context["cf_context_id"]),
+        (role + "_profile_version", policy["profile_version"]),
+    ]:
+        require(
+            pc.all(pc.equal(data[name], value)).as_py() is True,
+            "CF sidecar context/profile mismatch",
+        )
+    for row in policy["catalog"]:
+        if row["materialized"] and row["discrete_values"] is not None:
+            require(
+                set(data[row["output"]].drop_null().to_pylist()) <= set(row["discrete_values"]),
+                "CF sidecar discrete output outside fixed domain",
+            )
+    for name in [
+        "definitions",
+        "calendar_roll_schedule",
+        "source_fact_pins",
+        "selection",
+        "sequences",
+        "used_references",
+    ]:
+        require(context[name] == parent["context"][name], "CF sidecar changed inherited " + name)
+    analysis_keys = _cf_analysis_keys(parent["l0_graph"])
+    ladder = tuple(parent["tables"][TABLES["ladder"]].to_pylist())
+    frame = data.to_pandas()
+    measured = [
+        item
+        for _, sequence in frame.groupby(["cf_definition_json", "timeframe"], sort=False)
+        for item in cf_sidecar_capabilities(sequence, policy, analysis_keys, ladder)
+    ]
+
+    def key(entry):
+        return (
+            definition_json(entry["sequence"]["definition"]),
+            entry["sequence"]["timeframe"],
+            entry["feature"],
+        )
+
+    require(
+        sorted(context["capabilities"], key=key) == sorted(measured, key=key),
+        "CF sidecar physical capability matrix mismatch",
+    )
 
 
 def _cf_native_frames(frame, intent, context, expected, spark, guarded_metrics):
@@ -976,7 +1598,9 @@ def validate_cf_graph(root, *, snapshot_pin, context_pin, intent_pin, input_sha2
     namespace = source["namespace"]
     validate_identity_contract("native_cf_context.v1.json", context, namespace)
     # Versioned physical family shape; recorded numerical descriptors stay historical.
-    require(context["layouts"] == cf_layouts("CF"), "CF fixed family role layout mismatch")
+    require(
+        context["layouts"] == cf_layouts(context["layer"]), "CF fixed family role layout mismatch"
+    )
     intent = _object(root, intent_pin, "CF intent")
     validate_identity_contract("native_cf_intent.v1.json", intent, namespace)
     require(sha(intent) == input_sha256, "CF canonical input hash mismatch")
@@ -1024,8 +1648,14 @@ def validate_cf_graph(root, *, snapshot_pin, context_pin, intent_pin, input_sha2
         source == _source(intent["parent_completion"], parent),
         "CF source metadata differs from exact parent",
     )
-    require(context["layer"] == "CF", "CF sidecar reader not implemented")
-    validate_cf_facts(root, intent, parent)
+    l0 = parent if context["layer"] == "CF" else parent["l0_graph"]
+    l0_completion = (
+        intent["parent_completion"] if context["layer"] == "CF" else parent["l0_completion"]
+    )
+    if context["layer"] == "CF":
+        validate_cf_facts(root, intent, l0)
+    else:
+        validate_cf_facts(root, intent, l0, l0_completion=l0_completion)
     pinned_bytes(root, snapshot_pin)
     manifest = load_snapshot(child(root, snapshot_pin["path"]))
     require(
@@ -1104,13 +1734,23 @@ def validate_cf_graph(root, *, snapshot_pin, context_pin, intent_pin, input_sha2
             "NULL required CF field",
         )
         tables[TABLES[role]] = data
-    expected, counts = expected_cf_base(
-        parent, intent, context["layouts"], context["cf_context_id"]
-    )
-    for role, data in expected.items():
-        _arrow_equal_values(tables[TABLES[role]], data)
-    require(
-        all(context[k] == v for k, v in counts.items()),
-        "CF physical selection/capability/reference matrix mismatch",
-    )
-    return {"context": context, "intent": intent, "manifest": manifest, "tables": tables}
+    if context["layer"] == "CF":
+        expected, counts = expected_cf_base(
+            parent, intent, context["layouts"], context["cf_context_id"]
+        )
+        for role, data in expected.items():
+            _arrow_equal_values(tables[TABLES[role]], data)
+        require(
+            all(context[k] == value for k, value in counts.items()),
+            "CF physical selection/capability/reference matrix mismatch",
+        )
+    else:
+        _validate_cf_sidecar(context, parent, tables)
+    return {
+        "context": context,
+        "intent": intent,
+        "manifest": manifest,
+        "tables": tables,
+        "l0_graph": l0,
+        "l0_completion": l0_completion,
+    }

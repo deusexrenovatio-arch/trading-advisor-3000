@@ -1174,16 +1174,22 @@ def _ladder_rows_for_series(
     *,
     instrument_id: str,
     timeframe: str,
+    series_key: dict[str, object] | None = None,
+    sequence_column: str = "roll_sequence",
 ) -> tuple[dict[str, object], ...]:
     return tuple(
         sorted(
             (
                 row
                 for row in adjustment_ladder_rows
-                if str(row.get("instrument_id")) == instrument_id
-                and str(row.get("timeframe")) == timeframe
+                if (
+                    all(row.get(k) == value for k, value in series_key.items())
+                    if series_key is not None
+                    else str(row.get("instrument_id")) == instrument_id
+                    and str(row.get("timeframe")) == timeframe
+                )
             ),
-            key=lambda row: int(row["roll_sequence"]),
+            key=lambda row: int(row[sequence_column]),
         )
     )
 
@@ -1296,11 +1302,59 @@ def _frame_for_calculation_group(
     return target_anchor_frame
 
 
+def _cf_domain_count(frame, domain):
+    if domain == "composed_prefix":
+        return pd.Series(range(1, len(frame) + 1), index=frame.index)
+    if domain == "current_epoch_prefix":
+        return frame.groupby("roll_epoch", sort=False).cumcount() + 1
+    raise ValueError("unsupported sealed CF history domain")
+
+
+def _cf_quantity_prefix_mask(frame, row):
+    known = pd.Series(True, index=frame.index)
+    for name in row["quantity_requirements"]:
+        values = pd.to_numeric(frame[name], errors="coerce")
+        known &= frame[name + "_state"].eq("known") & values.notna() & np.isfinite(values)
+    if row["quantity_domain"] == "current_epoch_prefix":
+        known = known.groupby(frame["roll_epoch"], sort=False).cummin()
+    elif row["quantity_domain"] == "composed_prefix":
+        known = known.cummin()
+    else:
+        raise ValueError("unsupported sealed CF quantity domain")
+    return known
+
+
+def _cf_row_admission(frame, row, *, invocation=False):
+    minimum = row["admission_minimum"]
+    if invocation:
+        safe, configured = row["observed_call_safe"], row["configured_group_minimum"]
+        if (
+            not isinstance(safe, int)
+            or not isinstance(configured, int)
+            or min(safe, configured) < 1
+        ):
+            raise ValueError("missing sealed CF spec call admission")
+        minimum = max(safe, configured)
+    counts = _cf_domain_count(frame, row["invocation_domain"] if invocation else row["mask_domain"])
+    return (counts >= minimum) & _cf_quantity_prefix_mask(frame, row)
+
+
+def _cf_call_frame(frame, spec, call_admission, target_index):
+    rows = call_admission["specs"][spec.indicator_id]
+    permitted = pd.Series(True, index=frame.index)
+    for row in rows:
+        permitted &= _cf_row_admission(frame, row, invocation=True)
+    permitted &= frame.index.isin(target_index)
+    positions = np.flatnonzero(permitted.to_numpy(dtype=bool))
+    return frame.iloc[: int(positions[-1]) + 1] if len(positions) else None
+
+
 def _compute_continuous_front_profile_frame(
     frame: pd.DataFrame,
     profile: IndicatorProfile,
     *,
     adjustment_ladder_rows: tuple[dict[str, object], ...],
+    call_admission: dict | None = None,
 ) -> pd.DataFrame:
     if frame.empty:
         return _compute_profile_frame(frame, profile)
@@ -1312,10 +1366,29 @@ def _compute_continuous_front_profile_frame(
         )
     instrument_id = str(frame["instrument_id"].iloc[0])
     timeframe = str(frame["timeframe"].iloc[0])
+    series_key = None
+    sequence_column = "roll_sequence"
+    if call_admission is not None:
+        if (
+            not isinstance(call_admission, dict)
+            or call_admission.get("version") != "pointwise_configured_prefix_admission.v1"
+            or profile.version != "native_cf_prefix_l1.v1"
+        ):
+            raise ValueError("unsupported sealed CF call-admission mode")
+        columns = call_admission["series_columns"]
+        if (
+            tuple(columns) != ("cf_definition_json", "timeframe")
+            or len(frame[list(columns)].drop_duplicates()) != 1
+        ):
+            raise ValueError("CF numeric frame must contain one full definition/timeframe")
+        series_key = {k: frame[k].iloc[0] for k in columns}
+        sequence_column = "roll_ordinal"
     ladder_rows = _ladder_rows_for_series(
         adjustment_ladder_rows,
         instrument_id=instrument_id,
         timeframe=timeframe,
+        series_key=series_key,
+        sequence_column=sequence_column,
     )
     frame = frame.copy()
     frame["roll_epoch"] = pd.to_numeric(frame["roll_epoch"], errors="coerce").fillna(0).astype(int)
@@ -1330,7 +1403,7 @@ def _compute_continuous_front_profile_frame(
         gap_by_sequence: dict[int, float] = {}
     else:
         gap_by_sequence = {
-            int(row["roll_sequence"]): float(row["additive_gap"]) for row in ladder_rows
+            int(row[sequence_column]): float(row["additive_gap"]) for row in ladder_rows
         }
     missing_sequences = [
         sequence for sequence in range(1, max_epoch + 1) if sequence not in gap_by_sequence
@@ -1380,7 +1453,8 @@ def _compute_continuous_front_profile_frame(
                         native_frame=native_frame,
                     )
                     if (
-                        group_id in invariant_group_ids
+                        call_admission is None
+                        and group_id in invariant_group_ids
                         and len(source_frame) >= profile.max_warmup_bars()
                     ):
                         if cache_key not in invariant_compute_cache:
@@ -1395,12 +1469,41 @@ def _compute_continuous_front_profile_frame(
                             )
                         compute_cache[cache_key] = invariant_compute_cache[cache_key]
                     else:
-                        compute_cache[cache_key] = _compute_spec(group_frame, spec)
+                        admitted_frame = group_frame
+                        if call_admission is not None:
+                            reset = any(
+                                row["actual_reset"]
+                                for row in call_admission["specs"][spec.indicator_id]
+                            )
+                            admitted_frame = (
+                                None
+                                if reset
+                                else _cf_call_frame(group_frame, spec, call_admission, target_index)
+                            )
+                        compute_cache[cache_key] = (
+                            _compute_spec(admitted_frame, spec)
+                            if admitted_frame is not None
+                            else {
+                                name: pd.Series(np.nan, index=group_frame.index, dtype="float64")
+                                for name in spec.output_columns
+                            }
+                        )
                 computed_outputs = compute_cache[cache_key]
                 for output_column in output_columns:
                     series = computed_outputs[output_column].reindex(target_anchor_frame.index)
                     if group_id == "price_level_post_transform":
                         series = series + target_offset
+                    if call_admission is not None:
+                        row = next(
+                            row
+                            for row in call_admission["specs"][spec.indicator_id]
+                            if row["output"] == output_column
+                        )
+                        series = series.where(
+                            _cf_row_admission(source_frame, row).reindex(
+                                series.index, fill_value=False
+                            )
+                        )
                     segment_outputs[output_column] = series.loc[target_index]
         if segment_outputs:
             segment = _append_computed_columns(segment, segment_outputs)
@@ -1410,11 +1513,13 @@ def _compute_continuous_front_profile_frame(
     )
     concat_segments = [segment.dropna(axis=1, how="all") for segment in computed_segments]
     computed = pd.concat(concat_segments).sort_index().reindex(columns=computed_columns)
-    return _enforce_continuous_front_native_boundaries(computed, profile)
+    return _enforce_continuous_front_native_boundaries(
+        computed, profile, call_admission=call_admission
+    )
 
 
 def _enforce_continuous_front_native_boundaries(
-    frame: pd.DataFrame, profile: IndicatorProfile
+    frame: pd.DataFrame, profile: IndicatorProfile, *, call_admission: dict | None = None
 ) -> pd.DataFrame:
     result = frame.copy()
     roll_epoch = pd.to_numeric(result["roll_epoch"], errors="coerce").fillna(0).astype(int)
@@ -1434,10 +1539,21 @@ def _enforce_continuous_front_native_boundaries(
             index=result.index, columns=list(spec.output_columns), dtype="object"
         )
         for _, segment in result.groupby(roll_epoch, sort=False):
-            recomputed = _compute_profile_frame(
-                segment.copy(), _profile_for_specs(profile, (spec,))
+            admitted_segment = (
+                segment
+                if call_admission is None
+                else _cf_call_frame(segment, spec, call_admission, segment.index)
             )
-            segment_outputs = recomputed[list(spec.output_columns)]
+            recomputed = (
+                _compute_profile_frame(
+                    admitted_segment.copy(), _profile_for_specs(profile, (spec,))
+                )
+                if admitted_segment is not None
+                else pd.DataFrame(
+                    index=segment.index, columns=list(spec.output_columns), dtype="float64"
+                )
+            )
+            segment_outputs = recomputed[list(spec.output_columns)].reindex(segment.index)
             recomputed_outputs.loc[segment_outputs.index, list(spec.output_columns)] = (
                 segment_outputs
             )
@@ -1461,6 +1577,10 @@ def _enforce_continuous_front_native_boundaries(
             raw=False,
         )
         result.loc[window_crosses.fillna(1.0).astype(bool), column] = pd.NA
+    if call_admission is not None:
+        for rows in call_admission["specs"].values():
+            for row in rows:
+                result[row["output"]] = result[row["output"]].where(_cf_row_admission(result, row))
     return result
 
 
