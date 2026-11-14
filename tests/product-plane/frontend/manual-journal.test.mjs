@@ -33,8 +33,13 @@ test("reload keeps the draft revision even when the server revision advances; fo
   const d = newDraft("card", snapshot), key = draftKey("card", snapshot.trade_id);
   sessionStorage.setItem(key, JSON.stringify(d));
   assert.equal(readDraft(key, newDraft("card", { ...snapshot, revision: 8 })).baseRevision, 3);
-  sessionStorage.setItem(key, JSON.stringify({ ...d, target: "different-card" }));
-  const raw = sessionStorage.getItem(key); assert.throws(() => readDraft(key, d)); assert.equal(sessionStorage.getItem(key), raw);
+  for (const changed of [{ target: "different-card" }, { tradeId: "different-card" }, { baseRevision: 0 }]) {
+    sessionStorage.setItem(key, JSON.stringify({ ...d, ...changed }));
+    const raw = sessionStorage.getItem(key); assert.throws(() => readDraft(key, d)); assert.equal(sessionStorage.getItem(key), raw);
+  }
+  const creating = newDraft("card", null), createKey = draftKey("card", "new");
+  sessionStorage.setItem(createKey, JSON.stringify(creating)); assert.equal(readDraft(createKey, newDraft("card", null)).tradeId, creating.tradeId);
+  sessionStorage.setItem(createKey, JSON.stringify({ ...creating, baseRevision: 3 })); assert.throws(() => readDraft(createKey, newDraft("card", null)));
 });
 test("only exact receipt acknowledges a write; another tab cannot replace or clear frozen pending", async () => {
   const write = prepareWrite(newDraft("note", snapshot)); write.payload.reason = "original reason";

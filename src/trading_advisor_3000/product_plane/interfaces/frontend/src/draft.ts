@@ -101,6 +101,8 @@ export function readDraft(key: string, initial: Draft): Draft {
     d.target !== initial.target ||
     !Number.isInteger(d.baseRevision) ||
     d.baseRevision < 0 ||
+    (d.baseRevision === 0) !== (initial.baseRevision === 0) ||
+    (initial.baseRevision > 0 && d.tradeId !== initial.tradeId) ||
     (d.kind === "status" &&
       (!d.baseStatus ||
         !Object.hasOwn(STATUS, d.baseStatus) ||
