@@ -1,4 +1,4 @@
-# Manual Journal: first local API slice
+# Local manual Journal
 
 Change surface: product-plane. Solution Intent: staged. Date: 2026-11-11.
 Contract: [Journal v1](docs/architecture/product-plane/trade-workspace/journal-v1.md).
@@ -36,6 +36,14 @@ Migration001 is preserved from the Stage1 source. Application rollback retains
 the database; do not rewrite applied SQL or attempt a destructive down-migration.
 
 ## Manual roundtrip
+
+The UI's «Статус плана» changes draft/planned cards to another plan state:
+draft, planned, cancelled or invalidated. Choose a new state and supply a reason
+and event time. Execution states and corrections of terminal episodes need
+their separate workflow; changing a plan creates no fill.
+«Раздел журнала» selects current, archive or all cards; its selection survives
+reload. Cancellation/invalidation opens the archive after a matching receipt.
+Status drafts retain their original revision and do not clear card/note drafts.
 
 `journal_create.v1.json` and `journal_silver_create.v1.json` under
 `tests/product-plane/fixtures/contracts/` are explicit test author records.

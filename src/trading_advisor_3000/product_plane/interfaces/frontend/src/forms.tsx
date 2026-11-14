@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage, request } from "./api";
-import { draftKey, newDraft, prepareWrite, readDraft } from "./draft";
+import {
+  draftKey,
+  newDraft,
+  PLAN_STATUSES,
+  prepareWrite,
+  readDraft,
+} from "./draft";
 import type { Draft, FormKind, TextFields } from "./draft";
+import { STATUS } from "./format";
 import type { Snapshot, Write } from "./types";
 
 export function Field({
@@ -145,15 +152,23 @@ export function Editor({
         e.preventDefault();
         close();
       }}
-      aria-label={kind === "note" ? "Новая заметка" : "Карточка"}
+      aria-label={
+        kind === "status"
+          ? "Статус плана"
+          : kind === "note"
+            ? "Новая заметка"
+            : "Карточка"
+      }
     >
       <header className="dialog-header">
         <h2>
-          {kind === "note"
-            ? "Новая заметка"
-            : form.baseRevision
-              ? "Редактировать карточку"
-              : "Новая карточка"}
+          {kind === "status"
+            ? "Статус плана"
+            : kind === "note"
+              ? "Новая заметка"
+              : form.baseRevision
+                ? "Редактировать карточку"
+                : "Новая карточка"}
         </h2>
         <button type="button" onClick={close} aria-label="Закрыть форму">
           ×
@@ -191,6 +206,39 @@ export function Editor({
               required
               onChange={(v) => change("note", v)}
             />
+          ) : kind === "status" ? (
+            <>
+              <label className="field">
+                <span>Новый статус плана</span>
+                <select
+                  aria-label="Новый статус плана"
+                  required
+                  value={form.status || ""}
+                  onChange={(e) =>
+                    setForm((d) => ({
+                      ...d,
+                      status: e.target.value as Draft["status"],
+                    }))
+                  }
+                >
+                  <option value="">Выберите</option>
+                  {["draft", "planned"].includes(form.baseStatus || "") &&
+                    PLAN_STATUSES.map((status) => (
+                      <option
+                        key={status}
+                        value={status}
+                        disabled={status === form.baseStatus}
+                      >
+                        {STATUS[status]}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <p>
+                Меняется только состояние плана. Факты исполнения не создаются;
+                для завершённого эпизода нужна новая карточка.
+              </p>
+            </>
           ) : (
             <>
               <div className="fields">
@@ -282,7 +330,11 @@ export function Editor({
             />
           </div>
           <button className="primary" type="submit">
-            {kind === "note" ? "Сохранить заметку" : "Сохранить карточку"}
+            {kind === "status"
+              ? "Сохранить статус"
+              : kind === "note"
+                ? "Сохранить заметку"
+                : "Сохранить карточку"}
           </button>
         </fieldset>
       </form>

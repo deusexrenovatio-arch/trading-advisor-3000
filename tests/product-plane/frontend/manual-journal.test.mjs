@@ -33,8 +33,13 @@ test("reload keeps the draft revision even when the server revision advances; fo
   const d = newDraft("card", snapshot), key = draftKey("card", snapshot.trade_id);
   sessionStorage.setItem(key, JSON.stringify(d));
   assert.equal(readDraft(key, newDraft("card", { ...snapshot, revision: 8 })).baseRevision, 3);
-  sessionStorage.setItem(key, JSON.stringify({ ...d, target: "different-card" }));
-  const raw = sessionStorage.getItem(key); assert.throws(() => readDraft(key, d)); assert.equal(sessionStorage.getItem(key), raw);
+  for (const changed of [{ target: "different-card" }, { tradeId: "different-card" }, { baseRevision: 0 }]) {
+    sessionStorage.setItem(key, JSON.stringify({ ...d, ...changed }));
+    const raw = sessionStorage.getItem(key); assert.throws(() => readDraft(key, d)); assert.equal(sessionStorage.getItem(key), raw);
+  }
+  const creating = newDraft("card", null), createKey = draftKey("card", "new");
+  sessionStorage.setItem(createKey, JSON.stringify(creating)); assert.equal(readDraft(createKey, newDraft("card", null)).tradeId, creating.tradeId);
+  sessionStorage.setItem(createKey, JSON.stringify({ ...creating, baseRevision: 3 })); assert.throws(() => readDraft(createKey, newDraft("card", null)));
 });
 test("only exact receipt acknowledges a write; another tab cannot replace or clear frozen pending", async () => {
   const write = prepareWrite(newDraft("note", snapshot)); write.payload.reason = "original reason";
@@ -48,4 +53,32 @@ test("only exact receipt acknowledges a write; another tab cannot replace or cle
   sessionStorage.removeItem('ta3000.journal.pending.v1');
   assert.equal(await clearPending(frozen), false); assert.equal(readPending(), null);
   await retainPending(frozen); assert.equal(await clearPending(frozen), true);
+});
+
+test("plan status emits only an explicit status change and author reason at the original revision", () => {
+  const before = { ...structuredClone(snapshot), status: "draft" };
+  const d = newDraft("status", before); d.status = "planned"; d.fields.reason = "Автор подтвердил план.";
+  const write = prepareWrite(d);
+  assert.equal(write.path, "/trades/manual-card/changes"); assert.equal(write.payload.expected_revision, 3);
+  assert.deepEqual(write.payload.operations, [{ kind: "set_status", status: "planned" }]);
+  assert.deepEqual(write.payload.source, { source_type: "manual", original_text: "Автор подтвердил план.", reference: null });
+  assert.equal(before.status, "draft"); assert.deepEqual(before.card, snapshot.card);
+});
+
+test("plan status cannot invent execution, reopen a terminal episode, submit a no-op or omit its reason", () => {
+  const d = newDraft("status", { ...snapshot, status: "draft" }); d.fields.reason = "Причина";
+  for (const status of ["", "draft", "active", "closed"]) { d.status = status; assert.throws(() => prepareWrite(d)); }
+  d.status = "planned"; d.fields.reason = "   "; assert.throws(() => prepareWrite(d)); d.fields.reason = "Причина";
+  for (const baseStatus of ["active", "closed", "cancelled", "invalidated"]) { d.baseStatus = baseStatus; assert.throws(() => prepareWrite(d)); }
+});
+
+test("status drafts pin their own revision while older card/note drafts remain compatible", () => {
+  const d = newDraft("status", { ...snapshot, status: "draft" }), key = draftKey("status", snapshot.trade_id);
+  d.status = "planned"; sessionStorage.setItem(key, JSON.stringify(d));
+  assert.equal(readDraft(key, newDraft("status", { ...snapshot, status: "planned", revision: 8 })).baseRevision, 3);
+  assert.equal(readDraft(key, newDraft("status", { ...snapshot, status: "planned", revision: 8 })).baseStatus, "draft");
+  for (const kind of ["card", "note"]) {
+    const old = newDraft(kind, snapshot), oldKey = draftKey(kind, snapshot.trade_id); delete old.status; delete old.baseStatus;
+    sessionStorage.setItem(oldKey, JSON.stringify(old)); assert.deepEqual(readDraft(oldKey, newDraft(kind, snapshot)), old);
+  }
 });
