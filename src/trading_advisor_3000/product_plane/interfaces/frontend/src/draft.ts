@@ -4,10 +4,17 @@ import {
   eventTime,
   localTime,
   source,
+  STATUS,
   unknown,
 } from "./format.ts";
-import type { Card, Snapshot, Source, Write } from "./types";
-export type FormKind = "card" | "note";
+import type { Card, Snapshot, Source, Status, Write } from "./types";
+export type FormKind = "card" | "note" | "status";
+export const PLAN_STATUSES = [
+  "draft",
+  "planned",
+  "cancelled",
+  "invalidated",
+] as const;
 export type TextFields = {
   title: string;
   introduction: string;
@@ -31,6 +38,8 @@ export type Draft = {
   target: string;
   tradeId: string;
   baseRevision: number;
+  baseStatus?: Status;
+  status?: (typeof PLAN_STATUSES)[number] | "";
   card: Card;
   originalSource: Source;
   fields: TextFields;
@@ -48,6 +57,9 @@ export function newDraft(kind: FormKind, snapshot: Snapshot | null): Draft {
     target: snapshot?.trade_id || "new",
     tradeId: snapshot?.trade_id || crypto.randomUUID(),
     baseRevision: snapshot?.revision || 0,
+    ...(kind === "status"
+      ? { baseStatus: snapshot?.status || "draft", status: "" as const }
+      : {}),
     card,
     originalSource: structuredClone(snapshot?.source || source("")),
     direction: snapshot ? card.direction : "",
@@ -67,11 +79,13 @@ export function newDraft(kind: FormKind, snapshot: Snapshot | null): Draft {
       invalidationReason: card.invalidation.rationale,
       original: snapshot?.source.original_text || "",
       reason:
-        kind === "note"
-          ? "Ручная заметка"
-          : snapshot
-            ? "Ручная правка карточки"
-            : "Ручное создание карточки",
+        kind === "status"
+          ? ""
+          : kind === "note"
+            ? "Ручная заметка"
+            : snapshot
+              ? "Ручная правка карточки"
+              : "Ручное создание карточки",
       eventAt: localTime(),
       note: "",
     },
@@ -87,6 +101,10 @@ export function readDraft(key: string, initial: Draft): Draft {
     d.target !== initial.target ||
     !Number.isInteger(d.baseRevision) ||
     d.baseRevision < 0 ||
+    (d.kind === "status" &&
+      (!d.baseStatus ||
+        !Object.hasOwn(STATUS, d.baseStatus) ||
+        (d.status !== "" && !PLAN_STATUSES.some((s) => s === d.status)))) ||
     !d.card?.analysis ||
     !d.card.entry?.price ||
     !d.card.invalidation?.price ||
@@ -113,6 +131,27 @@ export function prepareWrite(d: Draft): Write {
     event_at: eventTime(f.eventAt),
     reason: f.reason,
   };
+  if (d.kind === "status") {
+    if (
+      !d.baseRevision ||
+      !["draft", "planned"].includes(d.baseStatus || "") ||
+      !PLAN_STATUSES.some((s) => s === d.status) ||
+      d.status === d.baseStatus
+    )
+      throw new Error(
+        "Выберите новое состояние плана. Состояния исполнения и завершённые эпизоды здесь не меняются.",
+      );
+    if (!f.reason.trim()) throw new Error("Укажите причину изменения статуса.");
+    return {
+      path: `/trades/${d.tradeId}/changes`,
+      payload: {
+        ...common,
+        expected_revision: d.baseRevision,
+        source: source(f.reason),
+        operations: [{ kind: "set_status", status: d.status }],
+      },
+    };
+  }
   if (d.kind === "note") {
     if (!d.baseRevision)
       throw new Error("Сначала выберите сохранённую карточку.");

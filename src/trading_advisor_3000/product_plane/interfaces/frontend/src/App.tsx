@@ -25,6 +25,10 @@ import type {
 export function App() {
   const [query, setQuery] = useState(""),
     [cursor, setCursor] = useState<string | null>(null);
+  const [scope, setScope] = useState<"current" | "archive" | "all">(() => {
+    const value = new URLSearchParams(location.search).get("scope");
+    return value === "archive" || value === "all" ? value : "current";
+  });
   const [rows, setRows] = useState<TradeRow[]>([]),
     [next, setNext] = useState<string | null>(null),
     [listBusy, setListBusy] = useState(false);
@@ -57,7 +61,7 @@ export function App() {
     const controller = new AbortController();
     setListBusy(true);
     const params = new URLSearchParams({
-      scope: "current",
+      scope,
       query,
       limit: "25",
     });
@@ -78,14 +82,14 @@ export function App() {
         if (!controller.signal.aborted) setListBusy(false);
       });
     return () => controller.abort();
-  }, [query, cursor, refresh]);
+  }, [scope, query, cursor, refresh]);
   useEffect(() => {
     const controller = new AbortController();
     ++generation.current;
     setSnapshot(null);
     setHistory(null);
+    setDetailBusy(!!selected);
     if (!selected) return () => controller.abort();
-    setDetailBusy(true);
     void (async () => {
       const page = await request<Page<TimelineItem>>(
         `/trades/${encodeURIComponent(selected)}/timeline?order=desc&limit=25`,
@@ -112,16 +116,22 @@ export function App() {
     const url = new URL(location.href);
     if (selected) url.searchParams.set("trade", selected);
     else url.searchParams.delete("trade");
+    if (scope !== "current") url.searchParams.set("scope", scope);
+    else url.searchParams.delete("scope");
     window.history.replaceState(null, "", url);
-  }, [selected]);
+  }, [selected, scope]);
   const accepted = async (write: Write, receipt: Receipt) => {
     checkReceipt(write, receipt);
     const operations = write.payload.operations as
-      { kind: string }[] | undefined;
+      { kind: string; status?: string }[] | undefined;
     if (await clearPending(write))
       sessionStorage.removeItem(
         draftKey(
-          operations?.[0]?.kind === "add_entry" ? "note" : "card",
+          operations?.[0]?.kind === "add_entry"
+            ? "note"
+            : operations?.[0]?.kind === "set_status"
+              ? "status"
+              : "card",
           write.path === "/trades" ? "new" : receipt.trade_id,
         ),
       );
@@ -129,6 +139,14 @@ export function App() {
     setModal(null);
     setError("");
     setSaved(`Сохранено · версия ${receipt.revision}`);
+    if (write.path === "/trades" || operations?.[0]?.kind === "set_status") {
+      setScope(
+        ["cancelled", "invalidated"].includes(operations?.[0]?.status || "")
+          ? "archive"
+          : "current",
+      );
+      setCursor(null);
+    }
     setSelected(receipt.trade_id);
     setRefresh((v) => v + 1);
   };
@@ -282,6 +300,22 @@ export function App() {
               placeholder="Название или инструмент"
             />
           </label>
+          <label className="field">
+            <span>Раздел журнала</span>
+            <select
+              aria-label="Раздел журнала"
+              value={scope}
+              onChange={(e) => {
+                setScope(e.target.value as typeof scope);
+                setCursor(null);
+                setSelected(null);
+              }}
+            >
+              <option value="current">Текущие</option>
+              <option value="archive">Архив</option>
+              <option value="all">Все записи</option>
+            </select>
+          </label>
           <div className="list" aria-busy={listBusy}>
             {rows.map((row) => (
               <button
@@ -345,6 +379,16 @@ export function App() {
                   </p>
                 </div>
                 <div className="actions">
+                  {["draft", "planned"].includes(snapshot.status) && (
+                    <button
+                      disabled={!!pending || writing || historical}
+                      onClick={() =>
+                        setModal({ kind: "status", base: snapshot })
+                      }
+                    >
+                      Статус плана
+                    </button>
+                  )}
                   <button
                     disabled={!!pending || writing || historical}
                     onClick={() => setModal({ kind: "card", base: snapshot })}
