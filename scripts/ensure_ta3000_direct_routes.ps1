@@ -274,6 +274,58 @@ function Test-RouteUsesGateway {
     return ([int]$Route.InterfaceIndex -eq [int]$GatewayRoute.InterfaceIndex -and [string]$Route.NextHop -eq [string]$GatewayRoute.NextHop)
 }
 
+function Test-DirectSourceProbe {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RemoteIPAddress,
+        [Parameter(Mandatory = $true)]
+        [int]$InterfaceIndex,
+        [int]$Port = 443
+    )
+
+    $client = $null
+    $sourceAddress = $null
+    $actualAddress = $null
+    try {
+        $addresses = @(Get-NetIPAddress -InterfaceIndex $InterfaceIndex -AddressFamily IPv4 -ErrorAction Stop |
+            Where-Object { $_.AddressState -eq 'Preferred' -and -not $_.SkipAsSource })
+        if ($addresses.Count -ne 1) {
+            throw 'direct egress requires one preferred Wi-Fi IPv4 source address'
+        }
+        $sourceAddress = [string]$addresses[0].IPAddress
+        $client = [System.Net.Sockets.TcpClient]::new([System.Net.Sockets.AddressFamily]::InterNetwork)
+        $client.Client.Bind([System.Net.IPEndPoint]::new([System.Net.IPAddress]::Parse($sourceAddress), 0))
+        $pending = $client.ConnectAsync($RemoteIPAddress, $Port)
+        if (-not $pending.Wait(5000)) {
+            throw 'direct egress TCP connect timed out after 5 seconds'
+        }
+        $actualAddress = [string]$client.Client.LocalEndPoint.Address
+        return [ordered]@{
+            ok = $actualAddress -eq $sourceAddress
+            status = if ($actualAddress -eq $sourceAddress) { 'source_confirmed' } else { 'source_rewritten' }
+            requested_source = $sourceAddress
+            actual_source = $actualAddress
+            remote_address = $RemoteIPAddress
+            remote_port = $Port
+            error = $null
+        }
+    }
+    catch {
+        return [ordered]@{
+            ok = $false
+            status = 'connect_failed'
+            requested_source = $sourceAddress
+            actual_source = $actualAddress
+            remote_address = $RemoteIPAddress
+            remote_port = $Port
+            error = $_.Exception.GetBaseException().Message
+        }
+    }
+    finally {
+        if ($null -ne $client) { $client.Dispose() }
+    }
+}
+
 function Test-HttpProbe {
     param(
         [Parameter(Mandatory = $true)]
@@ -290,7 +342,21 @@ function Test-HttpProbe {
         $requestArgs.UseBasicParsing = $true
     }
 
-    $response = Invoke-WebRequest @requestArgs
+    try {
+        $response = Invoke-WebRequest @requestArgs
+    }
+    catch {
+        return [ordered]@{
+            ok = $false
+            status_code = $null
+            content_type = $null
+            content_type_ok = $false
+            json_parse_ok = $false
+            json_has_expected_root = $false
+            json_error = $null
+            transport_error = $_.Exception.GetBaseException().Message
+        }
+    }
     $statusCode = [int]$response.StatusCode
 
     $contentType = ''
@@ -343,7 +409,9 @@ function New-StatusPayload {
         [AllowNull()]
         [object]$HttpProbe,
         [AllowNull()]
-        [object]$ErrorDetail
+        [object]$ErrorDetail,
+        [AllowNull()]
+        [object]$SocketProbe = $null
     )
 
     $convertedExactRoutes = @()
@@ -369,6 +437,7 @@ function New-StatusPayload {
         active_route = Convert-RouteForJson -Route $ActiveRoute
         exact_routes = $convertedExactRoutes
         http_probe = $HttpProbe
+        socket_probe = $SocketProbe
         error = $ErrorDetail
     }
 }
@@ -580,6 +649,25 @@ try {
         Write-JsonAndExit -Payload $payload -ExitCode 0
     }
 
+    $socketProbe = Test-DirectSourceProbe -RemoteIPAddress $dnsResult.selected_address -InterfaceIndex $wifiRoute.InterfaceIndex -Port ([uri]$ProbeUrl).Port
+    if (-not $socketProbe.ok) {
+        $socketReason = if ($socketProbe.status -eq 'source_rewritten') {
+            'direct route exists but socket source is rewritten; route replacement cannot repair a VPN source rewrite'
+        }
+        else { 'direct route exists but bound TCP egress could not be verified' }
+        $payload = New-StatusPayload `
+            -Status 'BLOCKED' `
+            -Reason $socketReason `
+            -WifiRoute $wifiRoute `
+            -ActiveRoute $activeRoute `
+            -ExactRoutes $exactRoutes `
+            -DnsResult $dnsResult `
+            -HttpProbe $null `
+            -SocketProbe $socketProbe `
+            -ErrorDetail $null
+        Write-JsonAndExit -Payload $payload -ExitCode 2
+    }
+
     $httpProbe = Test-HttpProbe -Url $ProbeUrl
     if (-not $httpProbe.ok) {
         $payload = New-StatusPayload `
@@ -590,6 +678,7 @@ try {
             -ExactRoutes $exactRoutes `
             -DnsResult $dnsResult `
             -HttpProbe $httpProbe `
+            -SocketProbe $socketProbe `
             -ErrorDetail $null
         Write-JsonAndExit -Payload $payload -ExitCode 2
     }
@@ -602,6 +691,7 @@ try {
         -ExactRoutes $exactRoutes `
         -DnsResult $dnsResult `
         -HttpProbe $httpProbe `
+        -SocketProbe $socketProbe `
         -ErrorDetail $null
     Write-JsonAndExit -Payload $payload -ExitCode 0
 }

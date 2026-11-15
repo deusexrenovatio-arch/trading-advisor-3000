@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -153,3 +154,99 @@ def test_ta3000_direct_routes_runbook_contract() -> None:
 
     assert "-Replace" in text
     assert "docs/runbooks/app/ta3000-direct-egress-runbook.md" in index_text
+
+
+@pytest.mark.parametrize("scenario", ["rewrite", "connect", "tls", "ok"])
+def test_direct_route_check_keeps_route_and_rejects_wrong_socket_source(scenario: str) -> None:
+    powershell = shutil.which("pwsh") or shutil.which("powershell")
+    if powershell is None:
+        pytest.skip("PowerShell is not available in this environment")
+    script_path = str(SCRIPT).replace("'", "''")
+    controller = r"""$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    '__SCRIPT__', [ref]$null, [ref]$null)
+$functionType = [System.Management.Automation.Language.FunctionDefinitionAst]
+foreach ($definition in $ast.FindAll({ param($node) $node -is $functionType }, $false)) {
+    Invoke-Expression $definition.Extent.Text
+}
+$Mode = 'Check'; $DestinationPrefix = '85.118.181.0/24'; $Replace = $false
+$ProbeHost = 'iss.moex.com'; $ProbeUrl = 'https://iss.moex.com/iss/engines.json'
+$scenario = '__SCENARIO__'
+$route = [pscustomobject]@{
+    DestinationPrefix='85.118.181.0/24'; NextHop='192.168.0.1'; InterfaceIndex=12
+    InterfaceAlias='WiFi'; RouteMetric=1; PolicyStore='ActiveStore'
+}
+function Test-IsAdministrator { return $false }
+function Get-DefaultWifiRoute { return $route }
+function Resolve-ProbeIPAddress {
+    return @{selected_address='85.118.181.24'; addresses=@('85.118.181.24')}
+}
+function Get-ExactDestinationRoutes { return @($route) }
+function Get-ActiveRoute { return $route }
+function Add-PersistentDestinationRoute { throw 'mutation forbidden' }
+function Remove-DestinationRoutes { throw 'mutation forbidden' }
+function Test-DirectSourceProbe {
+    if ($scenario -eq 'connect') {
+        return @{
+            ok=$false; status='connect_failed'; requested_source='192.168.0.125'
+            actual_source=$null; error='synthetic connect timeout'
+        }
+    }
+    return @{
+        ok=($scenario -ne 'rewrite'); requested_source='192.168.0.125'
+        status=if($scenario -eq 'rewrite'){'source_rewritten'}else{'source_confirmed'}
+        actual_source=if($scenario -eq 'rewrite'){'10.5.0.2'}else{'192.168.0.125'}
+    }
+}
+function Invoke-WebRequest {
+    if ($scenario -in @('rewrite', 'connect')) { throw 'HTTP requires confirmed source' }
+    if ($scenario -eq 'tls') {
+        throw [System.Net.Http.HttpRequestException]::new('synthetic TLS failure')
+    }
+    return [pscustomobject]@{
+        StatusCode=200; Headers=@{'Content-Type'='application/json'}
+        Content='{"engines":{"data":[]}}'
+    }
+}
+$tryType = [System.Management.Automation.Language.TryStatementAst]
+$main = @($ast.EndBlock.Statements | Where-Object { $_ -is $tryType })
+if ($main.Count -ne 1) { throw 'expected one route controller' }
+& ([scriptblock]::Create($main[0].Extent.Text))
+"""
+    result = subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-Command",
+            controller.replace("__SCRIPT__", script_path).replace("__SCENARIO__", scenario),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert result.returncode == (0 if scenario == "ok" else 2), result.stdout + result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["wifi_gateway"] == "192.168.0.1"
+    assert payload["active_route"]["interface_index"] == 12
+    assert payload["dns"]["selected_address"] == "85.118.181.24"
+    if scenario == "rewrite":
+        assert payload["status"] == "BLOCKED"
+        assert payload["socket_probe"]["actual_source"] == "10.5.0.2"
+        assert payload["http_probe"] is None
+        assert "socket source" in payload["reason"]
+    elif scenario == "tls":
+        assert payload["status"] == "BLOCKED"
+        assert payload["socket_probe"]["status"] == "source_confirmed"
+        assert payload["http_probe"]["transport_error"] == "synthetic TLS failure"
+    elif scenario == "connect":
+        assert payload["status"] == "BLOCKED"
+        assert payload["socket_probe"]["status"] == "connect_failed"
+        assert payload["http_probe"] is None
+        assert "VPN" not in payload["reason"]
+    else:
+        assert payload["status"] == "PASS"
+        assert payload["socket_probe"]["status"] == "source_confirmed"
+        assert payload["http_probe"]["ok"] is True

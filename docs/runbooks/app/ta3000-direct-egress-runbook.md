@@ -84,7 +84,9 @@ points at the current script path.
 
 ## JSON Status Contract
 - `PASS`: the destination route is active through the Wi-Fi gateway and the
-  MOEX probe answered.
+  explicitly Wi-Fi-bound TCP source remains on that interface and the MOEX
+  HTTPS/JSON probe answered. The socket and HTTP probes are separate connections;
+  this checks the host route, not every application/container's egress policy.
 - `NEEDS_ROUTE`: the destination route is absent, or the active route still
   resolves through a non-Wi-Fi/VPN path.
 - `BLOCKED`: the script cannot safely prove or apply the direct route. Typical
@@ -94,6 +96,17 @@ points at the current script path.
 - `REMOVED`: the direct route was removed when present.
 - `INSTALLED`: the automatic direct route task was registered and started.
 - `MISSING`: the automatic direct route task is not installed.
+
+`socket_probe` records requested/actual source addresses and a bounded five-second
+TCP result. A VPN/filter can rewrite a socket source despite a correct Windows
+route. `source_rewritten` is BLOCKED before HTTP, even when the route exists.
+Do not repair this by repeatedly replacing an already-correct route, disabling
+TLS validation, changing the shared VPN connection, or editing live VPN databases.
+Resolve the application egress policy through its native owner, then repeat
+`Check` and the actual acquisition transport; a `PASS` for one process does not
+admit another process automatically. Existing VPN split settings are not changed
+by this script. HTTP/TLS failures retain DNS/route/socket context and include
+`http_probe.transport_error` rather than erasing the successful route diagnosis.
 
 The script prints JSON for every outcome so operators can save the exact
 runtime state in issue notes or PR evidence.
