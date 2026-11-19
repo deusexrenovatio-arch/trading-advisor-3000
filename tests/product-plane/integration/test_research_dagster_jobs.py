@@ -1316,9 +1316,7 @@ def test_cf_success_without_admission_blocks_research_handoff(tmp_path):
             tags={},
         )
     )
-    result = research_assets.research_data_prep_after_moex_cf_catch_up_sensor._run_status_sensor_fn(
-        context
-    )
+    result = research_assets._research_request_after_cf(None, context.dagster_run)
     assert result.skip_message.startswith("BLOCKED: refresh admission required")
 
 

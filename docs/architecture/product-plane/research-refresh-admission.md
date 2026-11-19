@@ -59,6 +59,19 @@ The previous scope-v1 automatic full fallback from
 [PR #220](https://github.com/deusexrenovatio-arch/trading-advisor-3000/pull/220)
 is superseded for daily admission; its ancestry/pending-work purpose remains.
 
+## Delivery after CF success
+
+The Research sensor retains a successful CF event until it can construct the
+pinned Research request. It resumes the existing Dagster event cursor, preserves
+the run key and starts at the event-log tail on first activation. A superseded
+accepted parent ends that attempt. An unreadable required pin leaves the event
+pending. The sensor and Research worker verify the upstream run, successful CF
+step, admission, QC owner and producer checkpoint before reusing its four Delta
+outputs. A daily handoff with changed outputs blocks before another CF write.
+The baseline sensor continues checking outputs against accepted Research.
+The PIT dataset manifest carries the admitted CF policy so sidecar QC selects
+the roll ladder from that same producer.
+
 ## Consequences and alternatives
 
 Sensor-only checks were insufficient because direct/native writers could bypass
