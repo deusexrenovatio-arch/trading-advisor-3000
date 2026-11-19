@@ -1026,7 +1026,7 @@ def test_upstream_cf_reuse_requires_exact_calendar_metadata(tmp_path, calendar_c
     outputs = owner._STAGE_OUTPUTS["continuous_front_bars"]
     tables = {}
     for name in outputs:
-        table_path = tmp_path / (name + ".delta")
+        table_path = tmp_path / "research" / (name + ".delta")
         write_deltalake(str(table_path), pa.table({"id": [1]}))
         tables[name] = snapshots.capture_table(table_path)
     config = {
