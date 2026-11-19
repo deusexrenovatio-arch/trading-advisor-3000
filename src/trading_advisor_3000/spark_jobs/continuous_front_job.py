@@ -491,13 +491,13 @@ def _with_maturity_columns(dataframe):
 
 
 def _calendar_source_pair(root, body_pin, receipt_pin):
-    import json
     from urllib.parse import urlsplit
 
     from trading_advisor_3000.product_plane.common.immutable_files import pinned_bytes
+    from trading_advisor_3000.product_plane.research.moex_calendar import calendar_json
 
     raw = pinned_bytes(Path(root), body_pin)
-    receipt = json.loads(pinned_bytes(Path(root), receipt_pin))
+    receipt = calendar_json(pinned_bytes(Path(root), receipt_pin))
     if not isinstance(receipt, dict):
         raise ValueError("calendar source receipt must be an object")
     body = receipt.get("body")
@@ -510,15 +510,28 @@ def _calendar_source_pair(root, body_pin, receipt_pin):
         or recorded != body_pin["sha256"]
         or receipt.get("body_bytes") != len(raw)
         or url.scheme != "https"
-        or url.hostname not in {"www.moex.com", "moex.com", "iss.moex.com"}
+        or url.netloc not in {"www.moex.com", "moex.com", "iss.moex.com"}
     ):
         raise ValueError("calendar body/receipt/source association mismatch")
     return raw, url
 
 
-def validate_calendar_sources(root, schedule, *, offset=None):
-    """Admit the reviewed bounded source interpretation, never arbitrary HTML rules."""
-    import json
+def resolve_legacy_calendar(root, schedule, *, offset):
+    """Expand only the pin recorded by this attempt, before any Spark writes."""
+    from trading_advisor_3000.product_plane.research.moex_calendar import (
+        calendar_json,
+        packet_bytes,
+    )
+
+    pinned = isinstance(schedule, dict) and set(schedule) == {"path", "sha256"}
+    if pinned:
+        schedule = calendar_json(packet_bytes(Path(root), schedule))
+    validate_calendar_sources(root, schedule, offset=offset, pinned_packet=pinned)
+    return schedule
+
+
+def validate_calendar_sources(root, schedule, *, offset=None, pinned_packet=False):
+    """Verify source facts before constructing T-2 intervals."""
 
     from trading_advisor_3000.product_plane.contracts.identity_v3 import _Evaluator
 
@@ -531,7 +544,55 @@ def validate_calendar_sources(root, schedule, *, offset=None):
         evaluator._document("market_identity.v3.json")["$defs"]["native_cf_calendar_roll_schedule"],
         schedule,
     )
-    intervals = calendar_active_intervals(schedule)
+    rules = schedule["governing_rules"]
+    if pinned_packet and all(r["rule_id"].startswith("moex-futures-workdays-") for r in rules):
+        _verify_official_workdays(root, schedule)
+    else:
+        _verify_reviewed_notices(root, schedule)
+    for group in schedule["groups"]:
+        if offset is not None and group["roll_offset_trading_days"] != offset:
+            raise ValueError("calendar schedule offset differs from legacy policy")
+        for component in group["components"]:
+            _verify_component_expiry(root, component)
+    return calendar_active_intervals(schedule)
+
+
+def _verify_official_workdays(root, schedule):
+    from trading_advisor_3000.product_plane.research.moex_calendar import futures_workdays
+
+    calendars = {}
+    sources = {}
+    for rule in schedule["governing_rules"]:
+        year = rule["effective_from"][:4]
+        if (
+            rule["rule_id"] != f"moex-futures-workdays-{year}"
+            or rule["kind"] != "annual_calendar"
+            or rule["effective_from"] != year + "-01-01"
+            or rule["effective_to"] != f"{int(year) + 1:04}-01-01"
+        ):
+            raise ValueError("invalid MOEX futures workday rule")
+        key = tuple((rule[k]["path"], rule[k]["sha256"]) for k in ("body", "receipt"))
+        if key not in sources:
+            raw, url = _calendar_source_pair(root, rule["body"], rule["receipt"])
+            sources[key] = futures_workdays(raw, url)
+        calendars[rule["rule_id"]] = sources[key]
+    for group in schedule["groups"]:
+        for component in group["components"]:
+            if component["component_key"] != component["source_symbol"] + "@MOEX":
+                raise ValueError("legacy calendar component differs from its MOEX contract ID")
+        for item in group["planned_dates"]:
+            day = item["source_date"]
+            rule_id = f"moex-futures-workdays-{day[:4]}"
+            if (
+                item["governing_rule_ids"] != [rule_id]
+                or calendars.get(rule_id, {}).get(day) != item["state"]
+            ):
+                raise ValueError(f"MOEX futures date missing or disagrees with source: {day}")
+
+
+def _verify_reviewed_notices(root, schedule):
+    import json
+
     from trading_advisor_3000.product_plane.common.immutable_files import pinned_bytes
 
     packet = json.loads(
@@ -576,8 +637,6 @@ def validate_calendar_sources(root, schedule, *, offset=None):
         ) or url.path != "/" + rule["rule_id"]:
             raise ValueError("calendar rule differs from reviewed source interpretation")
     for group in schedule["groups"]:
-        if offset is not None and group["roll_offset_trading_days"] != offset:
-            raise ValueError("calendar schedule offset differs from legacy policy")
         for item in group["planned_dates"]:
             day = item["source_date"]
             expected = "closed" if day in {"2026-09-12", "2026-09-13"} else "open"
@@ -588,31 +647,36 @@ def validate_calendar_sources(root, schedule, *, offset=None):
                 or set(item["governing_rule_ids"]) != ids
             ):
                 raise ValueError("calendar date lacks reviewed source admission")
-        for component in group["components"]:
-            source = component["last_trade_source"]
-            raw, url = _calendar_source_pair(root, source["body"], source["receipt"])
-            if (
-                url.hostname != "iss.moex.com"
-                or component["source_symbol"] not in url.path.split("/")[-1]
-            ):
-                raise ValueError("last-trade source symbol/URL mismatch")
-            payload = json.loads(raw)
-            block = payload[source["block"]]
-            rows = [dict(zip(block["columns"], row, strict=True)) for row in block["data"]]
-            matches = [r for r in rows if r.get(source["row_key"]) == source["row_value"]]
-            if (
-                len(matches) != 1
-                or str(matches[0][source["value_column"]]) != component["last_trade_date"]
-            ):
-                raise ValueError("last-trade date differs from pinned original field")
-            if source["kind"] == "moex_iss_description":
-                if [r.get("value") for r in rows if r.get("name") == "SECID"] != [
-                    component["source_symbol"]
-                ]:
-                    raise ValueError("description SECID differs from calendar component")
-            elif source["row_value"] != component["source_symbol"]:
-                raise ValueError("securities SECID differs from calendar component")
-    return intervals
+
+
+def _verify_component_expiry(root, component):
+    from trading_advisor_3000.product_plane.research.moex_calendar import calendar_json
+
+    source = component["last_trade_source"]
+    raw, url = _calendar_source_pair(root, source["body"], source["receipt"])
+    symbol = component["source_symbol"]
+    endpoint = (
+        "/iss/securities"
+        if source["kind"] == "moex_iss_description"
+        else "/iss/engines/futures/markets/forts/boards/RFUD/securities"
+    )
+    if url.hostname != "iss.moex.com" or url.path != f"{endpoint}/{symbol}.json":
+        raise ValueError("last-trade source symbol/URL mismatch")
+    payload = calendar_json(raw)
+    block = payload[source["block"]]
+    if len(block["columns"]) != len(set(block["columns"])):
+        raise ValueError("duplicate ISS expiry source columns")
+    rows = [dict(zip(block["columns"], row, strict=True)) for row in block["data"]]
+    matches = [r for r in rows if r.get(source["row_key"]) == source["row_value"]]
+    if len(matches) != 1 or str(matches[0][source["value_column"]]) != component["last_trade_date"]:
+        raise ValueError("last-trade date differs from pinned original field")
+    if source["kind"] == "moex_iss_description":
+        if [r.get("value") for r in rows if r.get("name") == "SECID"] != [
+            component["source_symbol"]
+        ]:
+            raise ValueError("description SECID differs from calendar component")
+    elif source["row_value"] != component["source_symbol"]:
+        raise ValueError("securities SECID differs from calendar component")
 
 
 def calendar_active_intervals(schedule):
@@ -624,6 +688,7 @@ def calendar_active_intervals(schedule):
             "source-bound calendar_roll_schedule is required for fresh calendar compute"
         )
     rules = {r["rule_id"]: r for r in schedule["governing_rules"]}
+    official = all(key.startswith("moex-futures-workdays-") for key in rules)
     if len(rules) != len(schedule["governing_rules"]) or len(
         {r["precedence"] for r in rules.values()}
     ) != len(rules):
@@ -660,23 +725,36 @@ def calendar_active_intervals(schedule):
             raise ValueError("calendar source order disagrees with last trade dates")
         opens = sorted(d["source_date"] for d in dates if d["state"] == "open")
         switches = []
-        for component in components[:-1]:
+        offset = group["roll_offset_trading_days"]
+        for component in components if official else components[:-1]:
             last = component["last_trade_date"]
-            if last not in opens or opens.index(last) < group["roll_offset_trading_days"]:
-                raise ValueError("insufficient planned open dates for last-trade offset")
-            switches.append(opens[opens.index(last) - group["roll_offset_trading_days"]])
+            beyond = official and last >= group["coverage_to"]
+            if beyond:
+                index = len(opens)
+            else:
+                index = opens.index(last) if last in opens else 0
+            if index < offset:
+                raise ValueError(
+                    f"insufficient planned open dates for last-trade offset: "
+                    f"{group['group_key']} {component['component_key']} {last}"
+                )
+            switches.append(opens[index - offset])
+            if beyond:
+                # Even if every subsequent date is closed until expiry, the front
+                # is known strictly before this T-offset bound. Later rows need more facts.
+                break
+        if not official:
+            switches.append(group["coverage_to"])
         if switches != sorted(set(switches)):
             raise ValueError("non-increasing planned roll dates")
-        for index, component in enumerate(components):
+        for index, component in enumerate(components[: len(switches)]):
             result.append(
                 {
                     "group_key": group["group_key"],
                     "component_key": component["component_key"],
                     "source_order": index,
                     "active_from": group["coverage_from"] if index == 0 else switches[index - 1],
-                    "active_to": group["coverage_to"]
-                    if index == len(components) - 1
-                    else switches[index],
+                    "active_to": switches[index],
                     "planned_roll_ordinal": index,
                 }
             )
@@ -715,16 +793,23 @@ def calendar_selected_frame(frame, schedule, *, group_column, component_column, 
         "planned_roll_ordinal)"
     )
     bars = frame.withColumn("_calendar_source_date", source_date)
+    # The final interval can end before the source calendar when the successor is unknown.
+    coverage_ends = {row["group_key"]: row["active_to"] for row in intervals}
     covered = F.lit(False)
     for group in schedule["groups"]:
         covered = covered | (
             (F.col(group_column) == F.lit(group["group_key"]))
             & F.col(component_column).isin([c["component_key"] for c in group["components"]])
             & (F.col("_calendar_source_date") >= F.lit(group["coverage_from"]))
-            & (F.col("_calendar_source_date") < F.lit(group["coverage_to"]))
+            & (F.col("_calendar_source_date") < F.lit(coverage_ends[group["group_key"]]))
         )
-    if bars.where(~covered | F.col("_calendar_source_date").isNull()).limit(1).count():
-        raise ValueError("calendar requested source lacks admitted coverage/order")
+    missing = (
+        bars.where(~F.coalesce(covered, F.lit(False)))
+        .select(group_column, component_column, "_calendar_source_date")
+        .take(1)
+    )
+    if missing:
+        raise ValueError(f"calendar requested source lacks admitted coverage/order: {missing[0]}")
     bars = bars.alias("bar")
     dates = dates.alias("schedule")
     return (
@@ -1613,7 +1698,7 @@ def run_continuous_front_spark_job(
             "canonical_contract_economics_path is required when execution_economics_required=True"
         )
     if resolved_policy.roll_policy_mode == "calendar_expiry_v1":
-        validate_calendar_sources(
+        calendar_roll_schedule = resolve_legacy_calendar(
             output_dir,
             calendar_roll_schedule,
             offset=resolved_policy.calendar_roll_offset_trading_days,

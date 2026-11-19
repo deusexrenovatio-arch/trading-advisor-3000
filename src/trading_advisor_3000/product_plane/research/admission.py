@@ -80,6 +80,14 @@ def _seal(payload):
     return {**payload, "admission_id": _digest(payload)}
 
 
+def _check_calendar_pin(domain):
+    from .moex_calendar import packet_bytes
+
+    pin = domain.get("calendar_roll_schedule")
+    if isinstance(pin, dict) and set(pin) == {"path", "sha256"}:
+        packet_bytes(Path(domain["materialized_output_dir"]), pin)
+
+
 def issue_admission(config, *, operation, completed_outputs=()):
     """Issue daily admission from authoritative manifests; rebuild is an explicit selection."""
     from .data_snapshots import _input_tables, _registry
@@ -88,6 +96,7 @@ def issue_admission(config, *, operation, completed_outputs=()):
     if operation not in {"daily", "rebuild"}:
         raise ValueError("refresh admission requires an explicit daily or rebuild operation")
     config = dict(config)
+    _check_calendar_pin(config)
     data_root = Path(config["canonical_output_dir"]) / ".data_snapshots"
     path = str(config.get("data_snapshot_manifest_path") or "")
     data = load_snapshot(Path(path)) if path else current_snapshot(data_root)
@@ -207,6 +216,7 @@ def validate_admission(
                 f"{parent['snapshot_id']} -> {current['snapshot_id']}"
             )
     assert_tables_unchanged(value["inputs"])
+    _check_calendar_pin(value["domain"])
     if config is not None:
         if _domain(config, inputs=value["inputs"]) != value["domain"]:
             raise ValueError("refresh admission configuration changed")

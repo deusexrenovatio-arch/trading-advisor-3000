@@ -105,6 +105,61 @@ requires_spark_delta_runtime = pytest.mark.skipif(
 
 
 @requires_spark_delta_runtime
+def test_calendar_selector_rejects_rows_after_terminal_t_minus_two():
+    from pyspark.sql import functions as F
+
+    from trading_advisor_3000.spark_jobs import continuous_front_job as cf
+    from trading_advisor_3000.spark_jobs.canonical_bars_job import _create_spark_session
+
+    rule = "moex-futures-workdays-2026"
+    dates = ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17"]
+    group = {
+        "group_key": "FUT_BR",
+        "coverage_from": dates[0],
+        "coverage_to": "2026-09-18",
+        "planned_dates": [
+            {"source_date": day, "state": "open", "governing_rule_ids": [rule]} for day in dates
+        ],
+        "components": [
+            {
+                "source_order": 0,
+                "component_key": "BR@MOEX",
+                "source_symbol": "BR",
+                "last_trade_date": dates[-1],
+            }
+        ],
+        "roll_offset_trading_days": 2,
+    }
+    schedule = {
+        "governing_rules": [
+            {
+                "rule_id": rule,
+                "precedence": 0,
+                "effective_from": dates[0],
+                "effective_to": group["coverage_to"],
+            }
+        ],
+        "groups": [group],
+    }
+    spark = _create_spark_session("calendar-terminal-proof", "local[1]")
+    try:
+        bars = spark.createDataFrame(
+            [("FUT_BR", "BR@MOEX", d) for d in dates[:2]], ["group", "component", "day"]
+        )
+        options = dict(group_column="group", component_column="component", source_date=F.col("day"))
+        assert (
+            cf.calendar_selected_frame(bars.where(F.col("day") == dates[0]), schedule, **options)
+            .select("day")
+            .first()[0]
+            == dates[0]
+        )
+        with pytest.raises(ValueError, match="2026-09-15"):
+            cf.calendar_selected_frame(bars, schedule, **options)
+    finally:
+        spark.stop()
+
+
+@requires_spark_delta_runtime
 def test_research_l0_year_writer_retains_identity_history_and_values(tmp_path: Path) -> None:
     from deltalake import DeltaTable
     from pyspark.sql import functions as F

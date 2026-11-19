@@ -799,6 +799,25 @@ An existing nightly configuration without these facts is not ready for fresh
 recompute on the changed code. The bounded two-future proof does not establish
 full nightly coverage or authorize a production run, deployment or activation.
 
+For legacy `calendar_expiry_v1`, a deployment may select a calendar packet by
+an explicit materialization-root-relative path and SHA-256. The scheduled owner
+binds this small reference in the existing admission, run config and snapshot.
+The CF worker opens the exact packet and checks the source bodies, receipts,
+planned dates and component expiries before starting Spark. A later deployment
+cannot substitute a different packet for a pending Research handoff. Rebuild
+and daily use the same binding. Reverting the configuration restores the prior
+input contract and existing snapshots retain their original pins.
+
+In addition to the reviewed September notices, a pinned packet may cite explicit
+per-date derivatives-market flags from the exchange's own trading calendar.
+Every requested date must match the named futures record in the retained body.
+Exceptions-only lists, missing years, other markets and observed candles cannot
+establish the missing flags. Each component still needs its original ISS
+last-trade field. This choice keeps acquisition out of ticks, rules out calendar
+inference and avoids duplicating a full multi-year calendar in every Dagster op.
+The new reader is scoped to legacy pinned packets. Full-universe acceptance
+requires two independent manifest and table readbacks in isolation.
+
 The expanded observation definition contains source/namespace/full venue context,
 asset, sorted exact eligible concrete instruments and their factual/unknown specs,
 source numeric-price/quantity basis, configured roll/calendar versions, adjustment

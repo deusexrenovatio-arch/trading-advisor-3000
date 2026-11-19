@@ -96,7 +96,9 @@ def resolve_refresh_scope(
         from .hash_compatibility import SCOPE_PARAMETER_KEYS
 
         ignored = SCOPE_PARAMETER_KEYS
-        if any(
+        if research["parameters"].get("calendar_roll_schedule") != configuration.get(
+            "calendar_roll_schedule"
+        ) or any(
             research["parameters"].get(key) != value
             for key, value in _parameters(configuration).items()
             if key not in ignored
