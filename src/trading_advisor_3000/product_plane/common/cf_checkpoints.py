@@ -16,7 +16,8 @@ from .data_snapshots import (
     open_pinned_table,
 )
 
-CONTINUOUS_FRONT_TABLES = (
+# The on-disk checkpoint authorizes exactly these outputs of the accepted CF kernel.
+CHECKPOINT_OUTPUTS = (
     "continuous_front_bars",
     "continuous_front_roll_events",
     "continuous_front_adjustment_ladder",
@@ -74,7 +75,7 @@ def _read_cf_checkpoint(instance, source_id, config):
     ):
         raise ValueError("daily refresh upstream CF run/step/admission changed")
     source = json.loads(_pending_path(run, config, source_id).read_text(encoding="utf-8"))
-    outputs = CONTINUOUS_FRONT_TABLES
+    outputs = CHECKPOINT_OUTPUTS
     if (
         source["run_id"] != source_id
         or source["parameters"].get("refresh_admission") != receipt
@@ -189,7 +190,7 @@ def recovery_cf_checkpoint(instance, run_id, *, research, data_root, research_ro
         != research["parameters"]["semantic_compute_contract"]
     ):
         raise ValueError("recovery CF Data ancestor or numerical contract differs")
-    names = CONTINUOUS_FRONT_TABLES
+    names = CHECKPOINT_OUTPUTS
     if set(source["tables"]) != set(research["tables"]) or any(
         ref != (data["tables"][name] if name in data["tables"] else research["tables"][name])
         for name, ref in source["tables"].items()
@@ -238,7 +239,7 @@ def recorded_cf_outputs(binding, research, checkpoint_data):
         or receipt["inputs"] != checkpoint_data["tables"]
     ):
         raise ValueError("recovery CF checkpoint lineage changed")
-    outputs = {name: source["tables"][name] for name in CONTINUOUS_FRONT_TABLES}
+    outputs = {name: source["tables"][name] for name in CHECKPOINT_OUTPUTS}
     for name, ref in outputs.items():
         if (
             Path(ref["table_path"]).resolve() != (root / (name + ".delta")).resolve()
