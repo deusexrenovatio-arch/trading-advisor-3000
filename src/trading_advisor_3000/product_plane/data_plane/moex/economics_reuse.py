@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from trading_advisor_3000.product_plane.common.data_snapshots import (
     SnapshotUnavailableError,
     assert_tables_unchanged,
     capture_table,
     current_snapshot,
+    open_pinned_table,
 )
+from trading_advisor_3000.product_plane.common.immutable_files import canonical_bytes
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     read_filtered_delta_table_rows,
@@ -263,12 +267,101 @@ def _published_contract_economics_coverage(
     }
 
 
+def _weekend_prelistings(coverage, source_error, raw_reference, ingest_till_utc):
+    """MOEX SPECTRA §2.12.3: new instruments start after the additional session."""
+    renewal = source_error.native_history_renewal or {}
+    check = renewal.get("current_crosscheck", {})
+    pages = check.get("source_audit", {}).get("pages", [])
+    missing = coverage["missing_contract_ids"]
+    day = date.fromisoformat(source_error.target_session_date)
+    close = datetime.combine(
+        day + timedelta(days=1), datetime.min.time(), ZoneInfo("Europe/Moscow")
+    )
+    if (
+        not missing
+        or not raw_reference
+        or not coverage.get("published_snapshot_id")
+        or set(source_error.missing_sources) != {"rms_limits", "rms_staticparams"}
+        or check.get("status") != "PASS"
+        or check.get("source_trade_date") != day.isoformat()
+        or not pages
+        or _try_parse_utc_timestamp(ingest_till_utc) != close
+    ):
+        return {}
+    # A W receipt only exists after the ISS adapter certified the exact date pair.
+    calendar = pages[0].get("session_calendar") or {}
+    session = calendar.get("trade_session_date")
+    if (
+        calendar.get("reason") != "W"
+        or calendar.get("engine") != "futures"
+        or type(calendar.get("is_traded")) is not int
+        or calendar["is_traded"] != 1
+        or calendar.get("date") != day.isoformat()
+        or not session
+        or date.fromisoformat(session) <= day
+        or any(
+            page.get("session_calendar") != calendar
+            or page["dataversion"].get("trade_date") != day.isoformat()
+            or page["dataversion"].get("trade_session_date") != session
+            for page in pages
+        )
+    ):
+        return {}
+    checked = {row["secid"] for row in check["contracts"]}
+    table = open_pinned_table(raw_reference)
+    rows = table.to_pyarrow_table(
+        filters=[("moex_secid", "in", missing), ("trade_date", "<=", day)],
+        columns=[
+            "moex_secid",
+            "trade_date",
+            "source_id",
+            "source_document_id",
+            "source_document_hash",
+            "board",
+            "raw_payload_json",
+            "snapshot_metadata_json",
+        ],
+    ).to_pylist()
+    deferred = {}
+    for secid in sorted(checked.intersection(missing)):
+        records = [r for r in rows if r["moex_secid"] == secid]
+        cards = [
+            r
+            for r in records
+            if r["trade_date"] == day and r["source_id"] == "moex_iss_futures_securities"
+        ]
+        if len(cards) != 1 or any(r["source_id"] != "moex_iss_futures_securities" for r in records):
+            continue
+        row = cards[0]
+        card = json.loads(row["raw_payload_json"])
+        digest = hashlib.sha256(canonical_bytes(card)).hexdigest()
+        if (
+            row["source_document_id"] == f"snapshot:{secid}:{day}"
+            and row["board"] == "RFUD"
+            and row["source_document_hash"] == digest
+            and row["snapshot_metadata_json"]
+            and json.loads(row["snapshot_metadata_json"]) == pages
+            and card.get("SECID") == secid
+            and card.get("BOARDID") == "RFUD"
+            and type(card.get("NEW_INSTRUMENT")) is int
+            and card["NEW_INSTRUMENT"] == 1
+            and card.get("FRSTTRADE") == session
+        ):
+            deferred[secid] = {
+                "first_trade_date": session,
+                "source_document_hash": digest,
+                "source_document_id": row["source_document_id"],
+            }
+    return deferred
+
+
 def reuse_published_economics_after_source_unavailable(
     *,
     canonical_economics_root: Path,
     evidence_dir: Path,
     run_id: str,
     source_error: EconomicsSourceUnavailable,
+    ingest_till_utc: str | None = None,
 ) -> dict[str, object]:
     renewal = source_error.native_history_renewal
     renewal_references = dict(renewal["tables"]) if renewal is not None else {}
@@ -289,6 +382,21 @@ def reuse_published_economics_after_source_unavailable(
         canonical_economics_root=canonical_economics_root,
         source_error=source_error,
     )
+    deferred = _weekend_prelistings(
+        coverage, source_error, renewal_tables.get("raw"), ingest_till_utc
+    )
+    if deferred:
+        coverage["catalog_contracts"] = coverage["required_contracts"]
+        coverage["deferred_prelistings"] = deferred
+        coverage["required_contracts"] -= len(deferred)
+        coverage["missing_contract_ids"] = sorted(
+            set(coverage["missing_contract_ids"]) - deferred.keys()
+        )
+        if (
+            coverage["required_contracts"] > 0
+            and coverage["covered_contracts"] == coverage["required_contracts"]
+        ):
+            coverage.update(status="PASS", blocked_reason="")
     assert_tables_unchanged(renewal_tables)
     coverage_passed = coverage["status"] == "PASS"
     report_path = evidence_dir / "contract-economics-report.json"

@@ -3553,3 +3553,153 @@ def test_reuse_refuses_unpublished_economics_even_when_physical_coverage_is_vali
                 missing_sources=("rms_limits",),
             ),
         )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "already_trading",
+        "duplicate",
+        "wrong_board",
+        "wrong_flag",
+        "wrong_page",
+        "history",
+        "missing_active",
+        "no_publication",
+        "wrong_cutoff",
+        "no_weekend",
+    ],
+)
+def test_closed_weekend_economics_uses_accepted_pin_before_first_trade(tmp_path, fault):
+    import hashlib
+
+    from trading_advisor_3000.product_plane.common import data_snapshots as snapshots
+    from trading_advisor_3000.product_plane.common.immutable_files import canonical_bytes
+    from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
+    from trading_advisor_3000.product_plane.data_plane.moex import economics_reuse as reuse
+
+    root = tmp_path / "canonical/economics"
+    money = root / "canonical_contract_economics.delta"
+    _write_contract_economics_table(money, contract_ids=("BRM6",))
+    pin = snapshots.capture_table(money)
+    registry = root.parent / "moex/baseline-4y-current/.data_snapshots"
+    if fault != "no_publication":
+        parent = snapshots.create_snapshot(
+            tables={"canonical_contract_economics": pin},
+            required_tables=["canonical_contract_economics"],
+            dataset_version="fixture",
+            run_id="published",
+            code_version="fixture",
+            quality_checks={"fixture": "PASS"},
+        )
+        snapshots.publish_snapshot(
+            registry, snapshots.save_snapshot(registry, parent), expected_current_id=None
+        )
+    day, first = "2026-07-11", "2026-07-13"
+    pages = [
+        {
+            "page_start": 0,
+            "securities_sha256": "b" * 64,
+            "dataversion": {
+                "trade_date": day,
+                "trade_session_date": first,
+                "seqnum": 3,
+                "data_version": 1,
+            },
+            "session_calendar": {
+                "id": 1,
+                "engine": "futures",
+                "reason": "W",
+                "is_traded": 1,
+                "date": day,
+                "trade_session_date": first,
+            },
+        }
+    ]
+    if fault == "no_weekend":
+        pages[0].pop("session_calendar")
+    card = {"SECID": "BRN6", "BOARDID": "RFUD", "NEW_INSTRUMENT": 1, "FRSTTRADE": first}
+    if fault == "wrong_flag":
+        card["NEW_INSTRUMENT"] = True
+    if fault == "already_trading":
+        card["FRSTTRADE"] = day
+    if fault == "wrong_board":
+        card["BOARDID"] = "OTHER"
+    digest = hashlib.sha256(canonical_bytes(card)).hexdigest()
+    row = dict(
+        moex_secid="BRN6",
+        board="RFUD",
+        source_id="moex_iss_futures_securities",
+        trade_date=day,
+        source_document_id=f"snapshot:BRN6:{day}",
+        source_document_hash=digest,
+        raw_payload_json=json.dumps(card),
+        snapshot_metadata_json=json.dumps([] if fault == "wrong_page" else pages),
+    )
+    rows = [row]
+    if fault == "history":
+        rows.append(
+            {
+                **row,
+                "trade_date": "2026-07-10",
+                "source_id": "moex_iss_history_forts_securities_unmodified",
+            }
+        )
+    if fault == "duplicate":
+        rows.append(dict(row))
+    refs = {}
+    for name in ("raw", "prepared", "oi"):
+        path = tmp_path / (name + ".delta")
+        write_delta_table_rows(
+            table_path=path,
+            rows=rows,
+            columns={**dict.fromkeys(row, "string"), "trade_date": "date"},
+        )
+        refs[name] = snapshots.capture_table(path)
+    required = ["BRM6", "BRN6"]
+    if fault == "missing_active":
+        required.append("BRU6")
+    exc = reuse.EconomicsSourceUnavailable(
+        target_session_date=day,
+        required_contract_ids=required,
+        missing_sources=["rms_limits", "rms_staticparams"],
+    )
+    exc.native_history_renewal = {
+        "tables": refs,
+        "current_crosscheck": {
+            "status": "PASS",
+            "source_trade_date": day,
+            "source_audit": {"pages": pages},
+            "contracts": [{"secid": s} for s in required],
+        },
+    }
+
+    def update():
+        return reuse.reuse_published_economics_after_source_unavailable(
+            canonical_economics_root=root,
+            evidence_dir=tmp_path / "report",
+            run_id="fixture",
+            source_error=exc,
+            ingest_till_utc="2026-07-12T21:00:00Z"
+            if fault == "wrong_cutoff"
+            else day + "T21:00:00Z",
+        )
+
+    if fault:
+        with pytest.raises(RuntimeError, match="BRU6" if fault == "missing_active" else "BRN6"):
+            update()
+    else:
+        for _ in range(2):
+            report = update()
+            coverage = report["published_coverage"]
+            assert report["status"] == "PASS-NOOP"
+            assert (
+                coverage["catalog_contracts"],
+                coverage["required_contracts"],
+                coverage["covered_contracts"],
+            ) == (2, 1, 1)
+            assert coverage["deferred_prelistings"]["BRN6"]["source_document_hash"] == digest
+            assert coverage["published_snapshot_id"] == parent["snapshot_id"]
+            assert coverage["table_reference"] == pin
+    assert snapshots.capture_table(money) == pin

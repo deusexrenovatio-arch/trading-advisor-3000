@@ -199,3 +199,21 @@ preceding-MC check. A different session date requires one official open addition
 futures session matching both dates in ISS calendar events. Retain that row beside
 the unmodified dataversion. All pages, including the terminal page, must agree on
 both dates and data version and keep sequence numbers monotonic.
+
+
+### Coverage before the first trading day
+
+MOEX SPECTRA §2.12.3 prohibits admitting new instruments during the additional
+weekend session. The current securities catalog can already include a new RFUD
+contract whose first trading day is the following main session. When the two
+RMS feeds are empty for the closed calendar day, the Data owner checks all
+current parameters and validates the accepted economics pin for active contracts.
+It may defer a missing contract only for this closed day, using the native raw
+pin, its unique issuer card, the reviewed W calendar and matching page receipt,
+NEW_INSTRUMENT=1 and FRSTTRADE equal to the later trade session. Contradictory
+RFUD history keeps the contract required. The report retains the full catalog,
+the deferred card digest, both dates, raw pin and original coverage checks.
+An ordinary trading day requires the contract. This uses the existing published
+economics fallback and introduces no historical calculation.
+
+[MOEX SPECTRA, instrument admission in additional sessions](https://ftp.moex.com/pub/ClientsAPI/Spectra/CGate/prod/docs/p2gate_ru.pdf#page=96)
