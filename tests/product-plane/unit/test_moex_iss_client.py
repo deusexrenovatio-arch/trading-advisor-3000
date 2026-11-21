@@ -307,6 +307,31 @@ def test_current_snapshot_rejects_unbound_or_conflicting_source_metadata(monkeyp
         client.fetch_futures_contract_snapshot()
 
 
+@pytest.mark.parametrize("table", ["dataversion", "off_days"])
+@pytest.mark.parametrize("fault", ["duplicate_field", "short_row"])
+def test_current_snapshot_rejects_ambiguous_session_table(monkeypatch, table, fault):
+    client = MoexISSClient()
+    page = _snapshot_page(day="2026-11-21")
+    page["dataversion"]["data"][0][1] = "2026-11-23"
+    calendar = {
+        "off_days": {
+            "columns": ["date", "engine", "is_traded", "trade_session_date", "reason"],
+            "data": [["2026-11-21", "futures", 1, "2026-11-23", "W"]],
+        }
+    }
+    block = page[table] if table == "dataversion" else calendar[table]
+    if fault == "duplicate_field":
+        block["columns"].insert(0, block["columns"][0])
+        block["data"][0].insert(0, "conflicting")
+    else:
+        block["data"][0].pop()
+    monkeypatch.setattr(
+        client, "_get_json", lambda path, **kwargs: calendar if "calendar" in path else page
+    )
+    with pytest.raises(ValueError, match="source session"):
+        client.fetch_futures_contract_snapshot()
+
+
 @pytest.mark.parametrize("fault", ["date", "version", "sequence", None])
 def test_current_snapshot_checks_terminal_page_context(monkeypatch, fault):
     first = _snapshot_page()

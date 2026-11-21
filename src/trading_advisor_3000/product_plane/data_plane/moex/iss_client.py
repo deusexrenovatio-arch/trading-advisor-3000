@@ -109,6 +109,20 @@ def _iter_date_windows(
         current = window_till + timedelta(days=1)
 
 
+def _source_session_rows(block: dict[str, Any]) -> list[dict[str, Any]]:
+    columns, rows = block.get("columns"), block.get("data")
+    if (
+        not isinstance(columns, list)
+        or not columns
+        or not all(isinstance(column, str) and column for column in columns)
+        or len(set(columns)) != len(columns)
+        or not isinstance(rows, list)
+        or any(not isinstance(row, list) or len(row) != len(columns) for row in rows)
+    ):
+        raise ValueError("current source session has ambiguous or malformed ISS fields")
+    return [dict(zip(columns, row, strict=True)) for row in rows]
+
+
 def _rows_to_dicts(block: dict[str, Any]) -> list[dict[str, Any]]:
     columns = block.get("columns")
     rows = block.get("data")
@@ -827,7 +841,7 @@ class MoexISSClient:
             block, version = payload.get("securities"), payload.get("dataversion")
             if not isinstance(block, dict) or not isinstance(version, dict):
                 raise ValueError("current source session requires securities and dataversion")
-            contexts = _rows_to_dicts(version)
+            contexts = _source_session_rows(version)
             if len(contexts) != 1:
                 raise ValueError("current source session requires exactly one dataversion row")
             context = contexts[0]
@@ -890,7 +904,7 @@ class MoexISSClient:
         )
         records = [
             row
-            for row in _rows_to_dicts(payload.get("off_days") or {})
+            for row in _source_session_rows(payload.get("off_days") or {})
             if row.get("date") == trade_date.isoformat() and row.get("engine") == "futures"
         ]
         if len(records) == 1:
