@@ -937,7 +937,7 @@ class MoexISSClient:
                     ).hexdigest(),
                 }
             )
-            page = _rows_to_dicts(block)
+            page = _source_session_rows(block)
             rows.extend(page)
             if not page or not isinstance(payload.get("securities.cursor"), dict):
                 break
@@ -1019,7 +1019,10 @@ class MoexISSClient:
         block = payload.get("limits")
         if not isinstance(block, dict):
             raise ValueError("MOEX RMS limits payload is missing `limits` block")
-        return _rows_to_dicts(block)
+        rows = _source_session_rows(block)
+        if not {"assetcode", "tradedate", "mr1"} <= set(block["columns"]):
+            raise ValueError("MOEX RMS limits payload has missing source columns")
+        return rows
 
     def fetch_futures_rms_staticparams(self, *, trade_date: date) -> list[dict[str, Any]]:
         path = "/iss/rms/engines/futures/objects/staticparams.json"
@@ -1038,7 +1041,10 @@ class MoexISSClient:
         block = payload.get("staticparams")
         if not isinstance(block, dict):
             raise ValueError("MOEX RMS staticparams payload is missing `staticparams` block")
-        return _rows_to_dicts(block)
+        rows = _source_session_rows(block)
+        if not {"assetcode", "tradedate", "radius"} <= set(block["columns"]):
+            raise ValueError("MOEX RMS staticparams payload has missing source columns")
+        return rows
 
     def fetch_futures_session_schedule(
         self,
