@@ -4,14 +4,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from trading_advisor_3000.product_plane.common.cf_checkpoints import (
-    CONTINUOUS_FRONT_TABLES as CONTINUOUS_FRONT_TABLES,
-)
 from trading_advisor_3000.product_plane.contracts import CanonicalBar
 from trading_advisor_3000.product_plane.data_plane.canonical import RollMapEntry
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     read_delta_table_rows,
+)
+
+CONTINUOUS_FRONT_TABLES = (
+    "continuous_front_bars",
+    "continuous_front_roll_events",
+    "continuous_front_adjustment_ladder",
+    "continuous_front_qc_report",
 )
 
 
