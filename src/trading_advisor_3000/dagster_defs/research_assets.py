@@ -12,6 +12,7 @@ from dagster import (
     AssetKey,
     AssetSelection,
     ConfigMapping,
+    DagsterEventType,
     DagsterRunStatus,
     DefaultSensorStatus,
     Definitions,
@@ -19,6 +20,8 @@ from dagster import (
     Permissive,
     RunRequest,
     RunsFilter,
+    RunStatusChangeRecordsFilter,
+    SkipReason,
     asset,
     define_asset_job,
     materialize,
@@ -43,6 +46,7 @@ from trading_advisor_3000.product_plane.data_plane.moex.storage_roots import (
     MOEX_HISTORICAL_DATA_ROOT_ENV,
 )
 from trading_advisor_3000.product_plane.research.admission import (
+    AdmissionParentSuperseded,
     configure_admission,
     issue_admission,
     validate_admission,
@@ -2714,6 +2718,9 @@ def research_datasets(context) -> dict[str, object]:
             split_method=str(_config_value(config, "split_method", "holdout")),
             split_params=validation_plan,
             contours=research_l0_contours,
+            policy=ContinuousFrontPolicy.from_config(
+                dict(config.get("continuous_front_policy") or {})
+            ),
             canonical_contract_economics_path=_canonical_contract_economics_path(config),
             execution_economics_required=True,
             refresh_windows=(
@@ -4956,56 +4963,100 @@ def research_data_prep_after_moex_sensor(_context):
     return None
 
 
-@run_status_sensor(
-    run_status=DagsterRunStatus.SUCCESS,
+@sensor(
     name=RESEARCH_DATA_PREP_AFTER_MOEX_CF_CATCH_UP_SENSOR_NAME,
-    monitored_jobs=[moex_cf_catch_up_job],
-    request_job=research_data_prep_job,
+    job=research_data_prep_job,
     default_status=DefaultSensorStatus.RUNNING,
-    description=(
-        "Start scoped research_data_prep_job after windowed continuous-front catch-up succeeds."
-    ),
+    description="Deliver successful CF events after their exact handoff pins can be verified.",
 )
 def research_data_prep_after_moex_cf_catch_up_sensor(context):
-    cf_config = _research_config_from_run_config(context.dagster_run.run_config)
-    from dagster import SkipReason
+    from dagster._core.definitions.run_status_sensor_definition import RunStatusSensorCursor
 
+    instance = context.instance
+    success = DagsterEventType.RUN_SUCCESS
+    if context.cursor is None:
+        records = instance.fetch_run_status_changes(success, limit=1).records
+        context.update_cursor(
+            RunStatusSensorCursor(records[0].storage_id if records else -1).to_json()
+        )
+        return SkipReason("Initialized CF handoff at the event-log tail")
+    cursor = RunStatusSensorCursor.from_json(context.cursor)
+    storage = instance.event_log_storage
+    if cursor.update_timestamp and storage.is_run_sharded:
+        position = {"after_timestamp": datetime.fromisoformat(cursor.update_timestamp).timestamp()}
+    else:
+        position = {"after_storage_id": cursor.record_id}
+    records = instance.fetch_run_status_changes(
+        RunStatusChangeRecordsFilter(
+            success,
+            **position,
+            job_names=[MOEX_CF_CATCH_UP_JOB_NAME]
+            if storage.supports_run_status_change_job_name_filter
+            else None,
+        ),
+        limit=25,
+        ascending=True,
+    ).records
+    for record in records:
+        next_cursor = RunStatusSensorCursor(
+            record.storage_id,
+            record_timestamp=datetime.fromtimestamp(record.timestamp, UTC).isoformat(),
+        ).to_json()
+        run = instance.get_run_by_id(record.event_log_entry.run_id)
+        origin = run.remote_job_origin.repository_origin if run and run.remote_job_origin else None
+        if (
+            run
+            and run.job_name == MOEX_CF_CATCH_UP_JOB_NAME
+            and (origin.repository_name if origin else None) == context.repository_name
+            and (origin.code_location_origin.location_name if origin else None)
+            == (
+                context.code_location_origin.location_name if context.code_location_origin else None
+            )
+        ):
+            try:
+                request = _research_request_after_cf(instance, run)
+            except AdmissionParentSuperseded as exc:
+                context.update_cursor(next_cursor)
+                return SkipReason(f"BLOCKED: {exc}")
+            except (KeyError, ValueError, OSError, SnapshotUnavailableError) as exc:
+                return SkipReason(f"BLOCKED: CF {run.run_id}: {exc}")
+            context.update_cursor(next_cursor)
+            return request
+        context.update_cursor(next_cursor)
+    return SkipReason("No new successful CF run")
+
+
+def _research_request_after_cf(instance, run):
+    cf_config = _research_config_from_run_config(run.run_config)
     if cf_config is None:
         return SkipReason("BLOCKED: missing_cf_admission_configuration")
-    try:
-        receipt = validate_admission(
-            cf_config.get("refresh_admission"),
-            config=cf_config,
-            completed_outputs=(
-                "continuous_front_bars",
-                "continuous_front_roll_events",
-                "continuous_front_adjustment_ladder",
-                "continuous_front_qc_report",
-            ),
-        )
-    except (ValueError, OSError, SnapshotUnavailableError) as exc:
-        return SkipReason(f"BLOCKED: {exc}")
-    series_mode = _research_series_mode_from_config(cf_config) or "continuous_front"
-    if series_mode != "continuous_front":
-        raise ValueError(
-            "moex_cf_catch_up_job can only trigger research_data_prep_job for "
-            "series_mode=continuous_front"
-        )
+    if not cf_config.get("refresh_admission"):
+        return SkipReason("BLOCKED: refresh admission required")
+    if (
+        cf_config.get("operation") != "daily"
+        or cf_config["refresh_admission"].get("operation") != "daily"
+    ):
+        return SkipReason("CF handoff only delivers daily admissions")
+    if _research_series_mode_from_config(cf_config) != "continuous_front":
+        return SkipReason("CF handoff requires continuous_front series mode")
+    receipt = validate_admission(
+        cf_config["refresh_admission"], config=cf_config, upstream_cf=(instance, run.run_id)
+    )
     changed_windows = _changed_windows_from_research_config(cf_config)
     force_full_refresh = bool(cf_config.get("force_full_refresh", False))
     if not changed_windows and not force_full_refresh and not cf_config.get("hash_compatibility"):
         return None
     windows = _normalize_cf_catch_up_windows(changed_windows) if changed_windows else ()
 
-    upstream_run_id = str(context.dagster_run.run_id)
-    tags = getattr(context.dagster_run, "tags", {}) or {}
+    upstream_run_id = str(run.run_id)
+    tags = getattr(run, "tags", {}) or {}
     tagged_windows_hash = (
         str(tags.get("ta3000/cf_catch_up_windows_hash") or "").strip()
         if isinstance(tags, Mapping)
         else ""
     )
     windows_hash = tagged_windows_hash or _cf_catch_up_windows_hash(windows)
-    dataset_version = _research_dataset_version_from_context(context, cf_config)
+    dataset_version = str(cf_config["dataset_version"])
     timeframes = tuple(_config_string_sequence(cf_config, "timeframes"))
     dataset_instrument_ids = tuple(_config_string_sequence(cf_config, "dataset_instrument_ids"))
     return RunRequest(
@@ -5038,7 +5089,7 @@ def research_data_prep_after_moex_cf_catch_up_sensor(context):
             ),
             series_mode="continuous_front",
             continuous_front_policy=dict(_config_value(cf_config, "continuous_front_policy", {})),
-            calendar_roll_schedule=_config_value(cf_config, "calendar_roll_schedule", None),
+            calendar_roll_schedule=cf_config.get("calendar_roll_schedule"),
             dataset_instrument_ids=dataset_instrument_ids,
             changed_windows=windows,
             refresh_scope_version=int(cf_config.get("refresh_scope_version", 0)),

@@ -328,7 +328,10 @@ def open_pinned_table(reference: Mapping[str, Any]) -> DeltaTable:
     except SnapshotUnavailableError:
         raise
     except Exception as exc:
-        raise SnapshotUnavailableError(f"snapshot version unavailable: {path}@{version}") from exc
+        raise SnapshotUnavailableError(
+            f"snapshot version unavailable: {path}@{version} "
+            f"(table_id={reference['table_id']}): {exc}"
+        ) from exc
 
 
 def assert_tables_unchanged(tables: Mapping[str, Mapping[str, Any]]) -> None:
