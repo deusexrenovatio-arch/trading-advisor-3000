@@ -13,7 +13,7 @@ from trading_advisor_3000.product_plane.common.immutable_files import pinned_byt
 from trading_advisor_3000.product_plane.contracts.identity_v3 import _Evaluator
 
 ARCHIVE_PREFIX = "moex-futures-workdays-archive-v1-"
-BRENT_LAST_TRADE_CHANGES = {
+REVIEWED_LAST_TRADE_CHANGES = {
     "BRN0": (
         "BR-7.20",
         "2020-07-01",
@@ -35,8 +35,58 @@ BRENT_LAST_TRADE_CHANGES = {
         "n30741",
         "355809c2ee4bf808f80f993166e244a014cf6c2c9350c11ab42140c9db9df594",
     ),
+    "NGK0": (
+        "NG-5.20",
+        "2020-05-28",
+        "2020-05-27",
+        "n28386",
+        "03de3a58fbdd39016360a009f53391c958b98f9a15830b1f5b127b14fcc977bf",
+    ),
+    "NGM0": (
+        "NG-6.20",
+        "2020-06-29",
+        "2020-06-26",
+        "n28386",
+        "4c6ba44ef8eee2bb95bf5c9beb97a99548d63f8d30b4dfc241150993939ae3ad",
+    ),
+    "NGN0": (
+        "NG-7.20",
+        "2020-07-30",
+        "2020-07-29",
+        "n28386",
+        "1318400337498dc2f21c3ac52c47e2e6aa2c62652055b2daba6be89354c29a6b",
+    ),
+    "NGQ0": (
+        "NG-8.20",
+        "2020-08-28",
+        "2020-08-27",
+        "n28386",
+        "498ab99ba9ad605403f5d57dda4d063af98153e763931c6ba0e27a986d4bd070",
+    ),
+    "NGU0": (
+        "NG-9.20",
+        "2020-09-29",
+        "2020-09-28",
+        "n28386",
+        "5c5623b79c82cb35771d412c77a861bb1a6055ff4330b83b642d1bcf046caca3",
+    ),
+    "NGV0": (
+        "NG-10.20",
+        "2020-10-29",
+        "2020-10-28",
+        "n28386",
+        "580cca371fa65bc46583f9708e2db949a96203644bfa0ce3e666b646227b72fb",
+    ),
+    "NGX0": (
+        "NG-11.20",
+        "2020-11-26",
+        "2020-11-25",
+        "n28386",
+        "df3d22df489fe802fbb48120d6e066dc4955ae2476d6de0f3e9903ad0cc2e35f",
+    ),
 }
 LAST_TRADE_NOTICES = {
+    "n28386": "fa6a4d53a099947df2d62451e4eed52eb98cb96ae1682945b54545120aca2c4f",
     "n28692": "d8b11a18b611b93ffbef9cfc0a00bfcc6c53cdf4988a474d631bb24cd355b7ac",
     "n30741": "72ec0dbd7bd314c911f711c815e28fb8da0b5f3127fafaab8b20faad814e6c5f",
 }

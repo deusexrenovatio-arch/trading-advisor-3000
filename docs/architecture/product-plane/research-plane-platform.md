@@ -845,7 +845,11 @@ Each value pins the body and HTTP receipt of a dated exchange decision. The work
 verifies the original ISS contract code, full issue name and superseded LSTTRADE,
 the reviewed decision and the explicitly supplied new last-trade date. MOEX
 n28692 changed BR-7.20 to 2 July 2020. MOEX n30741 changed BR-1.21 to 4 January
-2021 and BR-5.21 to 4 May 2021. The issuer contract cards corroborate the last
+2021 and BR-5.21 to 4 May 2021. MOEX n28386 revised seven NG issues from May
+through November 2020. For NG-11.20 the pinned ISS field says 26 November,
+the notice lists 27 November as its prior date, and both the effective notice
+and the contract card give 25 November as the new last-trade date.
+The issuer contract cards corroborate the last
 trading day separately from settlement. These changes were published before the
 affected switches. The worker applies the usual T−2 to the corrected date.
 Existing native inline contracts and previously published manifests retain their

@@ -192,7 +192,7 @@ def test_last_trade_amendment_verifies_the_issue_and_the_dated_decision(tmp_path
 
     real = component("BR-1.21", "2020-12-31", "2021-01-04")
     monkeypatch.setitem(
-        calendar.BRENT_LAST_TRADE_CHANGES,
+        calendar.REVIEWED_LAST_TRADE_CHANGES,
         symbol,
         (
             "BR-1.21",

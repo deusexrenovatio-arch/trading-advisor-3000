@@ -692,8 +692,8 @@ def _verify_reviewed_notices(root, schedule):
 
 def _verify_component_expiry(root, component, amendments, pinned_packet):
     from trading_advisor_3000.product_plane.research.moex_calendar import (
-        BRENT_LAST_TRADE_CHANGES,
         LAST_TRADE_NOTICES,
+        REVIEWED_LAST_TRADE_CHANGES,
         calendar_json,
     )
 
@@ -723,7 +723,7 @@ def _verify_component_expiry(root, component, amendments, pinned_packet):
             raise ValueError("description SECID differs from calendar component")
     elif source["row_value"] != component["source_symbol"]:
         raise ValueError("securities SECID differs from calendar component")
-    change = BRENT_LAST_TRADE_CHANGES.get(symbol) if pinned_packet else None
+    change = REVIEWED_LAST_TRADE_CHANGES.get(symbol) if pinned_packet else None
     names = [r.get("value") for r in rows if r.get("name") == "SHORTNAME"]
     if change is not None:
         issue, old, corrected, notice, original_digest = change
