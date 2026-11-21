@@ -53,6 +53,85 @@ def source(root, name, body, url):
     return {"body": body_pin, "receipt": receipt}
 
 
+def test_reviewed_archive_requires_both_originals_and_every_planned_date(tmp_path, monkeypatch):
+    from datetime import date, timedelta
+    from hashlib import sha256
+
+    from trading_advisor_3000.product_plane.research import moex_calendar as calendar
+
+    year = "2020"
+    prefix = calendar.ARCHIVE_PREFIX + year
+    refs = []
+    events = {
+        "holidays": {"data": [[1, "2020-01-30", "workday", "/n26438"]]},
+        "off_days": {"data": []},
+    }
+    for role, kind, url in [
+        (
+            "events",
+            "annual_calendar",
+            "https://iss.moex.com/iss/apps/calendar/events.json?year=2020&iss.only=holidays,off_days&iss.meta=off",
+        ),
+        ("n26438", "dated_schedule", "https://www.moex.com/n26438"),
+    ]:
+        refs.append(
+            dict(
+                rule_id=prefix + "-" + role,
+                kind=kind,
+                effective_from="2020-01-01",
+                effective_to="2021-01-01",
+                precedence=len(refs),
+                **source(tmp_path, role, events if role == "events" else {"original": role}, url),
+            )
+        )
+    ids = [r["rule_id"] for r in refs]
+    refs[1].update(effective_from="2020-01-30", effective_to="2020-01-31")
+    days = [(date(2020, 1, 1) + timedelta(days=i)).isoformat() for i in range(366)]
+    opens = {"2020-01-30", "2020-01-31", "2020-02-03"}
+    digest = sha256(b"2020-01-30\n2020-01-31\n2020-02-03\n").hexdigest()
+    monkeypatch.setitem(
+        calendar.REVIEWED_ARCHIVES,
+        year,
+        (refs[0]["body"]["sha256"], digest),
+    )
+    monkeypatch.setitem(calendar.ARCHIVE_NOTICE_DIGESTS, "n26438", refs[1]["body"]["sha256"])
+    dates = [
+        dict(
+            source_date=d,
+            state="open" if d in opens else "closed",
+            governing_rule_ids=ids if d == "2020-01-30" else ids[:1],
+        )
+        for d in days
+    ]
+    schedule = {"governing_rules": refs, "groups": [{"components": [], "planned_dates": dates}]}
+    cf._verify_official_workdays(tmp_path, schedule)
+    dates[32]["governing_rule_ids"] = ids
+    with pytest.raises(ValueError, match="wrong governing MOEX archive rules: 2020-02-02"):
+        cf._verify_official_workdays(tmp_path, schedule)
+    dates[32]["governing_rule_ids"] = ids[:1]
+    with pytest.raises(ValueError, match="incomplete.*2020"):
+        cf._verify_official_workdays(
+            tmp_path, {**schedule, "groups": [{"components": [], "planned_dates": dates[1:]}]}
+        )
+    dates[29]["state"] = "closed"
+    with pytest.raises(ValueError, match="disagree.*2020"):
+        cf._verify_official_workdays(tmp_path, schedule)
+    with pytest.raises(ValueError, match="missing or ambiguous.*2020"):
+        cf._verify_official_workdays(tmp_path, {**schedule, "governing_rules": refs[:1]})
+    refs[1].update(
+        source(tmp_path, "foreign", {"original": "other notice"}, "https://www.moex.com/n26438")
+    )
+    with pytest.raises(ValueError, match="differs from reviewed original"):
+        cf._verify_official_workdays(tmp_path, schedule)
+    refs[0].update(
+        effective_from="2022-01-01",
+        effective_to="2023-01-01",
+        rule_id=calendar.ARCHIVE_PREFIX + "2022-events",
+    )
+    with pytest.raises(ValueError, match="unreviewed.*2022"):
+        cf._verify_official_workdays(tmp_path, schedule)
+
+
 def test_compact_calendar_compares_every_futures_date_and_actual_expiry(tmp_path):
     fixture = Path(__file__).parents[1] / "fixtures/contracts/native_cf_inputs.v1.json"
     schedule = json.loads(fixture.read_text())["calendar_roll_schedule"]

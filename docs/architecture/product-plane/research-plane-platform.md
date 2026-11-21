@@ -815,6 +815,33 @@ Exceptions-only lists, missing years, other markets and observed candles cannot
 establish the missing flags. Each component still needs its original ISS
 last-trade field. This choice keeps acquisition out of ticks, rules out calendar
 inference and avoids duplicating a full multi-year calendar in every Dagster op.
+
+Legacy rebuilds can also use a reviewed historical year from the MOEX trading
+calendar. For this source the worker requires a complete year of explicit dates.
+An annual rule binds the exact ISS events response. Exceptional days without an
+explicit futures flag bind their applicable dated MOEX notices. Each notice
+governs only the indicated dates. The digest of the sorted open dates (ISO date
+and LF per line) binds the interpretation independently of the operator who
+prepared the packet. Retain both original HTTP bodies and receipts. A revised
+source or an additional year requires a new review.
+
+For 2018–2021 and 2023–2024 the source audit used the exchange calendar's annual
+holiday/workday rules, market overrides and linked notices. Its published
+renderer was captured at SHA-256
+`f8efd2b494996b48b480a2e869853c8ebd751cd7330e76e4ca3faf507e2929a2`.
+Daily market-wide ISS turnovers yielded the same sets of dates with positive
+trades (254, 252, 250, 255, 254 and 256 respectively). Across all seven years,
+762 responses had no futures row and 23 had null or zero trades. Only the
+schedule establishes closure. On 28 February 2022 the statistics show 277,640
+trades under that date despite the closure notice.
+The archive describes historical source dates and establishes no historical
+knowledge timestamp. In 2022 the annual plan and effective notices disagree.
+In particular MOEX notices n43241 and n43875 closed the derivatives market on
+28 February and 1 March, while n43894 retained the 1 March BR-3.22 settlement
+reference. The historical-year reader rejects 2022. Other reviewed years include
+closed last-trade dates for BRN0 (1 July 2020), BRF1 (31 December 2020) and
+BRK1 (3 May 2021). The current selector reports the affected contract and date.
+
 The new reader is scoped to legacy pinned packets. Full-universe acceptance
 requires two independent manifest and table readbacks in isolation.
 

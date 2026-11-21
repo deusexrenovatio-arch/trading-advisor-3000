@@ -558,36 +558,61 @@ def validate_calendar_sources(root, schedule, *, offset=None, pinned_packet=Fals
 
 
 def _verify_official_workdays(root, schedule):
-    from trading_advisor_3000.product_plane.research.moex_calendar import futures_workdays
+    from collections import defaultdict
+
+    from trading_advisor_3000.product_plane.research.moex_calendar import (
+        ARCHIVE_PREFIX,
+        futures_workdays,
+        verify_archive_dates,
+        verify_archive_sources,
+    )
 
     calendars = {}
     sources = {}
+    archived_rules = defaultdict(list)
     for rule in schedule["governing_rules"]:
         year = rule["effective_from"][:4]
+        if rule["rule_id"].startswith(ARCHIVE_PREFIX):
+            archived_rules[year].append(rule)
+            continue
         if (
-            rule["rule_id"] != f"moex-futures-workdays-{year}"
-            or rule["kind"] != "annual_calendar"
-            or rule["effective_from"] != year + "-01-01"
+            rule["effective_from"] != year + "-01-01"
             or rule["effective_to"] != f"{int(year) + 1:04}-01-01"
         ):
+            raise ValueError("invalid MOEX futures workday rule")
+        if rule["rule_id"] != f"moex-futures-workdays-{year}" or rule["kind"] != "annual_calendar":
             raise ValueError("invalid MOEX futures workday rule")
         key = tuple((rule[k]["path"], rule[k]["sha256"]) for k in ("body", "receipt"))
         if key not in sources:
             raw, url = _calendar_source_pair(root, rule["body"], rule["receipt"])
             sources[key] = futures_workdays(raw, url)
         calendars[rule["rule_id"]] = sources[key]
+    notices = {}
+    for year, rules in archived_rules.items():
+        if f"moex-futures-workdays-{year}" in calendars:
+            raise ValueError(f"ambiguous MOEX futures calendar: {year}")
+        notices[year] = verify_archive_sources(
+            year, rules, lambda rule: _calendar_source_pair(root, rule["body"], rule["receipt"])
+        )
     for group in schedule["groups"]:
         for component in group["components"]:
             if component["component_key"] != component["source_symbol"] + "@MOEX":
                 raise ValueError("legacy calendar component differs from its MOEX contract ID")
+        archive_dates = defaultdict(list)
         for item in group["planned_dates"]:
             day = item["source_date"]
+            year = day[:4]
+            if year in archived_rules:
+                archive_dates[year].append(item)
+                continue
             rule_id = f"moex-futures-workdays-{day[:4]}"
             if (
                 item["governing_rule_ids"] != [rule_id]
                 or calendars.get(rule_id, {}).get(day) != item["state"]
             ):
                 raise ValueError(f"MOEX futures date missing or disagrees with source: {day}")
+        for year, dates in archive_dates.items():
+            verify_archive_dates(year, dates, notices[year])
 
 
 def _verify_reviewed_notices(root, schedule):
