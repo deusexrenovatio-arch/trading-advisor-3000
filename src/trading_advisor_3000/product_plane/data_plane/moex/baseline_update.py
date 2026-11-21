@@ -1683,6 +1683,7 @@ def run_moex_baseline_update(
                     evidence_dir=run_dir / "economics-refresh",
                     run_id=run_id,
                     source_error=exc,
+                    ingest_till_utc=ingest_till_utc,
                 )
             if economics_history_refresh:
                 oi_ref = economics_report["native_history_renewal"]["tables"]["oi"]
