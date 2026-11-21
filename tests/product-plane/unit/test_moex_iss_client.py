@@ -242,6 +242,48 @@ def test_current_snapshot_retains_same_page_source_session_and_unmodified_rows(m
 
 
 @pytest.mark.parametrize(
+    "fault", [None, "wrong_market", "wrong_session", "closed", "duplicate", "changed_page"]
+)
+def test_weekend_snapshot_requires_the_matching_exchange_session(monkeypatch, fault):
+    client = MoexISSClient()
+    day, session = "2026-11-21", "2026-11-23"
+    calendar = dict(date=day, engine="futures", is_traded=1, trade_session_date=session, reason="W")
+    if fault == "wrong_market":
+        calendar["engine"] = "stock"
+    if fault == "wrong_session":
+        calendar["trade_session_date"] = "2026-11-24"
+    if fault == "closed":
+        calendar["is_traded"] = 0
+    calls = []
+
+    def get(path, *, params, **kwargs):
+        if path == "/iss/apps/calendar/events.json":
+            calls.append(params)
+            return {
+                "off_days": {
+                    "columns": list(calendar),
+                    "data": [list(calendar.values())] * (2 if fault == "duplicate" else 1),
+                }
+            }
+        last = params["start"] != "0"
+        page = _snapshot_page(day=day, rows=[] if last else None)
+        page["dataversion"]["data"][0][1] = day if last and fault == "changed_page" else session
+        page["securities.cursor"] = {}
+        return page
+
+    monkeypatch.setattr(client, "_get_json", get)
+    if fault:
+        with pytest.raises(ValueError, match="source session"):
+            client.fetch_futures_contract_snapshot()
+    else:
+        snapshot = client.fetch_futures_contract_snapshot()
+        assert snapshot.trade_date == date(2026, 11, 21)
+        assert snapshot.source_pages[0]["session_calendar"] == calendar
+        assert snapshot.source_pages[1]["dataversion"]["trade_session_date"] == session
+        assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
     "fault",
     ["missing", "multiple", "bad_date", "conflicting_date", "bool_version", "missing_seqnum"],
 )
