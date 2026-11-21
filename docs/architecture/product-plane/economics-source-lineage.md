@@ -190,3 +190,12 @@ that output without full refresh. Negative checks mutate pins, schema, money,
 report/parent identity and later uncovered changes. Verify retry after Data CAS,
 complete source/output readback, normal-renewal coverage, required CI and the
 deployed Dagster route before restoring the original controls.
+
+### Current futures snapshot on an additional session
+
+ISS can publish different calendar and trading-session dates on the same securities
+page. The current economics snapshot keeps its observation date for the existing
+preceding-MC check. A different session date requires one official open additional
+futures session matching both dates in ISS calendar events. Retain that row beside
+the unmodified dataversion. All pages, including the terminal page, must agree on
+both dates and data version and keep sequence numbers monotonic.
