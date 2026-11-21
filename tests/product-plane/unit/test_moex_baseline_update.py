@@ -3575,7 +3575,6 @@ def test_closed_weekend_economics_uses_accepted_pin_before_first_trade(tmp_path,
     import hashlib
 
     from trading_advisor_3000.product_plane.common import data_snapshots as snapshots
-    from trading_advisor_3000.product_plane.common.immutable_files import canonical_bytes
     from trading_advisor_3000.product_plane.data_plane.delta_runtime import write_delta_table_rows
     from trading_advisor_3000.product_plane.data_plane.moex import economics_reuse as reuse
 
@@ -3626,7 +3625,8 @@ def test_closed_weekend_economics_uses_accepted_pin_before_first_trade(tmp_path,
         card["FRSTTRADE"] = day
     if fault == "wrong_board":
         card["BOARDID"] = "OTHER"
-    digest = hashlib.sha256(canonical_bytes(card)).hexdigest()
+    card_json = json.dumps(card, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(card_json.encode("utf-8")).hexdigest()
     row = dict(
         moex_secid="BRN6",
         board="RFUD",
@@ -3634,7 +3634,7 @@ def test_closed_weekend_economics_uses_accepted_pin_before_first_trade(tmp_path,
         trade_date=day,
         source_document_id=f"snapshot:BRN6:{day}",
         source_document_hash=digest,
-        raw_payload_json=json.dumps(card),
+        raw_payload_json=card_json,
         snapshot_metadata_json=json.dumps([] if fault == "wrong_page" else pages),
     )
     rows = [row]

@@ -15,7 +15,6 @@ from trading_advisor_3000.product_plane.common.data_snapshots import (
     current_snapshot,
     open_pinned_table,
 )
-from trading_advisor_3000.product_plane.common.immutable_files import canonical_bytes
 from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     has_delta_log,
     read_filtered_delta_table_rows,
@@ -334,7 +333,7 @@ def _weekend_prelistings(coverage, source_error, raw_reference, ingest_till_utc)
             continue
         row = cards[0]
         card = json.loads(row["raw_payload_json"])
-        digest = hashlib.sha256(canonical_bytes(card)).hexdigest()
+        digest = hashlib.sha256(row["raw_payload_json"].encode("utf-8")).hexdigest()
         if (
             row["source_document_id"] == f"snapshot:{secid}:{day}"
             and row["board"] == "RFUD"
