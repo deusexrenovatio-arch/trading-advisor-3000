@@ -78,6 +78,26 @@ evidence, not general permission to change compute meaning.
 Rollback retains immutable manifests and pins; code/release rollback does not
 rewind physical tables or manufacture a valid bridge for changed accepted IDs.
 
+### Catch up after a completed daily CF
+
+An explicitly selected successful scheduled CF may be ahead of accepted Research.
+In that case the four CF outputs start at the exact descriptors captured by that
+producer. All other Research outputs still start at the accepted Research pins.
+The Data owner checks the successful schedule and sensor ticks in the product
+code location, both run IDs, CF step success, admission, numerical contract and QC.
+Publication rechecks the checkpoint digest, accepted parents and native table pins.
+A foreign write, replacement or unavailable pin stops the operation.
+
+The owner compares both immutable Data anchors with the same current Data.
+Both comparisons must produce the same nonempty dirty windows. The owner also
+compares the old and checkpoint CF rows outside the admitted windows including
+the seven-day halo. The November 17 consumer ignores the bar producer's
+`created_at` and `input_row_count`. Other kernels compare every column.
+Window-wide QC is renewed for admitted groups. Outside groups retain exact QC.
+Ordinary subsequent baseline scopes apply to both stages. The bridge is metadata only.
+The next publication uses the existing daily Dagster jobs, current Data, native
+stage QC and Research CAS. The prior CF result is never relabeled.
+
 ## Sources, status and unknowns
 
 - Contract: [recovery schema](src/trading_advisor_3000/product_plane/contracts/schemas/data_scope_recovery.v1.json).

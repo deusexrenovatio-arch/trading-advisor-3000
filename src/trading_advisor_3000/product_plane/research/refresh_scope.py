@@ -92,6 +92,7 @@ def resolve_refresh_scope(
     ):
         return {**blocked, "reason": "missing_or_legacy_research_scope"}
     compatibility = {}
+    accepted_outputs = None
     if configuration is not None:
         from .hash_compatibility import SCOPE_PARAMETER_KEYS
 
@@ -130,22 +131,18 @@ def resolve_refresh_scope(
                 or any(research["quality_checks"][key] != "PASS" for key in REQUIRED_QUALITY)
             ):
                 return {**blocked, "reason": "research_semantics_changed"}
+            if any(research["tables"].get(name) != ref for name, ref in parent["tables"].items()):
+                return {**blocked, "reason": "accepted_data_inputs_mismatch"}
             try:
-                if any(
-                    research["tables"].get(name) != ref for name, ref in parent["tables"].items()
-                ):
-                    return {**blocked, "reason": "accepted_data_inputs_mismatch"}
                 for reference in parent["tables"].values():
                     open_pinned_table(reference)
-                assert_tables_unchanged(
-                    {
-                        name: ref
-                        for name, ref in research["tables"].items()
-                        if name not in parent["tables"] and name not in _completed_outputs
-                    }
-                )
-            except (ValueError, OSError, SnapshotUnavailableError):
-                return {**blocked, "reason": "accepted_research_outputs_changed"}
+            except (ValueError, OSError, SnapshotUnavailableError) as exc:
+                return {**blocked, "reason": f"accepted_data_input_unavailable: {exc}"}
+            accepted_outputs = {
+                name: ref
+                for name, ref in research["tables"].items()
+                if name not in parent["tables"]
+            }
             if provenance_changed:
                 compatibility = {"hash_compatibility": receipt}
     volume_profile_name = Path(
@@ -205,7 +202,18 @@ def resolve_refresh_scope(
                 )
 
                 try:
-                    parent = validate_recovery_bridge(cursor, root=root, research=research)
+                    checkpoint_outputs = {}
+                    parent = validate_recovery_bridge(
+                        cursor, root=root, research=research, checkpoint_outputs=checkpoint_outputs
+                    )
+                    if checkpoint_outputs:
+                        if accepted_outputs is None:
+                            accepted_outputs = {
+                                name: ref
+                                for name, ref in research["tables"].items()
+                                if name not in parent["tables"]
+                            }
+                        accepted_outputs.update(checkpoint_outputs)
                 except (ValueError, OSError, SnapshotUnavailableError) as error:
                     return {**blocked, "reason": f"invalid_scope_recovery:{error}"}
             else:
@@ -249,6 +257,17 @@ def resolve_refresh_scope(
             cursor = parent
     except (FileNotFoundError, SnapshotUnavailableError):
         return {**blocked, "reason": "data_ancestry_unavailable"}
+    if accepted_outputs is not None:
+        try:
+            assert_tables_unchanged(
+                {
+                    name: ref
+                    for name, ref in accepted_outputs.items()
+                    if name not in _completed_outputs
+                }
+            )
+        except (ValueError, OSError, SnapshotUnavailableError) as exc:
+            return {**blocked, "reason": f"accepted_research_outputs_changed: {exc}"}
     windows = [dict(window) for scope in scopes for window in scope.get("windows", [])]
     original_windows = [dict(window) for window in windows]
     intervals = [item for scope in scopes for item in scope.get("effective_intervals", [])]

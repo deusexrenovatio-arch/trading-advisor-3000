@@ -13,6 +13,7 @@ import pytest
 from dagster import (
     DagsterInstance,
     ReexecutionOptions,
+    build_sensor_context,
     execute_job,
     in_process_executor,
     reconstructable,
@@ -43,12 +44,53 @@ def native_daily_prep_job():
     os.name == "nt", reason="native Spark/Delta proof executes in isolated Docker/Linux"
 )
 def test_native_rebuild_then_sensor_daily_publish_and_readback(tmp_path, monkeypatch):
+    _native_handoff(tmp_path, monkeypatch, foreign_write=False)
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="native Spark/Delta proof executes in isolated Docker/Linux"
+)
+def test_foreign_cf_commit_and_replacement_block_scheduler_and_consumer(tmp_path, monkeypatch):
+    _native_handoff(tmp_path, monkeypatch, foreign_write=True)
+
+
+def _native_handoff(tmp_path, monkeypatch, *, foreign_write):
     source = Path(__file__).with_name("test_research_dagster_jobs.py")
     spec = importlib.util.spec_from_file_location("native_daily_fixtures", source)
     fixtures = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fixtures)
     canonical, output, raw = tmp_path / "canonical", tmp_path / "research", tmp_path / "raw"
     fixtures._write_rich_stage7_canonical_context(canonical)
+    # This intraday fixture has no exchange expiry packet. Use the native OI
+    # policy and cross two contracts so all four CF outputs have physical rows.
+    monkeypatch.setenv(
+        assets.RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV,
+        json.dumps(
+            dict(
+                roll_policy_version="front_liquidity_oi_v1",
+                roll_policy_mode="liquidity_oi_v1",
+                primary_metric="open_interest",
+                secondary_metric="volume",
+                switch_timing="next_tradable_bar_after_decision_watermark",
+                tie_breaker="higher_open_interest_then_volume_then_contract_id",
+                reference_price_policy="decision_bar_close",
+            )
+        ),
+    )
+    for name in ("canonical_bars", "canonical_bar_provenance", "canonical_contract_economics"):
+        path = canonical / f"{name}.delta"
+        original = DeltaTable(str(path)).to_pyarrow_table()
+        later = [
+            dict(row, contract_id="BR-9.26")
+            for row in original.to_pylist()
+            if row["contract_id"] == "BR-6.26"
+        ]
+        if name == "canonical_bars":
+            for i, row in enumerate(sorted(later, key=lambda r: r["ts"])):
+                row["open_interest"] = 100 if i < 15 else 50000
+        write_deltalake(
+            str(path), pa.Table.from_pylist(later, schema=original.schema), mode="append"
+        )
     raw.mkdir()
     rows = DeltaTable(str(canonical / "canonical_bars.delta")).to_pyarrow_table().to_pylist()
     raw_rows = [{**r, "ts_open": r["ts"], "ts_close": r["ts"]} for r in rows]
@@ -155,22 +197,142 @@ def test_native_rebuild_then_sensor_daily_publish_and_readback(tmp_path, monkeyp
             assets.moex_cf_catch_up_after_moex_baseline_sensor, context
         )
         assert hasattr(request, "run_config"), request
+        sensor = assets.research_data_prep_after_moex_cf_catch_up_sensor
+
+        def tick(cursor=None):
+            with build_sensor_context(
+                instance=instance, repository_def=repository, cursor=cursor
+            ) as sensor_context:
+                return sensor.evaluate_tick(sensor_context)
+
+        initial_cursor = tick().cursor
+        # A successful explicit rebuild of the same job does not own a daily handoff.
+        from dagster import Permissive, job, op
+
+        @op(name="continuous_front_bars", config_schema=Permissive())
+        def noop_step():
+            pass
+
+        @job(name=assets.MOEX_CF_CATCH_UP_JOB_NAME)
+        def unrelated_rebuild():
+            noop_step()
+
+        unrelated_rebuild.execute_in_process(
+            run_config={
+                "ops": {
+                    "continuous_front_bars": {
+                        "config": {
+                            "operation": "rebuild",
+                            "refresh_admission": {"operation": "rebuild"},
+                        }
+                    }
+                }
+            },
+            instance=instance,
+        )
+        skipped = tick(initial_cursor)
+        assert not skipped.run_requests and "only delivers daily" in skipped.skip_message
+        assert skipped.cursor != initial_cursor
+        initial_cursor = skipped.cursor
         cf = repository.get_job(assets.MOEX_CF_CATCH_UP_JOB_NAME).execute_in_process(
             run_config=request.run_config, tags=request.tags, instance=instance, raise_on_error=True
         )
         assert cf.success
-        handoff = fixtures._single_sensor_run_request(
-            assets.research_data_prep_after_moex_cf_catch_up_sensor,
-            SimpleNamespace(dagster_run=instance.get_run_by_id(cf.run_id)),
+        cf_versions = {
+            name: DeltaTable(str(output / f"{name}.delta")).version()
+            for name in assets.CONTINUOUS_FRONT_TABLES
+        }
+        for name, version in cf_versions.items():
+            assert version > accepted["tables"][name]["delta_version"], name
+        if foreign_write:
+            first = tick(initial_cursor)
+            assert first.run_requests, first.skip_message
+            (in_flight,) = first.run_requests
+            path = output / "continuous_front_adjustment_ladder.delta"
+            original_table = DeltaTable(str(path))
+            payload = original_table.to_pyarrow_table()
+            assert payload.num_rows
+            write_deltalake(str(path), payload, mode="append")
+            blocked = tick(initial_cursor)
+            assert blocked.cursor == initial_cursor and not blocked.run_requests
+            assert (
+                path.name in blocked.skip_message
+                and "changed during calculation" in blocked.skip_message
+            )
+            failed = prep.execute_in_process(
+                run_config=in_flight.run_config,
+                tags=in_flight.tags,
+                instance=instance,
+                raise_on_error=False,
+            )
+            assert not failed.success
+            assert DeltaTable(str(path)).version() == cf_versions[path.stem] + 1
+            path.rename(tmp_path / "foreign-table.delta")
+            write_deltalake(str(path), payload)
+            assert DeltaTable(str(path)).metadata().id != original_table.metadata().id
+            blocked = tick(initial_cursor)
+            assert blocked.cursor == initial_cursor and not blocked.run_requests
+            assert "identity changed" in blocked.skip_message and path.name in blocked.skip_message
+            assert storage.current_snapshot(root)["snapshot_id"] == accepted["snapshot_id"]
+            next_data = publish_data()
+            superseded = tick(initial_cursor)
+            assert not superseded.run_requests and superseded.cursor != initial_cursor
+            assert "parent changed: data" in superseded.skip_message
+            next_baseline = fixtures._baseline_update_sensor_context(
+                tmp_path=tmp_path,
+                run_id="next-data",
+                report={
+                    "status": "PASS",
+                    "publish_decision": "publish",
+                    "raw_table_path": str(raw / "raw_moex_history.delta"),
+                    "data_snapshot": {"snapshot_manifest_path": str(next_data)},
+                },
+            )
+            next_cf = assets.moex_cf_catch_up_after_moex_baseline_sensor._run_status_sensor_fn(
+                next_baseline
+            )
+            assert "accepted_research_outputs_changed" in next_cf.skip_message
+            return
+        calendar_file = storage._file_path(
+            storage.open_pinned_table(parent["tables"]["canonical_session_calendar"]).file_uris()[0]
         )
-        assert hasattr(handoff, "run_config"), handoff
+        # The immutable pin still exists. Reproduce the failed active-file stat.
+        original = Path.is_file
+
+        def fail_calendar_stat(path):
+            if path == calendar_file:
+                raise OSError(5, "Input/output error", str(path))
+            return original(path)
+
+        build_prep_config = assets.build_research_data_prep_run_config
+
+        def fail_during_request_construction(**kwargs):
+            with monkeypatch.context() as io_fault:
+                io_fault.setattr(Path, "is_file", fail_calendar_stat)
+                return build_prep_config(**kwargs)
+
+        with monkeypatch.context() as fault:
+            fault.setattr(
+                assets, "build_research_data_prep_run_config", fail_during_request_construction
+            )
+            blocked = tick(initial_cursor)
+        assert not blocked.run_requests and blocked.cursor == initial_cursor
+        assert "canonical_session_calendar.delta" in blocked.skip_message
+        assert "Input/output error" in blocked.skip_message
+        assert storage.current_snapshot(root)["snapshot_id"] == accepted["snapshot_id"]
+        delivered = tick(blocked.cursor)
+        assert delivered.run_requests, delivered.skip_message
+        (handoff,) = delivered.run_requests
+        assert handoff.tags["ta3000/upstream_run_id"] == cf.run_id
+        assert tick(blocked.cursor).run_requests[0].run_key == handoff.run_key
+        assert not tick(delivered.cursor).run_requests
         receipt = request.run_config["ops"]["continuous_front_bars"]["config"]["refresh_admission"]
         assert receipt["operation"] == "daily" and receipt["outcome"] == "SCOPED"
         assert {(w["instrument_id"], w["timeframe"]) for w in receipt["effective_windows"]} == {
             ("BR", "15m")
         }
-        for op in handoff.run_config["ops"].values():
-            assert op["config"]["refresh_admission"] == receipt
+        for step_config in handoff.run_config["ops"].values():
+            assert step_config["config"]["refresh_admission"] == receipt
         native_l2 = assets.materialize_derived_indicator_frames
 
         def fail_after_native_l2(**kwargs):
@@ -204,6 +366,16 @@ def test_native_rebuild_then_sensor_daily_publish_and_readback(tmp_path, monkeyp
         assert DeltaTable(str(output / "research_indicator_frames.delta")).version() == l1_version
         after = storage.current_snapshot(root)
         assert after["snapshot_id"] != accepted["snapshot_id"]
+        assert after["parents"] == [parent["snapshot_id"]]
+        pit = storage.open_pinned_table(after["tables"]["research_datasets"]).to_pyarrow_table(
+            filters=[("contour_id", "=", "pit_active_front")], columns=["continuous_front_policy"]
+        )
+        assert json.loads(pit.column(0)[0].as_py()) == receipt["domain"]["continuous_front_policy"]
+        assert after["parameters"]["quality_owners"]["continuous_front_bars"] == cf.run_id
+        assert not tick(delivered.cursor).run_requests
+        for name, version in cf_versions.items():
+            assert after["tables"][name]["delta_version"] == version
+            assert DeltaTable(str(output / f"{name}.delta")).version() == version
         assert after["parameters"]["refresh_admission"] == receipt
         for name in (
             "continuous_front_bars",

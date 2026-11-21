@@ -14,6 +14,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
     write_delta_table_rows,
 )
 from trading_advisor_3000.product_plane.research import data_snapshots as owner
+from trading_advisor_3000.product_plane.research.admission import configure_admission
 from trading_advisor_3000.product_plane.research.continuous_front import (
     CONTINUOUS_FRONT_TABLES,
     continuous_front_store_contract,
@@ -46,6 +47,7 @@ def checkpoint(tmp_path):
         "continuous_front_policy": {},
         "timeframes": ["15m"],
     }
+    config = configure_admission(config, operation="rebuild")
     source_run = SimpleNamespace(
         job_name="moex_cf_catch_up_job", status=SimpleNamespace(value="SUCCESS")
     )
@@ -152,6 +154,7 @@ def test_ineligible_cf_checkpoint_recomputes(checkpoint, change):
     function, producer, consumer, calls, source_run, step, _ = checkpoint
     if change == "policy":
         consumer.op_config["continuous_front_policy"] = {"confirmation_bars": 2}
+        consumer.op_config = configure_admission(consumer.op_config, operation="rebuild")
     elif change == "output":
         path = consumer.op_config["materialized_output_dir"] + "/continuous_front_bars.delta"
         write_deltalake(path, DeltaTable(path).to_pyarrow_table(), mode="append")
