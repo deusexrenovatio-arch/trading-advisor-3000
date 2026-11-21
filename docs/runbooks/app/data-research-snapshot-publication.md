@@ -142,6 +142,28 @@ a fresh production calculation, or a completed live trading journey.
 
 ## Daily admission and producer retry
 
+For legacy `calendar_expiry_v1`, stage the calendar packet and its original
+exchange bodies and receipts under the Research materialization root. Set
+`TA3000_RESEARCH_CALENDAR_PIN` on the Dagster deployment to the JSON object
+`{"path":"source-facts/calendar.json","sha256":"<64 lowercase hex digits>"}`.
+Use the identical pin for the explicit rebuild and the subsequent schedule.
+Changing or removing an accepted pin requires a new admission.
+
+The packet uses `source_calendar_roll_schedule.v1`. For explicit exchange
+workdays, use an annual rule named `moex-futures-workdays-YYYY` with the
+corresponding January-to-January interval and distinct precedence. Its pinned
+MOEX response must contain the dated futures flag for every claimed day. The
+supported sources are the public trading calendar's `offDays.futures` records
+and ISS `/iss/calendars.json?show_all_days=1` (`off_days.futures_workday`).
+Bind each canonical `SECID@MOEX` component to its ISS last-trade field.
+An exceptions list or a calendar for another market cannot fill absent dates.
+
+For a standalone rebuild, use `build_research_data_prep_run_config` with
+`operation="rebuild"`, the immutable Data manifest, original raw root and
+the dataset's stable domain. Select `RESEARCH_DATA_PREP_JOB_ASSETS` on
+`research_data_prep_job`, as the scheduled handoff does. This selection
+includes the CF producer, indicator acceptance and snapshot publisher.
+
 Architecture and rationale: [Research refresh admission](docs/architecture/product-plane/research-refresh-admission.md).
 
 Change surface: product-plane. Architectural impact: contract-change.

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from trading_advisor_3000.product_plane.research.datasets import ContinuousFrontPolicy
+from trading_advisor_3000.product_plane.research.moex_calendar import calendar_json
 from trading_advisor_3000.spark_jobs import DEFAULT_SPARK_MASTER, run_continuous_front_spark_job
 
 
@@ -150,9 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     payload = run_continuous_front_refresh_job(
         operation=args.operation,
-        calendar_roll_schedule=json.loads(
-            Path(args.calendar_roll_schedule).read_text(encoding="utf-8")
-        )
+        calendar_roll_schedule=calendar_json(Path(args.calendar_roll_schedule).read_bytes())
         if args.calendar_roll_schedule
         else None,
         refresh_admission=json.loads(Path(args.admission_path).read_text(encoding="utf-8"))

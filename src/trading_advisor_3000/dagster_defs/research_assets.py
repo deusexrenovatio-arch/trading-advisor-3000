@@ -174,6 +174,7 @@ RESEARCH_DATA_PREP_TIMEFRAMES_ENV = "TA3000_RESEARCH_DATA_PREP_TIMEFRAMES"
 RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_ENV = (
     "TA3000_RESEARCH_DATA_PREP_CONTINUOUS_FRONT_POLICY_JSON"
 )
+RESEARCH_CALENDAR_PIN_ENV = "TA3000_RESEARCH_CALENDAR_PIN"
 RESEARCH_VOLUME_PROFILE_RAW_1M_TABLE_PATH_ENV = "TA3000_RESEARCH_VOLUME_PROFILE_RAW_1M_TABLE_PATH"
 
 DEFAULT_MOEX_HISTORICAL_DATA_ROOT = Path("D:/TA3000-data/trading-advisor-3000-primary-20261011")
@@ -1339,6 +1340,7 @@ def _scheduled_research_data_prep_campaign_config(
         _default_research_results_output_dir(),
     )
     base_timeframe = DEFAULT_RESEARCH_DATA_PREP_BASE_TIMEFRAME
+    calendar_pin = _configured_calendar_pin(continuous_front_policy)
     return {
         "campaign_name": "scheduled_research_data_prep",
         "target_stage": "projection",
@@ -1351,6 +1353,7 @@ def _scheduled_research_data_prep_campaign_config(
             "universe_id": "moex-futures",
             "series_mode": "continuous_front",
             "continuous_front_policy": dict(continuous_front_policy),
+            **({"calendar_roll_schedule": calendar_pin} if calendar_pin is not None else {}),
             "timeframes": list(timeframes),
             "base_timeframe": base_timeframe,
             "start_ts": "",
@@ -4341,6 +4344,23 @@ def scheduled_continuous_front_policy_config() -> dict[str, object]:
     ).to_config_dict()
 
 
+def _configured_calendar_pin(policy):
+    if (
+        ContinuousFrontPolicy.from_config(dict(policy or {})).roll_policy_mode
+        != "calendar_expiry_v1"
+    ):
+        return None
+    configured = os.environ.get(RESEARCH_CALENDAR_PIN_ENV, "").strip()
+    if not configured:
+        return None
+    from trading_advisor_3000.product_plane.research.moex_calendar import calendar_json
+
+    pin = calendar_json(configured)
+    if not isinstance(pin, dict) or set(pin) != {"path", "sha256"}:
+        raise ValueError(f"{RESEARCH_CALENDAR_PIN_ENV} requires a calendar path and SHA-256")
+    return pin
+
+
 def _moex_canonical_output_dir_from_run_config(run_config: object) -> Path | None:
     if not isinstance(run_config, dict):
         return None
@@ -4673,6 +4693,12 @@ def build_research_data_prep_run_config(
         volume_profile_tick_size_by_instrument or _default_volume_profile_tick_size_by_instrument(),
         strict=True,
     )
+    if (
+        operation == "rebuild"
+        and series_mode == "continuous_front"
+        and calendar_roll_schedule is None
+    ):
+        calendar_roll_schedule = _configured_calendar_pin(continuous_front_policy)
     registry_root = research_registry_root(materialized_root=resolved_materialized_output_dir)
     research_config = _research_run_config(
         canonical_output_dir=resolved_canonical_output_dir,
@@ -4773,6 +4799,7 @@ def _build_moex_cf_catch_up_run_config(
     operation: str | None = None,
     refresh_admission: Mapping[str, object] | None = None,
     _admission_probe: bool = False,
+    calendar_roll_schedule: Mapping[str, object] | None = None,
     canonical_output_dir: Path,
     dataset_version: str,
     campaign_run_id: str,
@@ -4832,6 +4859,7 @@ def _build_moex_cf_catch_up_run_config(
         split_method="holdout",
         series_mode="continuous_front",
         continuous_front_policy=scheduled_continuous_front_policy_config(),
+        calendar_roll_schedule=calendar_roll_schedule,
         dataset_instrument_ids=instrument_ids,
         changed_windows=normalized_windows,
         indicator_set_version="indicators-v1",
@@ -4915,13 +4943,22 @@ def moex_cf_catch_up_after_moex_baseline_sensor(context):
         else "",
         refresh_scope_version=1,
     )
-    config = _build_moex_cf_catch_up_run_config(**options, _admission_probe=True)["ops"][
-        "continuous_front_bars"
-    ]["config"]
     try:
+        options["calendar_roll_schedule"] = _configured_calendar_pin(
+            scheduled_continuous_front_policy_config()
+        )
+        config = _build_moex_cf_catch_up_run_config(**options, _admission_probe=True)["ops"][
+            "continuous_front_bars"
+        ]["config"]
         receipt = issue_admission(config, operation="daily")
     except (ValueError, OSError, SnapshotUnavailableError) as exc:
         return SkipReason(f"BLOCKED: admission_evidence_unavailable: {exc}")
+    if (
+        receipt["outcome"] != "BLOCKED"
+        and config["continuous_front_policy"]["roll_policy_mode"] == "calendar_expiry_v1"
+        and not config.get("calendar_roll_schedule")
+    ):
+        return SkipReason(f"BLOCKED: calendar_expiry_v1 requires {RESEARCH_CALENDAR_PIN_ENV}")
     if receipt["outcome"] != "SCOPED":
         return SkipReason(
             f"{receipt['outcome']}: {receipt['reason'] or 'proven_no_changes'}; "

@@ -799,6 +799,86 @@ An existing nightly configuration without these facts is not ready for fresh
 recompute on the changed code. The bounded two-future proof does not establish
 full nightly coverage or authorize a production run, deployment or activation.
 
+For legacy `calendar_expiry_v1`, a deployment may select a calendar packet by
+an explicit materialization-root-relative path and SHA-256. The scheduled owner
+binds this small reference in the existing admission, run config and snapshot.
+The CF worker opens the exact packet and checks the source bodies, receipts,
+planned dates and component expiries before starting Spark. A later deployment
+cannot substitute a different packet for a pending Research handoff. Rebuild
+and daily use the same binding. Reverting the configuration restores the prior
+input contract and existing snapshots retain their original pins.
+
+In addition to the reviewed September notices, a pinned packet may cite explicit
+per-date derivatives-market flags from the exchange's own trading calendar.
+Every requested date must match the named futures record in the retained body.
+Exceptions-only lists, missing years, other markets and observed candles cannot
+establish the missing flags. Each component still needs its original ISS
+last-trade field. This choice keeps acquisition out of ticks, rules out calendar
+inference and avoids duplicating a full multi-year calendar in every Dagster op.
+
+Legacy rebuilds can also use a reviewed historical year from the MOEX trading
+calendar. For this source the worker requires a complete year of explicit dates.
+An annual rule binds the exact ISS events response. Exceptional days without an
+explicit futures flag bind their applicable dated MOEX notices. Each notice
+governs only the indicated dates. The digest of the sorted open dates (ISO date
+and LF per line) binds the interpretation independently of the operator who
+prepared the packet. Retain both original HTTP bodies and receipts. A revised
+source or an additional year requires a new review.
+
+For 2018–2021 and 2023–2024 the source audit used the exchange calendar's annual
+holiday/workday rules, market overrides and linked notices. Its published
+renderer was captured at SHA-256
+`f8efd2b494996b48b480a2e869853c8ebd751cd7330e76e4ca3faf507e2929a2`.
+Daily market-wide ISS turnovers yielded the same sets of dates with positive
+trades (254, 252, 250, 255, 254 and 256 respectively). Across all seven years,
+762 responses had no futures row and 23 had null or zero trades. Only the
+schedule establishes closure. On 28 February 2022 the statistics show 277,640
+trades under that date despite the closure notice.
+The archive describes historical source dates and establishes no historical
+knowledge timestamp. In 2022 the annual plan and effective notices disagree.
+In particular MOEX notices n43241 and n43875 closed the derivatives market on
+28 February and 1 March, while n43894 retained the 1 March BR-3.22 settlement
+reference. The historical-year reader rejects 2022.
+
+For the February 2022 Brent roll, a pinned legacy packet can certify the source
+week of 21–25 February. The [December plan](https://www.moex.com/n39319) and
+[10 February futures bulletin](https://www.moex.com/ru/archive/fortsmarketcsvresults.aspx?ns=F&day1=20220210&def=1)
+predate the decision. The bulletin identifies BR-3.22 and BR-4.22 with maturities
+1 March and 1 April. The planned sessions immediately preceding 1 March were
+28 and 25 February. The existing T−2 selector therefore switches to BRJ2 on
+25 February. Both originals, the exact Brent curve and the dated window are
+bound at admission. The projected March dates supply the calculation horizon.
+Materialization coverage ends at the exclusive 26 February boundary.
+The other ten component descriptors bind the input identities. For example,
+the bulletin lists 3 May for BR-5.22 and its retained ISS record lists 4 May.
+Only the March and April legs determine this February switch.
+
+The March index maturities have different evidence. MOEX set the final
+MIX/MXI/RTS maturity on [24 March](https://www.moex.com/n45596). The regulator's
+[25 March schedule](https://www.cbr.ru/press/pr/?file=24032022_174527SUP_MEAS24032022_164935.htm)
+left subsequent days open for decision. The [28 March schedule](https://www.moex.com/n45649)
+was announced on 26 March. Before that announcement the two possible calendars
+produce different intraday fronts on the frozen canonical bars. An all-universe
+rebuild still requires the missing point-in-time decision for that interval.
+
+A pinned legacy packet may retain `last_trade_amendments` keyed by source symbol.
+Each value pins the body and HTTP receipt of a dated exchange decision. The worker
+verifies the original ISS contract code, full issue name and superseded LSTTRADE,
+the reviewed decision and the explicitly supplied new last-trade date. MOEX
+n28692 changed BR-7.20 to 2 July 2020. MOEX n30741 changed BR-1.21 to 4 January
+2021 and BR-5.21 to 4 May 2021. MOEX n28386 revised seven NG issues from May
+through November 2020. For NG-11.20 the pinned ISS field says 26 November,
+the notice lists 27 November as its prior date, and both the effective notice
+and the contract card give 25 November as the new last-trade date.
+The issuer contract cards corroborate the last
+trading day separately from settlement. These changes were published before the
+affected switches. The worker applies the usual T−2 to the corrected date.
+Existing native inline contracts and previously published manifests retain their
+original representation. Additional issues require reviewed source evidence.
+
+The new reader is scoped to legacy pinned packets. Full-universe acceptance
+requires two independent manifest and table readbacks in isolation.
+
 The expanded observation definition contains source/namespace/full venue context,
 asset, sorted exact eligible concrete instruments and their factual/unknown specs,
 source numeric-price/quantity basis, configured roll/calendar versions, adjustment
