@@ -282,6 +282,60 @@ def _assert_current_data_parent(config: Mapping[str, Any], pending: Mapping[str,
         raise ValueError("accepted Data parent changed during research calculation")
 
 
+def verified_cf_checkpoint(instance, source_id, config):
+    """Bind the admission exemption to the successful producer's saved descriptors."""
+    run = instance.get_run_by_id(source_id) if instance and source_id else None
+    stage = "continuous_front_bars"
+    receipt = config.get("refresh_admission")
+    if (
+        not run
+        or run.job_name != "moex_cf_catch_up_job"
+        or run.status.value != "SUCCESS"
+        or not any(
+            step.step_key == stage and step.status.value == "SUCCESS"
+            for step in instance.get_run_step_stats(source_id)
+        )
+    ):
+        raise ValueError("daily refresh upstream CF run/step/admission changed")
+    source = json.loads(_pending_path(run, config, source_id).read_text(encoding="utf-8"))
+    outputs = _STAGE_OUTPUTS[stage]
+    if (
+        source["run_id"] != source_id
+        or source["parameters"].get("refresh_admission") != receipt
+        or source["quality_owners"].get(stage) != source_id
+        or source["quality_checks"].get(stage) != "PASS"
+    ):
+        raise ValueError("daily refresh upstream CF checkpoint lineage or QC changed")
+    if config.get("operation") == "daily" and (
+        run.run_config.get("ops", {}).get(stage, {}).get("config", {}).get("refresh_admission")
+        != receipt
+        or source["expected_current_id"] != receipt["research_parent"]["snapshot_id"]
+        or source["parents"] != [receipt["data_parent"]["snapshot_id"]]
+        or source["parent_manifest_sha256"] != receipt["data_parent"]["manifest_sha256"]
+    ):
+        raise ValueError("daily refresh upstream CF admission or parents changed")
+    result = source["quality_evidence"][stage].get("cf_result", {})
+    if (
+        result.get("status") != "PASS"
+        or set(result.get("rows_by_table", {})) != set(outputs)
+        or result.get("dataset_version") != config["dataset_version"]
+        or not result.get("qc_rows")
+        or any(row.get("status") != "PASS" for row in result["qc_rows"])
+        or set(result.get("output_paths", {})) != set(outputs)
+    ):
+        raise ValueError("daily refresh upstream CF result incomplete or QC failed")
+    for name in outputs:
+        expected = Path(config["materialized_output_dir"]) / f"{name}.delta"
+        ref = source["tables"].get(name)
+        if not ref or any(
+            Path(path).resolve() != expected.resolve()
+            for path in (ref["table_path"], result["output_paths"][name])
+        ):
+            raise ValueError(f"daily refresh upstream CF checkpoint path or pin changed: {name}")
+    assert_tables_unchanged(source["tables"])
+    return source
+
+
 def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) -> dict | None:
     """Reuse only the exact outputs of the successful native upstream CF owner."""
     op_context = getattr(context, "op_execution_context", context)
@@ -292,23 +346,8 @@ def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) 
     source_id = tags.get("ta3000/upstream_run_id")
     if not source_id or config.get("series_mode") != "continuous_front":
         return None
-    instance = op_context.instance
-    source_run = instance.get_run_by_id(source_id)
-    if (
-        source_run is None
-        or source_run.job_name != "moex_cf_catch_up_job"
-        or source_run.status.value != "SUCCESS"
-        or not any(
-            step.step_key == "continuous_front_bars" and step.status.value == "SUCCESS"
-            for step in instance.get_run_step_stats(source_id)
-        )
-    ):
-        return None
-    source_path = _pending_path(context, config, source_id)
-    if not source_path.exists():
-        return None
     try:
-        source = json.loads(source_path.read_text(encoding="utf-8"))
+        source = verified_cf_checkpoint(op_context.instance, source_id, config)
         semantic_keys = (
             "dataset_version",
             "series_mode",
@@ -328,12 +367,9 @@ def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) 
             "canonical_contract_economics_path",
         )
         if (
-            source["run_id"] != source_id
-            or source["runtime_provenance"] != pending["runtime_provenance"]
+            source["runtime_provenance"] != pending["runtime_provenance"]
             or source["parents"] != pending["parents"]
             or source["parent_manifest_sha256"] != pending["parent_manifest_sha256"]
-            or source["quality_checks"].get("continuous_front_bars") != "PASS"
-            or source.get("quality_owners", {}).get("continuous_front_bars") != source_id
             or any(
                 source["parameters"].get(key) != pending["parameters"].get(key)
                 for key in semantic_keys
@@ -343,24 +379,11 @@ def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) 
         evidence = source["quality_evidence"]["continuous_front_bars"]
         result = evidence.get("cf_result")
         outputs = _STAGE_OUTPUTS["continuous_front_bars"]
-        if (
-            not isinstance(result, dict)
-            or result.get("status") != "PASS"
-            or set(result.get("output_paths", {})) != set(outputs)
-            or set(result.get("rows_by_table", {})) != set(outputs)
-            or result.get("dataset_version") != pending["dataset_version"]
-            or any(source["tables"][name] != pending["tables"].get(name) for name in outputs)
-            or any(
-                Path(result["output_paths"][name]).resolve()
-                != Path(source["tables"][name]["table_path"]).resolve()
-                for name in outputs
-            )
-            or any(row.get("status") != "PASS" for row in result.get("qc_rows", ()))
-        ):
-            return None
-        # Do not turn a newer current table into a certified producer output.
-        assert_tables_unchanged(source["tables"])
+        if any(source["tables"][name] != pending["tables"].get(name) for name in outputs):
+            raise ValueError("upstream CF output differs from the Research checkpoint")
     except (KeyError, TypeError, ValueError, AttributeError, OSError, SnapshotUnavailableError):
+        if config.get("operation") == "daily":
+            raise
         return None
     pending["quality_checks"]["continuous_front_bars"] = "PASS"
     pending.setdefault("quality_owners", {})["continuous_front_bars"] = source_id
@@ -577,6 +600,13 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
             if function.__name__ == "continuous_front_bars":
                 if reused is not None:
                     return reused
+                run = getattr(op_context, "dagster_run", None)
+                if (
+                    config.get("operation") == "daily"
+                    and (getattr(run, "tags", {}) or {}).get("ta3000/upstream_job")
+                    == "moex_cf_catch_up_job"
+                ):
+                    raise ValueError("daily Research requires the verified upstream CF checkpoint")
                 if compatible is not None:
                     parent_root = Path(config["canonical_output_dir"]) / ".data_snapshots"
                     old_data = load_snapshot(

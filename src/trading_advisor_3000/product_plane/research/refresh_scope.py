@@ -130,13 +130,14 @@ def resolve_refresh_scope(
                 or any(research["quality_checks"][key] != "PASS" for key in REQUIRED_QUALITY)
             ):
                 return {**blocked, "reason": "research_semantics_changed"}
+            if any(research["tables"].get(name) != ref for name, ref in parent["tables"].items()):
+                return {**blocked, "reason": "accepted_data_inputs_mismatch"}
             try:
-                if any(
-                    research["tables"].get(name) != ref for name, ref in parent["tables"].items()
-                ):
-                    return {**blocked, "reason": "accepted_data_inputs_mismatch"}
                 for reference in parent["tables"].values():
                     open_pinned_table(reference)
+            except (ValueError, OSError, SnapshotUnavailableError) as exc:
+                return {**blocked, "reason": f"accepted_data_input_unavailable: {exc}"}
+            try:
                 assert_tables_unchanged(
                     {
                         name: ref
@@ -144,8 +145,8 @@ def resolve_refresh_scope(
                         if name not in parent["tables"] and name not in _completed_outputs
                     }
                 )
-            except (ValueError, OSError, SnapshotUnavailableError):
-                return {**blocked, "reason": "accepted_research_outputs_changed"}
+            except (ValueError, OSError, SnapshotUnavailableError) as exc:
+                return {**blocked, "reason": f"accepted_research_outputs_changed: {exc}"}
             if provenance_changed:
                 compatibility = {"hash_compatibility": receipt}
     volume_profile_name = Path(

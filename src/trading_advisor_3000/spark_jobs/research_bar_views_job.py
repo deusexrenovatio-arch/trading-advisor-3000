@@ -20,6 +20,7 @@ from trading_advisor_3000.product_plane.data_plane.delta_runtime import (
 )
 from trading_advisor_3000.product_plane.research.admission import admitted_compute
 from trading_advisor_3000.product_plane.research.datasets import (
+    ContinuousFrontPolicy,
     ResearchDatasetManifest,
     materialize_research_dataset,
     research_dataset_store_contract,
@@ -1629,6 +1630,7 @@ def run_research_bar_views_spark_job(
     warmup_bars: int = 0,
     split_method: str = "full",
     split_params: Mapping[str, object] | None = None,
+    policy: ContinuousFrontPolicy | None = None,
     contours: tuple[str, ...] = RESEARCH_L0_CONTOURS,
     canonical_contract_economics_path: Path | None = None,
     execution_economics_required: bool = False,
@@ -1951,13 +1953,6 @@ def run_research_bar_views_spark_job(
                     ("contour_id", "=", contour_id),
                 ],
             )
-            continuous_front_policy = None
-            if contour_id == "pit_active_front":
-                from trading_advisor_3000.product_plane.research.datasets import (
-                    ContinuousFrontPolicy,
-                )
-
-                continuous_front_policy = ContinuousFrontPolicy()
             split_payload = dict(split_params or {})
             manifest = ResearchDatasetManifest(
                 dataset_version=dataset_version,
@@ -2014,7 +2009,9 @@ def run_research_bar_views_spark_job(
                 as_of_ts=_utc_now_iso(),
                 source_delta_versions=source_delta_versions,
                 source_delta_hashes=source_delta_hashes,
-                continuous_front_policy=continuous_front_policy,
+                continuous_front_policy=(policy or ContinuousFrontPolicy())
+                if contour_id == "pit_active_front"
+                else None,
                 code_version="research-bar-views-spark",
                 notes={"contours": [*contours], "spark_plan": build_research_l0_sql_plan()},
             )

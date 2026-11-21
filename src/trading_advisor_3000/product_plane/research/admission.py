@@ -154,8 +154,18 @@ def configure_admission(config, *, operation=None, refresh_admission=None):
     return config
 
 
+class AdmissionParentSuperseded(ValueError):
+    """Both manifests were verified and the accepted pointer moved."""
+
+
 def validate_admission(
-    value, *, config=None, completed_outputs=(), resolve=True, defer_research_current=False
+    value,
+    *,
+    config=None,
+    completed_outputs=(),
+    resolve=True,
+    defer_research_current=False,
+    upstream_cf=None,
 ):
     """Reject missing/legacy/tampered evidence, drift, and implicit broadening."""
     if not isinstance(value, Mapping):
@@ -186,12 +196,16 @@ def validate_admission(
             continue
         manifest = load_snapshot(Path(parent["manifest_path"]))
         current = current_snapshot(Path(parent["registry_root"]))
-        if not current or any(
-            manifest[key] != parent[key]
-            or (not (role == "research" and defer_research_current) and current[key] != parent[key])
-            for key in ("snapshot_id", "manifest_sha256")
+        keys = ("snapshot_id", "manifest_sha256")
+        if current is None or any(manifest[key] != parent[key] for key in keys):
+            raise ValueError(f"refresh admission {role} parent unavailable or invalid")
+        if not (role == "research" and defer_research_current) and any(
+            current[key] != parent[key] for key in keys
         ):
-            raise ValueError("refresh admission parent changed")
+            raise AdmissionParentSuperseded(
+                f"refresh admission parent changed: {role} "
+                f"{parent['snapshot_id']} -> {current['snapshot_id']}"
+            )
     assert_tables_unchanged(value["inputs"])
     if config is not None:
         if _domain(config, inputs=value["inputs"]) != value["domain"]:
@@ -229,6 +243,13 @@ def validate_admission(
                 raise ValueError("refresh admission windows changed")
             if config.get("data_snapshot_manifest_path") != value["data_parent"]["manifest_path"]:
                 raise ValueError("refresh admission Data manifest changed")
+            if upstream_cf is not None:
+                from .continuous_front import CONTINUOUS_FRONT_TABLES
+                from .data_snapshots import verified_cf_checkpoint
+
+                instance, source_id = upstream_cf
+                verified_cf_checkpoint(instance, source_id, config)
+                completed_outputs = CONTINUOUS_FRONT_TABLES
             if resolve:
                 fresh = issue_admission(
                     config, operation="daily", completed_outputs=completed_outputs
@@ -343,41 +364,16 @@ def admitted_asset(function):
             }
             if function.__name__ in failed:
                 completed.extend(_STAGE_OUTPUTS.get(function.__name__, ()))
-        if not path.exists() and dagster_run is not None and instance is not None:
+        upstream_cf = None
+        if not path.exists() and dagster_run is not None:
             tags = getattr(dagster_run, "tags", {}) or {}
-            source_id = tags.get("ta3000/upstream_run_id")
-            source_run = instance.get_run_by_id(source_id) if source_id else None
-            if (
-                source_run is not None
-                and source_run.job_name == "moex_cf_catch_up_job"
-                and source_run.status.value == "SUCCESS"
-            ):
-                source_path = _pending_path(context, config, source_id)
-                if not source_path.exists():
-                    raise ValueError("daily refresh upstream CF checkpoint unavailable")
-                source = json.loads(source_path.read_text(encoding="utf-8"))
-                source_config = (
-                    source_run.run_config.get("ops", {})
-                    .get("continuous_front_bars", {})
-                    .get("config", {})
-                )
-                success = any(
-                    step.step_key == "continuous_front_bars" and step.status.value == "SUCCESS"
-                    for step in instance.get_run_step_stats(source_id)
-                )
-                if (
-                    not success
-                    or source_config.get("refresh_admission") != config.get("refresh_admission")
-                    or source.get("parameters", {}).get("refresh_admission")
-                    != config.get("refresh_admission")
-                    or source.get("quality_owners", {}).get("continuous_front_bars") != source_id
-                    or source.get("quality_checks", {}).get("continuous_front_bars") != "PASS"
-                ):
-                    raise ValueError("daily refresh upstream CF admission/owner changed")
-                assert_tables_unchanged(source["tables"])
-                completed.extend(_STAGE_OUTPUTS.get("continuous_front_bars", ()))
+            if tags.get("ta3000/upstream_job") == "moex_cf_catch_up_job":
+                upstream_cf = (instance, tags.get("ta3000/upstream_run_id"))
         value = validate_admission(
-            config.get("refresh_admission"), config=config, completed_outputs=completed
+            config.get("refresh_admission"),
+            config=config,
+            completed_outputs=completed,
+            upstream_cf=upstream_cf,
         )
         with _owner_scope(value):
             return function(context, *args, **kwargs)
@@ -682,6 +678,12 @@ def admitted_compute(*, output, sources=(), input_roots=(), windows=None):
                 options.get("dataset_version") or options["manifest_seed"].dataset_version
             )
             excluded = {output, *sources, *(key for key, _ in input_roots)}
+            # Older direct L0 rebuild receipts predate the optional PIT policy argument.
+            if (
+                function.__name__ == "run_research_bar_views_spark_job"
+                and options.get("policy") is None
+            ):
+                excluded.add("policy")
             if value is None:
                 if operation != "rebuild":
                     raise ValueError(
