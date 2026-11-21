@@ -44,7 +44,7 @@ def spark_factory(app, master):
 
 
 @pytest.fixture
-def chain(tmp_path):
+def chain(tmp_path, request):
     canonical, output = tmp_path / "canonical", tmp_path / "research"
     path = canonical / "canonical_bars.delta"
     rows = [
@@ -108,7 +108,7 @@ def chain(tmp_path):
         mode="overwrite",
         predicate="ts_close_year = 2026",
     )
-    target = publish(source, full=True)
+    target = publish(source, full=getattr(request, "param", None) != "daily")
     return canonical, output, research_root, source, target, research, path
 
 
