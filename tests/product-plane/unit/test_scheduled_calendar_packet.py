@@ -113,6 +113,20 @@ def test_compact_calendar_compares_every_futures_date_and_actual_expiry(tmp_path
     # Two confirmed open days are needed after the last safe date when expiry
     # is beyond the packet. No successor is established at or beyond this bound.
     assert intervals[-1]["active_to"] == "2026-11-13"
+    for last, reason in [
+        ("2026-11-11", "last-trade date precedes calendar coverage"),
+        ("2026-11-14", "last-trade date is closed in pinned calendar"),
+        ("2026-11-13", "insufficient planned open dates"),
+    ]:
+        invalid = copy.deepcopy(actual)
+        component = invalid["groups"][0]["components"][0]
+        component["last_trade_date"] = last
+        with pytest.raises(ValueError) as exc:
+            cf.calendar_active_intervals(invalid)
+        message = str(exc.value)
+        assert all(
+            s in message for s in (reason, group["group_key"], component["component_key"], last)
+        )
     dated = copy.deepcopy(actual)
     dated_group = dated["groups"][0]
     dated_group["components"][-1]["last_trade_date"] = "2026-11-19"

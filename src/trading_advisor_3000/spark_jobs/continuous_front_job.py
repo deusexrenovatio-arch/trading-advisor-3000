@@ -681,6 +681,7 @@ def _verify_component_expiry(root, component):
 
 def calendar_active_intervals(schedule):
     """Compile admitted source dates; observed rows never establish contract lifetime."""
+    from bisect import bisect_left
     from datetime import date, timedelta
 
     if not isinstance(schedule, dict):
@@ -728,15 +729,18 @@ def calendar_active_intervals(schedule):
         offset = group["roll_offset_trading_days"]
         for component in components if official else components[:-1]:
             last = component["last_trade_date"]
+            identity = f"{group['group_key']} {component['component_key']} {last}"
             beyond = official and last >= group["coverage_to"]
-            if beyond:
-                index = len(opens)
-            else:
-                index = opens.index(last) if last in opens else 0
+            if last < group["coverage_from"]:
+                raise ValueError(f"last-trade date precedes calendar coverage: {identity}")
+            if not beyond and last >= group["coverage_to"]:
+                raise ValueError(f"last-trade date follows calendar coverage: {identity}")
+            index = bisect_left(opens, last)
+            if not beyond and (index == len(opens) or opens[index] != last):
+                raise ValueError(f"last-trade date is closed in pinned calendar: {identity}")
             if index < offset:
                 raise ValueError(
-                    f"insufficient planned open dates for last-trade offset: "
-                    f"{group['group_key']} {component['component_key']} {last}"
+                    f"insufficient planned open dates for last-trade offset: {identity}"
                 )
             switches.append(opens[index - offset])
             if beyond:
