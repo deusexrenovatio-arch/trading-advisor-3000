@@ -93,6 +93,75 @@ def _read_partition_union(spark, reference, actions, selected):
     return frame, actual
 
 
+def verify_cf_retained_rows(research, checkpoint, windows, *, spark_session_factory=None):
+    """Compare all rows outside the admitted suffix at the two native output versions."""
+    from pyspark.sql import functions as F
+
+    if not windows or len({(w["start_ts"], w["end_ts"]) for w in windows}) != 1:
+        raise ValueError("CF recovery requires one proven time range across its Data domain")
+    lower = stamp(windows[0]["start_ts"]).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ) - timedelta(days=7)
+    upper = stamp(windows[0]["end_ts"])
+    factory = spark_session_factory or _create_spark_session
+    spark = factory("ta3000-cf-retained-rows", "local[2]")
+    try:
+        pairs = spark.createDataFrame(
+            [(w["instrument_id"], w["timeframe"]) for w in windows], ["instrument_id", "timeframe"]
+        ).withColumn("_admitted", F.lit(True))
+        clocks = {
+            "continuous_front_bars": ("ts",),
+            "continuous_front_roll_events": (
+                "decision_ts",
+                "effective_ts",
+                "last_old_bar_ts",
+                "first_new_bar_ts",
+            ),
+            "continuous_front_adjustment_ladder": ("effective_ts",),
+            "continuous_front_qc_report": (),
+        }
+        for name, times in clocks.items():
+            refs = (research["tables"][name], checkpoint[name])
+            if any(
+                refs[0][k] != refs[1][k]
+                for k in ("table_id", "table_path", "schema_hash", "partition_columns")
+            ):
+                raise ValueError("CF recovery output contract differs: " + name)
+            frames = []
+            for ref in refs:
+                open_pinned_table(ref)
+                frame = (
+                    spark.read.format("delta")
+                    .option("versionAsOf", ref["delta_version"])
+                    .load(ref["table_path"])
+                )
+                covered = F.col("_admitted") & (
+                    F.col("dataset_version") == research["dataset_version"]
+                )
+                for column in times:
+                    covered = (
+                        covered & (F.col(column) >= F.lit(lower)) & (F.col(column) < F.lit(upper))
+                    )
+                retained = (
+                    frame.join(F.broadcast(pairs), ["instrument_id", "timeframe"], "left")
+                    .where(~F.coalesce(covered, F.lit(False)))
+                    .select(*frame.columns)
+                )
+                # Only this reviewed consumer kernel ignores these two producer bookkeeping fields.
+                if (
+                    name == "continuous_front_bars"
+                    and research["parameters"]["semantic_compute_contract"]["digest"]
+                    == "47df71fdf1fad0d6d866f5ca5c78ed638673194859e4af8173eab68d925e7dc8"
+                ):
+                    retained = retained.drop("input_row_count", "created_at")
+                frames.append(retained)
+            left, right = frames
+            if left.exceptAll(right).unionByName(right.exceptAll(left)).limit(1).count():
+                raise ValueError("CF checkpoint changed retained Research inputs: " + name)
+    finally:
+        spark.stop()
+
+
 def compare_snapshot_tables(
     *, source_tables, target_tables, timeframes, not_before, spark_session_factory=None
 ):
