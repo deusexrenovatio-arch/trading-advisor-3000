@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
+from trading_advisor_3000.product_plane.common.cf_checkpoints import _parent as _parent
 from trading_advisor_3000.product_plane.common.data_snapshots import (
     assert_tables_unchanged,
     capture_table,
@@ -59,20 +60,6 @@ def _domain(config, *, inputs=None):
             .as_posix()
         )
     return result
-
-
-def _parent(root, manifest=None):
-    manifest = manifest or current_snapshot(root)
-    if manifest is None:
-        return None
-    return {
-        "registry_root": Path(root).resolve().as_posix(),
-        "manifest_path": (Path(root) / "manifests" / f"{manifest['snapshot_id']}.json")
-        .resolve()
-        .as_posix(),
-        "snapshot_id": manifest["snapshot_id"],
-        "manifest_sha256": manifest["manifest_sha256"],
-    }
 
 
 def _seal(payload):

@@ -519,7 +519,7 @@ def recover_data_scope(
 
         from dagster import DagsterInstance
 
-        from trading_advisor_3000.product_plane.research.data_snapshots import (
+        from trading_advisor_3000.product_plane.common.cf_checkpoints import (
             recorded_cf_outputs,
             recovery_cf_checkpoint,
         )
