@@ -524,13 +524,20 @@ def resolve_legacy_calendar(root, schedule, *, offset):
     )
 
     pinned = isinstance(schedule, dict) and set(schedule) == {"path", "sha256"}
+    amendments = {}
     if pinned:
         schedule = calendar_json(packet_bytes(Path(root), schedule))
-    validate_calendar_sources(root, schedule, offset=offset, pinned_packet=pinned)
+        if isinstance(schedule, dict):
+            amendments = schedule.pop("last_trade_amendments", {})
+            if not isinstance(amendments, dict):
+                raise ValueError("last-trade amendments must be a symbol map")
+    validate_calendar_sources(
+        root, schedule, offset=offset, pinned_packet=pinned, amendments=amendments
+    )
     return schedule
 
 
-def validate_calendar_sources(root, schedule, *, offset=None, pinned_packet=False):
+def validate_calendar_sources(root, schedule, *, offset=None, pinned_packet=False, amendments=None):
     """Verify source facts before constructing T-2 intervals."""
 
     from trading_advisor_3000.product_plane.contracts.identity_v3 import _Evaluator
@@ -544,16 +551,25 @@ def validate_calendar_sources(root, schedule, *, offset=None, pinned_packet=Fals
         evaluator._document("market_identity.v3.json")["$defs"]["native_cf_calendar_roll_schedule"],
         schedule,
     )
+    if amendments is None:
+        amendments = {}
+    if not isinstance(amendments, dict) or (amendments and not pinned_packet):
+        raise ValueError("last-trade amendments require a pinned legacy packet and a symbol map")
     rules = schedule["governing_rules"]
     if pinned_packet and all(r["rule_id"].startswith("moex-futures-workdays-") for r in rules):
         _verify_official_workdays(root, schedule)
     else:
         _verify_reviewed_notices(root, schedule)
+    used_amendments = set()
     for group in schedule["groups"]:
         if offset is not None and group["roll_offset_trading_days"] != offset:
             raise ValueError("calendar schedule offset differs from legacy policy")
         for component in group["components"]:
-            _verify_component_expiry(root, component)
+            symbol = component["source_symbol"]
+            _verify_component_expiry(root, component, amendments, pinned_packet)
+            used_amendments.add(symbol)
+    if amendments.keys() - used_amendments:
+        raise ValueError("last-trade amendment names a contract outside the packet")
     return calendar_active_intervals(schedule)
 
 
@@ -674,8 +690,12 @@ def _verify_reviewed_notices(root, schedule):
                 raise ValueError("calendar date lacks reviewed source admission")
 
 
-def _verify_component_expiry(root, component):
-    from trading_advisor_3000.product_plane.research.moex_calendar import calendar_json
+def _verify_component_expiry(root, component, amendments, pinned_packet):
+    from trading_advisor_3000.product_plane.research.moex_calendar import (
+        BRENT_LAST_TRADE_CHANGES,
+        LAST_TRADE_NOTICES,
+        calendar_json,
+    )
 
     source = component["last_trade_source"]
     raw, url = _calendar_source_pair(root, source["body"], source["receipt"])
@@ -693,8 +713,9 @@ def _verify_component_expiry(root, component):
         raise ValueError("duplicate ISS expiry source columns")
     rows = [dict(zip(block["columns"], row, strict=True)) for row in block["data"]]
     matches = [r for r in rows if r.get(source["row_key"]) == source["row_value"]]
-    if len(matches) != 1 or str(matches[0][source["value_column"]]) != component["last_trade_date"]:
+    if len(matches) != 1:
         raise ValueError("last-trade date differs from pinned original field")
+    original = str(matches[0][source["value_column"]])
     if source["kind"] == "moex_iss_description":
         if [r.get("value") for r in rows if r.get("name") == "SECID"] != [
             component["source_symbol"]
@@ -702,6 +723,45 @@ def _verify_component_expiry(root, component):
             raise ValueError("description SECID differs from calendar component")
     elif source["row_value"] != component["source_symbol"]:
         raise ValueError("securities SECID differs from calendar component")
+    change = BRENT_LAST_TRADE_CHANGES.get(symbol) if pinned_packet else None
+    names = [r.get("value") for r in rows if r.get("name") == "SHORTNAME"]
+    if change is not None:
+        issue, old, corrected, notice, original_digest = change
+        issue_years = {old[:4], corrected[:4]}
+        # A ten-year ticker reuse identifies a different contract. A different
+        # date in the same vintage must still carry the reviewed amendment.
+        if issue not in names and issue_years.isdisjoint(
+            {original[:4], component["last_trade_date"][:4]}
+        ):
+            change = None
+    if change is None:
+        if symbol in amendments or component["last_trade_date"] != original:
+            raise ValueError("last-trade date differs from pinned original field")
+        return
+    amendment = amendments.get(symbol)
+    if (
+        source["kind"] != "moex_iss_description"
+        or names != [issue]
+        or original != old
+        or source["body"]["sha256"] != original_digest
+        or component["last_trade_date"] != corrected
+        or not isinstance(amendment, dict)
+        or set(amendment) != {"body", "receipt"}
+        or any(
+            not isinstance(ref, dict) or set(ref) != {"path", "sha256"}
+            for ref in amendment.values()
+        )
+    ):
+        raise ValueError(
+            f"expected pinned {notice} last-trade amendment for {symbol} {issue}: "
+            f"{original} -> {corrected}"
+        )
+    _, url = _calendar_source_pair(root, amendment["body"], amendment["receipt"])
+    if (
+        url.geturl() != "https://www.moex.com/" + notice
+        or amendment["body"]["sha256"] != LAST_TRADE_NOTICES[notice]
+    ):
+        raise ValueError(f"wrong original MOEX last-trade amendment for {symbol}: {notice}")
 
 
 def calendar_active_intervals(schedule):

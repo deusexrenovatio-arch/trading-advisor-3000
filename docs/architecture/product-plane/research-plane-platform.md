@@ -838,9 +838,18 @@ The archive describes historical source dates and establishes no historical
 knowledge timestamp. In 2022 the annual plan and effective notices disagree.
 In particular MOEX notices n43241 and n43875 closed the derivatives market on
 28 February and 1 March, while n43894 retained the 1 March BR-3.22 settlement
-reference. The historical-year reader rejects 2022. Other reviewed years include
-closed last-trade dates for BRN0 (1 July 2020), BRF1 (31 December 2020) and
-BRK1 (3 May 2021). The current selector reports the affected contract and date.
+reference. The historical-year reader rejects 2022.
+
+A pinned legacy packet may retain `last_trade_amendments` keyed by source symbol.
+Each value pins the body and HTTP receipt of a dated exchange decision. The worker
+verifies the original ISS contract code, full issue name and superseded LSTTRADE,
+the reviewed decision and the explicitly supplied new last-trade date. MOEX
+n28692 changed BR-7.20 to 2 July 2020. MOEX n30741 changed BR-1.21 to 4 January
+2021 and BR-5.21 to 4 May 2021. The issuer contract cards corroborate the last
+trading day separately from settlement. These changes were published before the
+affected switches. The worker applies the usual T−2 to the corrected date.
+Existing native inline contracts and previously published manifests retain their
+original representation. Additional issues require reviewed source evidence.
 
 The new reader is scoped to legacy pinned packets. Full-universe acceptance
 requires two independent manifest and table readbacks in isolation.

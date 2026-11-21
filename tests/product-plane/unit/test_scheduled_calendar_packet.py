@@ -155,6 +155,74 @@ def test_may_2021_market_notice_is_required_only_for_its_derivatives_dates():
         calendar.verify_archive_dates("2021", dates, notices)
 
 
+def test_last_trade_amendment_verifies_the_issue_and_the_dated_decision(tmp_path, monkeypatch):
+    from trading_advisor_3000.product_plane.research import moex_calendar as calendar
+
+    notice = source(tmp_path, "decision", {"proof": "n30741"}, "https://www.moex.com/n30741")
+    monkeypatch.setitem(calendar.LAST_TRADE_NOTICES, "n30741", notice["body"]["sha256"])
+    symbol = "BRF1"
+
+    def component(shortname, original, corrected):
+        ref = source(
+            tmp_path,
+            "description",
+            {
+                "description": {
+                    "columns": ["name", "value"],
+                    "data": [["SECID", symbol], ["SHORTNAME", shortname], ["LSTTRADE", original]],
+                }
+            },
+            f"https://iss.moex.com/iss/securities/{symbol}.json",
+        )
+        return {
+            "source_symbol": symbol,
+            "last_trade_date": corrected,
+            "last_trade_source": {
+                "kind": "moex_iss_description",
+                "block": "description",
+                "row_key": "name",
+                "row_value": "LSTTRADE",
+                "value_column": "value",
+                **ref,
+            },
+        }
+
+    def verify(item, refs):
+        cf._verify_component_expiry(tmp_path, item, refs, pinned_packet=True)
+
+    real = component("BR-1.21", "2020-12-31", "2021-01-04")
+    monkeypatch.setitem(
+        calendar.BRENT_LAST_TRADE_CHANGES,
+        symbol,
+        (
+            "BR-1.21",
+            "2020-12-31",
+            "2021-01-04",
+            "n30741",
+            real["last_trade_source"]["body"]["sha256"],
+        ),
+    )
+    verify(real, {symbol: notice})
+    with pytest.raises(ValueError, match="n30741.*BRF1"):
+        verify(real, {})
+    with pytest.raises(ValueError, match="n30741.*BRF1"):
+        verify({**real, "last_trade_date": "2021-05-04"}, {symbol: notice})
+    foreign = source(tmp_path, "foreign", {"proof": "mutated"}, "https://www.moex.com/n30741")
+    with pytest.raises(ValueError, match="wrong original MOEX last-trade amendment"):
+        verify(real, {symbol: foreign})
+    with pytest.raises(ValueError, match="n30741.*BRF1"):
+        verify(component("BR-1.31", "2020-12-31", "2021-01-04"), {symbol: notice})
+    for invented in ("2021-01-04", "2021-01-05"):
+        with pytest.raises(ValueError, match="n30741.*BRF1"):
+            verify(component("BR-1.21", invented, invented), {})
+    verify(component("BR-1.31", "2030-12-31", "2030-12-31"), {})
+    symbol = "BRH2"
+    expiry = component("BR-3.22", "2022-03-01", "2022-03-01")
+    price_notice = source(tmp_path, "price", {"settlement": True}, "https://www.moex.com/n43894")
+    with pytest.raises(ValueError, match="last-trade date differs"):
+        verify(expiry, {symbol: price_notice})
+
+
 def test_compact_calendar_compares_every_futures_date_and_actual_expiry(tmp_path):
     fixture = Path(__file__).parents[1] / "fixtures/contracts/native_cf_inputs.v1.json"
     schedule = json.loads(fixture.read_text())["calendar_roll_schedule"]

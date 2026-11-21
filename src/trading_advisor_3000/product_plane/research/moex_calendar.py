@@ -13,6 +13,33 @@ from trading_advisor_3000.product_plane.common.immutable_files import pinned_byt
 from trading_advisor_3000.product_plane.contracts.identity_v3 import _Evaluator
 
 ARCHIVE_PREFIX = "moex-futures-workdays-archive-v1-"
+BRENT_LAST_TRADE_CHANGES = {
+    "BRN0": (
+        "BR-7.20",
+        "2020-07-01",
+        "2020-07-02",
+        "n28692",
+        "f1625cc193bac722b0f8156722b3f02d65c3f1a7092879af0590c841d941efec",
+    ),
+    "BRF1": (
+        "BR-1.21",
+        "2020-12-31",
+        "2021-01-04",
+        "n30741",
+        "d77036c415d8191fe72fb1026cab2c2834e93e8b09d9627f1afaf798109df8d6",
+    ),
+    "BRK1": (
+        "BR-5.21",
+        "2021-05-03",
+        "2021-05-04",
+        "n30741",
+        "355809c2ee4bf808f80f993166e244a014cf6c2c9350c11ab42140c9db9df594",
+    ),
+}
+LAST_TRADE_NOTICES = {
+    "n28692": "d8b11a18b611b93ffbef9cfc0a00bfcc6c53cdf4988a474d631bb24cd355b7ac",
+    "n30741": "72ec0dbd7bd314c911f711c815e28fb8da0b5f3127fafaab8b20faad814e6c5f",
+}
 # Exact annual ISS response and digest of the reviewed open dates.
 REVIEWED_ARCHIVES = {
     "2018": (
