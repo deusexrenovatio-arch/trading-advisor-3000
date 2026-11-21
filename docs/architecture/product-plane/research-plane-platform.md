@@ -840,6 +840,27 @@ In particular MOEX notices n43241 and n43875 closed the derivatives market on
 28 February and 1 March, while n43894 retained the 1 March BR-3.22 settlement
 reference. The historical-year reader rejects 2022.
 
+For the February 2022 Brent roll, a pinned legacy packet can certify the source
+week of 21–25 February. The [December plan](https://www.moex.com/n39319) and
+[10 February futures bulletin](https://www.moex.com/ru/archive/fortsmarketcsvresults.aspx?ns=F&day1=20220210&def=1)
+predate the decision. The bulletin identifies BR-3.22 and BR-4.22 with maturities
+1 March and 1 April. The planned sessions immediately preceding 1 March were
+28 and 25 February. The existing T−2 selector therefore switches to BRJ2 on
+25 February. Both originals, the exact Brent curve and the dated window are
+bound at admission. The projected March dates supply the calculation horizon.
+Materialization coverage ends at the exclusive 26 February boundary.
+The other ten component descriptors bind the input identities. For example,
+the bulletin lists 3 May for BR-5.22 and its retained ISS record lists 4 May.
+Only the March and April legs determine this February switch.
+
+The March index maturities have different evidence. MOEX set the final
+MIX/MXI/RTS maturity on [24 March](https://www.moex.com/n45596). The regulator's
+[25 March schedule](https://www.cbr.ru/press/pr/?file=24032022_174527SUP_MEAS24032022_164935.htm)
+left subsequent days open for decision. The [28 March schedule](https://www.moex.com/n45649)
+was announced on 26 March. Before that announcement the two possible calendars
+produce different intraday fronts on the frozen canonical bars. An all-universe
+rebuild still requires the missing point-in-time decision for that interval.
+
 A pinned legacy packet may retain `last_trade_amendments` keyed by source symbol.
 Each value pins the body and HTTP receipt of a dated exchange decision. The worker
 verifies the original ISS contract code, full issue name and superseded LSTTRADE,

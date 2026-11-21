@@ -53,6 +53,115 @@ def source(root, name, body, url):
     return {"body": body_pin, "receipt": receipt}
 
 
+def test_brh2_vintage_cannot_admit_march_or_a_different_curve(tmp_path, monkeypatch):
+    from hashlib import sha256
+
+    from trading_advisor_3000.product_plane.research import moex_calendar as calendar
+
+    fixture = Path(__file__).parents[1] / "fixtures/contracts/native_cf_inputs.v1.json"
+    schedule = json.loads(fixture.read_text())["calendar_roll_schedule"]
+    group = schedule["groups"][0]
+    schedule["groups"] = [group]
+    schedule["governing_rules"] = []
+    for key, (kind, order, url, _) in calendar.BRH2_SOURCES.copy().items():
+        refs = source(tmp_path, key, {"original": key}, url)
+        monkeypatch.setitem(calendar.BRH2_SOURCES, key, (kind, order, url, refs["body"]["sha256"]))
+        schedule["governing_rules"].append(
+            dict(
+                rule_id=key,
+                kind=kind,
+                precedence=order,
+                effective_from="2022-02-21",
+                effective_to="2022-03-02",
+                **refs,
+            )
+        )
+    dates = [f"2022-02-{day}" for day in range(21, 29)] + ["2022-03-01"]
+    group.update(
+        group_key="FUT_BR",
+        coverage_from=dates[0],
+        coverage_to="2022-03-02",
+        roll_offset_trading_days=2,
+        planned_dates=[
+            dict(
+                source_date=d,
+                state="closed" if d in dates[5:7] else "open",
+                governing_rule_ids=[calendar.BRH2_PLAN],
+            )
+            for d in dates
+        ],
+    )
+    curve = []
+    for i, (c, sym, expiry) in enumerate(
+        zip(group["components"], ["BRH2", "BRJ2"], ["2022-03-01", "2022-04-01"], strict=True)
+    ):
+        refs = source(
+            tmp_path,
+            sym,
+            {
+                "description": {
+                    "columns": ["name", "value"],
+                    "data": [["SECID", sym], ["LSTTRADE", expiry]],
+                }
+            },
+            f"https://iss.moex.com/iss/securities/{sym}.json",
+        )
+        c.update(
+            component_key=sym + "@MOEX",
+            source_symbol=sym,
+            source_order=i,
+            last_trade_date=expiry,
+            last_trade_source=dict(
+                kind="moex_iss_description",
+                block="description",
+                row_key="name",
+                row_value="LSTTRADE",
+                value_column="value",
+                **refs,
+            ),
+        )
+        curve.append((sym, c["component_key"], expiry, refs["body"]["sha256"]))
+    monkeypatch.setattr(
+        calendar,
+        "BRH2_COMPONENTS_SHA256",
+        sha256(json.dumps(curve, separators=(",", ":")).encode()).hexdigest(),
+    )
+
+    def resolve(packet):
+        return cf.resolve_legacy_calendar(
+            tmp_path, write_json(tmp_path, "packet", packet), offset=2
+        )
+
+    observed = cf.calendar_active_intervals(resolve(schedule))
+    assert [(r["component_key"], r["active_from"], r["active_to"]) for r in observed] == [
+        ("BRH2@MOEX", "2022-02-21", "2022-02-25"),
+        ("BRJ2@MOEX", "2022-02-25", "2022-02-26"),
+    ]
+    for key, value in [("group_key", "FUT_RTS"), ("coverage_from", "2022-01-01")]:
+        changed = copy.deepcopy(schedule)
+        changed["groups"][0][key] = value
+        with pytest.raises(ValueError, match="reviewed FUT_BR window"):
+            resolve(changed)
+    foreign = copy.deepcopy(schedule)
+    foreign["groups"][0]["components"][0]["component_key"] = "BRK2@MOEX"
+    with pytest.raises(ValueError, match="complete reviewed Brent curve"):
+        resolve(foreign)
+    without_bulletin = {**schedule, "governing_rules": schedule["governing_rules"][:1]}
+    with pytest.raises(ValueError, match="10 February bulletin"):
+        resolve(without_bulletin)
+    for start, end, ids in [
+        ("2022-02-19T00:00:00Z", "2022-02-25T20:59:59Z", ("FUT_BR",)),
+        ("2022-02-21T00:00:00Z", "2022-02-25T21:00:00Z", ("FUT_BR",)),
+        ("2022-02-21T00:00:00Z", "2022-02-25T20:59:59Z", ()),
+    ]:
+        with pytest.raises(ValueError, match="bounded to FUT_BR"):
+            calendar.verify_brh2_request(ids, start, end, ())
+    calendar.verify_brh2_request(("FUT_BR",), "2022-02-20T21:00:00Z", "2022-02-25T20:59:59Z", ())
+    group["planned_dates"][-2]["state"] = "closed"
+    with pytest.raises(ValueError, match="2022-02-28"):
+        resolve(schedule)
+
+
 def test_reviewed_archive_requires_both_originals_and_every_planned_date(tmp_path, monkeypatch):
     from datetime import date, timedelta
     from hashlib import sha256

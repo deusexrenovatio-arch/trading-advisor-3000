@@ -578,11 +578,19 @@ def _verify_official_workdays(root, schedule):
 
     from trading_advisor_3000.product_plane.research.moex_calendar import (
         ARCHIVE_PREFIX,
+        BRH2_BULLETIN,
+        BRH2_PLAN,
         futures_workdays,
         verify_archive_dates,
         verify_archive_sources,
+        verify_brh2_plan,
     )
 
+    if any(r["rule_id"] in {BRH2_PLAN, BRH2_BULLETIN} for r in schedule["governing_rules"]):
+        verify_brh2_plan(
+            schedule, lambda rule: _calendar_source_pair(root, rule["body"], rule["receipt"])
+        )
+        return
     calendars = {}
     sources = {}
     archived_rules = defaultdict(list)
@@ -769,6 +777,8 @@ def calendar_active_intervals(schedule):
     from bisect import bisect_left
     from datetime import date, timedelta
 
+    from trading_advisor_3000.product_plane.research.moex_calendar import BRH2_PLAN
+
     if not isinstance(schedule, dict):
         raise ValueError(
             "source-bound calendar_roll_schedule is required for fresh calendar compute"
@@ -829,6 +839,10 @@ def calendar_active_intervals(schedule):
                 )
             switches.append(opens[index - offset])
             if beyond:
+                if BRH2_PLAN in rules:
+                    # March dates are the decision's forecast horizon. Only the
+                    # source week before the emergency closure is certified.
+                    switches[-1] = min(switches[-1], "2022-02-26")
                 # Even if every subsequent date is closed until expiry, the front
                 # is known strictly before this T-offset bound. Later rows need more facts.
                 break
@@ -1787,11 +1801,18 @@ def run_continuous_front_spark_job(
             "canonical_contract_economics_path is required when execution_economics_required=True"
         )
     if resolved_policy.roll_policy_mode == "calendar_expiry_v1":
+        from trading_advisor_3000.product_plane.research.moex_calendar import (
+            BRH2_PLAN,
+            verify_brh2_request,
+        )
+
         calendar_roll_schedule = resolve_legacy_calendar(
             output_dir,
             calendar_roll_schedule,
             offset=resolved_policy.calendar_roll_offset_trading_days,
         )
+        if any(rule["rule_id"] == BRH2_PLAN for rule in calendar_roll_schedule["governing_rules"]):
+            verify_brh2_request(instrument_ids, start_ts, end_ts, normalized_refresh_windows)
     spark_factory = spark_session_factory or _create_spark_session
     stage_timings: StageTimings = {}
     stage_started = stage_timer()

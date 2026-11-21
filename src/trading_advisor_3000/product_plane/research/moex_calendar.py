@@ -13,6 +13,24 @@ from trading_advisor_3000.product_plane.common.immutable_files import pinned_byt
 from trading_advisor_3000.product_plane.contracts.identity_v3 import _Evaluator
 
 ARCHIVE_PREFIX = "moex-futures-workdays-archive-v1-"
+BRH2_PLAN = "moex-futures-workdays-brh2-plan"
+BRH2_BULLETIN = "moex-futures-workdays-brh2-bulletin"
+BRH2_SOURCES = {
+    BRH2_PLAN: (
+        "annual_calendar",
+        0,
+        "https://www.moex.com/n39319",
+        "7b5e5b0179300d9f761ffc8078b72e2acbcdc1215418ab7fb183fa99ab47a256",
+    ),
+    BRH2_BULLETIN: (
+        "dated_schedule",
+        1,
+        "https://www.moex.com/ru/archive/fortsmarketcsvresults.aspx?ns=F&day1=20220210&def=1",
+        "913a404a49d6e639af3cd044438523a750fc0a0eaf4479f543336770ca2dee6a",
+    ),
+}
+# Ordered (SECID, component key, ISS last-trade date, original body SHA-256).
+BRH2_COMPONENTS_SHA256 = "635654da5d1c5ed3a5b764ea2362723a5da0b5f0c973e5db6eede0e8cc92add9"
 REVIEWED_LAST_TRADE_CHANGES = {
     "BRN0": (
         "BR-7.20",
@@ -157,6 +175,11 @@ def archive_notice_dates(raw, year):
 
 def verify_archive_sources(year, rules, read_pair):
     if year not in REVIEWED_ARCHIVES:
+        if year == "2022":
+            raise ValueError(
+                "unreviewed MOEX derivatives calendar year: 2022; the 24 March index "
+                "expiry revision does not establish the 28 March trading session"
+            )
         raise ValueError(f"unreviewed MOEX derivatives calendar year: {year}")
     prefix = ARCHIVE_PREFIX + year + "-"
     by_id = {r["rule_id"]: r for r in rules}
@@ -191,6 +214,77 @@ def verify_archive_sources(year, rules, read_pair):
         ):
             raise ValueError(f"MOEX archive rule differs from reviewed original: {rule['rule_id']}")
     return notices
+
+
+def verify_brh2_plan(schedule, read_pair):
+    """Bind the input curve and verify the February decision for its first two legs."""
+    start, end = "2022-02-21", "2022-03-02"
+    rules = schedule["governing_rules"]
+    if {r["rule_id"] for r in rules} != BRH2_SOURCES.keys() or len(rules) != 2:
+        raise ValueError("BRH2 requires the December plan and the 10 February bulletin")
+    for rule in rules:
+        _, url = read_pair(rule)
+        descriptor = (rule["kind"], rule["precedence"], url.geturl(), rule["body"]["sha256"])
+        if descriptor != BRH2_SOURCES[rule["rule_id"]] or (
+            rule["effective_from"],
+            rule["effective_to"],
+        ) != (start, end):
+            raise ValueError(f"BRH2 source differs from the reviewed original: {rule['rule_id']}")
+    groups = schedule["groups"]
+    if len(groups) != 1 or (
+        groups[0]["group_key"],
+        groups[0]["coverage_from"],
+        groups[0]["coverage_to"],
+        groups[0]["roll_offset_trading_days"],
+    ) != ("FUT_BR", start, end, 2):
+        raise ValueError("BRH2 decision requires the reviewed FUT_BR window and offset")
+    group = groups[0]
+    components = sorted(group["components"], key=lambda c: c["source_order"])
+    curve = [
+        (
+            c["source_symbol"],
+            c["component_key"],
+            c["last_trade_date"],
+            c["last_trade_source"]["body"]["sha256"],
+        )
+        for c in components
+    ]
+    if (
+        sha256(json.dumps(curve, separators=(",", ":")).encode()).hexdigest()
+        != BRH2_COMPONENTS_SHA256
+    ):
+        raise ValueError("BRH2 decision requires the complete reviewed Brent curve")
+    days = {}
+    for i in range((date.fromisoformat(end) - date.fromisoformat(start)).days):
+        day = date.fromisoformat(start) + timedelta(days=i)
+        days[day.isoformat()] = "open" if day.weekday() < 5 else "closed"
+    for item in group["planned_dates"]:
+        if item["state"] != days.pop(item["source_date"], None) or item["governing_rule_ids"] != [
+            BRH2_PLAN
+        ]:
+            raise ValueError(
+                f"BRH2 planned date differs from the December plan: {item['source_date']}"
+            )
+    if days:
+        raise ValueError("BRH2 planned dates are incomplete")
+
+
+def verify_brh2_request(instruments, start, end, refresh_windows):
+    from trading_advisor_3000.product_plane.research.refresh_scope import _stamp
+
+    if (
+        tuple(instruments) != ("FUT_BR",)
+        or refresh_windows
+        or not start
+        or not end
+        or not (
+            _stamp("2022-02-21T00:00:00+03:00")
+            <= _stamp(start)
+            <= _stamp(end)
+            < _stamp("2022-02-26T00:00:00+03:00")
+        )
+    ):
+        raise ValueError("BRH2 request must be bounded to FUT_BR on 21–25 February 2022 MSK")
 
 
 def verify_archive_dates(year, dates, notices):
