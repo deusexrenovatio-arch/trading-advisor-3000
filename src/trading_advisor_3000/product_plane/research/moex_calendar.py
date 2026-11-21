@@ -67,7 +67,9 @@ def archive_notice_dates(raw, year):
     explicit = {day for _, day, engine, *_ in blocks["off_days"]["data"] if engine == "futures"}
     result = {}
     for _, day, kind, link in blocks["holidays"]["data"]:
-        if day in explicit or (kind is None and year != "2023"):
+        # These notices explicitly opened FORTS on the listed dates despite
+        # a null type. The 31 May 2021 notice only concerned US shares.
+        if day in explicit or (kind is None and link not in {"/n33785", "/n51887"}):
             continue
         # The 2024 response omits the link for seven dates expressly listed by MOEX.
         if link is None and year == "2024":

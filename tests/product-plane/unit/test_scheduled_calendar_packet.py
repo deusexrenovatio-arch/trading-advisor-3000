@@ -132,6 +132,29 @@ def test_reviewed_archive_requires_both_originals_and_every_planned_date(tmp_pat
         cf._verify_official_workdays(tmp_path, schedule)
 
 
+def test_may_2021_market_notice_is_required_only_for_its_derivatives_dates():
+    from trading_advisor_3000.product_plane.research import moex_calendar as calendar
+
+    rows = [[i, f"2021-05-0{i}", None, "/n33785"] for i in (4, 5, 6, 7)]
+    rows.append([31, "2021-05-31", None, "/n33651"])
+    raw = json.dumps({"holidays": {"data": rows}, "off_days": {"data": []}})
+    notices = calendar.archive_notice_dates(raw, "2021")
+    assert notices == {f"2021-05-0{i}": "n33785" for i in (4, 5, 6, 7)}
+    from datetime import date, timedelta
+
+    prefix = calendar.ARCHIVE_PREFIX + "2021-"
+    dates = [
+        {
+            "source_date": (date(2021, 1, 1) + timedelta(days=i)).isoformat(),
+            "state": "closed",
+            "governing_rule_ids": [prefix + "events"],
+        }
+        for i in range(365)
+    ]
+    with pytest.raises(ValueError, match="wrong governing MOEX archive rules: 2021-05-04"):
+        calendar.verify_archive_dates("2021", dates, notices)
+
+
 def test_compact_calendar_compares_every_futures_date_and_actual_expiry(tmp_path):
     fixture = Path(__file__).parents[1] / "fixtures/contracts/native_cf_inputs.v1.json"
     schedule = json.loads(fixture.read_text())["calendar_roll_schedule"]
