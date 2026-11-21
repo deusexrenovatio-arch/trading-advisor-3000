@@ -14,10 +14,10 @@ from deltalake import write_deltalake
 from test_native_scope_recovery import chain as daily_chain  # noqa: F401
 from test_native_scope_recovery import pytestmark, spark_factory  # noqa: F401
 
+from trading_advisor_3000.product_plane.common import cf_checkpoints as owner
 from trading_advisor_3000.product_plane.common import data_snapshots as storage
 from trading_advisor_3000.product_plane.data_plane.data_snapshots import recover_data_scope
 from trading_advisor_3000.product_plane.research import admission
-from trading_advisor_3000.product_plane.research import data_snapshots as owner
 from trading_advisor_3000.product_plane.research.continuous_front import CONTINUOUS_FRONT_TABLES
 from trading_advisor_3000.product_plane.research.refresh_scope import resolve_refresh_scope
 from trading_advisor_3000.spark_jobs.snapshot_diff_job import verify_cf_retained_rows

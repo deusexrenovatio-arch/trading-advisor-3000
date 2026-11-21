@@ -836,7 +836,7 @@ def validate_recovery_bridge(manifest, *, root, research, checkpoint_outputs=Non
         checkpoint_data = _validate_recovery_report(manifest, root, research, residual)
         if checkpoint_data["parents"] != research["parents"]:
             raise ValueError("recovery CF predecessor changed")
-        from trading_advisor_3000.product_plane.research.data_snapshots import recorded_cf_outputs
+        from trading_advisor_3000.product_plane.common.cf_checkpoints import recorded_cf_outputs
 
         outputs = recorded_cf_outputs(cf, research, checkpoint_data)
         if checkpoint_outputs is not None:
