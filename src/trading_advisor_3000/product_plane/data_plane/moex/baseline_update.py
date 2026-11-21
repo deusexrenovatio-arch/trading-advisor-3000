@@ -724,7 +724,7 @@ def _write_iss_economics_raw_tables(
     for payload in rms_limits_payloads:
         assetcode = str(payload.get("assetcode") or payload.get("ASSETCODE") or "").strip()
         if not assetcode:
-            continue
+            raise ValueError("MOEX RMS limits row is missing assetcode")
         row_trade_date = str(payload.get("tradedate") or trade_date.isoformat())[:10]
         limits_rows.append(
             {
@@ -754,7 +754,7 @@ def _write_iss_economics_raw_tables(
     for payload in rms_staticparams_payloads:
         assetcode = str(payload.get("assetcode") or payload.get("ASSETCODE") or "").strip()
         if not assetcode:
-            continue
+            raise ValueError("MOEX RMS staticparams row is missing assetcode")
         row_trade_date = str(payload.get("tradedate") or trade_date.isoformat())[:10]
         staticparams_rows.append(
             {
@@ -1683,6 +1683,7 @@ def run_moex_baseline_update(
                     evidence_dir=run_dir / "economics-refresh",
                     run_id=run_id,
                     source_error=exc,
+                    ingest_till_utc=ingest_till_utc,
                 )
             if economics_history_refresh:
                 oi_ref = economics_report["native_history_renewal"]["tables"]["oi"]
