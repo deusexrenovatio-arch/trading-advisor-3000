@@ -19,8 +19,9 @@ Acquire unmodified current securities and `dataversion` in the same ISS page.
 The snapshot owns its canonical source trading date, not the host date, ingest
 cutoff, marketdata calendar date, IMTIME or whichever historical rate fits.
 Require one canonical `dataversion.trade_date`; a supplied trade_session_date
-must agree. All pages, including the terminal page, must have the same trading
-date and data_version. Reject missing/conflicting source context before writes.
+must agree unless the exact pair is confirmed by the [official additional futures
+session](economics-source-lineage.md#current-futures-snapshot-on-an-additional-session).
+All pages, including the terminal page, must agree on both dates and data_version. Reject missing/conflicting source context before writes.
 Preserve each page's dataversion and canonical securities payload hash.
 
 The selected adapter interpretation is that current `STEPPRICE` belongs to the

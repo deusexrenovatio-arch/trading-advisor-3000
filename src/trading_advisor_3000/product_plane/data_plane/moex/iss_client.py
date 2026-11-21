@@ -109,6 +109,20 @@ def _iter_date_windows(
         current = window_till + timedelta(days=1)
 
 
+def _source_session_rows(block: dict[str, Any]) -> list[dict[str, Any]]:
+    columns, rows = block.get("columns"), block.get("data")
+    if (
+        not isinstance(columns, list)
+        or not columns
+        or not all(isinstance(column, str) and column for column in columns)
+        or len(set(columns)) != len(columns)
+        or not isinstance(rows, list)
+        or any(not isinstance(row, list) or len(row) != len(columns) for row in rows)
+    ):
+        raise ValueError("current source session has ambiguous or malformed ISS fields")
+    return [dict(zip(columns, row, strict=True)) for row in rows]
+
+
 def _rows_to_dicts(block: dict[str, Any]) -> list[dict[str, Any]]:
     columns = block.get("columns")
     rows = block.get("data")
@@ -812,6 +826,7 @@ class MoexISSClient:
         path = "/iss/engines/futures/markets/forts/securities.json"
         rows, pages = [], []
         session = None
+        calendar = None
         start = 0
         while True:
             payload = self._get_json(
@@ -826,16 +841,18 @@ class MoexISSClient:
             block, version = payload.get("securities"), payload.get("dataversion")
             if not isinstance(block, dict) or not isinstance(version, dict):
                 raise ValueError("current source session requires securities and dataversion")
-            contexts = _rows_to_dicts(version)
+            contexts = _source_session_rows(version)
             if len(contexts) != 1:
                 raise ValueError("current source session requires exactly one dataversion row")
             context = contexts[0]
             value = context.get("trade_date")
+            session_value = context.get("trade_session_date", value)
             try:
                 trade_date = date.fromisoformat(value)
+                session_date = date.fromisoformat(session_value)
             except (TypeError, ValueError) as exc:
                 raise ValueError("current source session requires a canonical trade_date") from exc
-            if value != trade_date.isoformat() or context.get("trade_session_date", value) != value:
+            if value != trade_date.isoformat() or session_value != session_date.isoformat():
                 raise ValueError("current source session dates conflict or are not canonical")
             data_version, seqnum = context.get("data_version"), context.get("seqnum")
             if (
@@ -845,16 +862,19 @@ class MoexISSClient:
                 or seqnum < 0
             ):
                 raise ValueError("current source session requires actual data_version and seqnum")
-            key = (trade_date, data_version)
+            key = (trade_date, data_version, session_date)
             if session is not None and key != session:
                 raise ValueError("current source session changed across securities pages")
             if pages and seqnum < pages[-1]["dataversion"]["seqnum"]:
                 raise ValueError("current source session sequence moved backwards")
+            if session is None and trade_date != session_date:
+                calendar = self._weekend_session(trade_date, session_date)
             session = key
             pages.append(
                 {
                     "page_start": start,
                     "dataversion": dict(context),
+                    **({"session_calendar": calendar} if calendar is not None else {}),
                     "securities_sha256": hashlib.sha256(
                         json.dumps(
                             block,
@@ -872,6 +892,34 @@ class MoexISSClient:
                 break
             start += len(page)
         return FuturesContractSnapshot(tuple(rows), session[0], tuple(pages))
+
+    def _weekend_session(self, trade_date: date, session_date: date) -> dict[str, Any]:
+        payload = self._get_json(
+            "/iss/apps/calendar/events.json",
+            params={"iss.meta": "off", "iss.only": "off_days", "year": str(trade_date.year)},
+            event_context={
+                "operation": "futures_weekend_session",
+                "trade_date": trade_date.isoformat(),
+            },
+        )
+        records = [
+            row
+            for row in _source_session_rows(payload.get("off_days") or {})
+            if row.get("date") == trade_date.isoformat() and row.get("engine") == "futures"
+        ]
+        if len(records) == 1:
+            row = records[0]
+            if (
+                row.get("reason") == "W"
+                and type(row.get("is_traded")) is int
+                and row["is_traded"] == 1
+                and session_date > trade_date
+                and row.get("trade_session_date") == session_date.isoformat()
+            ):
+                return row
+        raise ValueError(
+            f"current source session lacks an open futures calendar match: {trade_date} -> {session_date}"
+        )
 
     def fetch_futures_indicative_rates(
         self,
