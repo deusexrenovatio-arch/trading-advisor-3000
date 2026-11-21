@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import functools
-import hashlib
 import json
 import math
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from trading_advisor_3000.product_plane.common.cf_checkpoints import _pending_path as _pending_path
+from trading_advisor_3000.product_plane.common.cf_checkpoints import _read_cf_checkpoint
+from trading_advisor_3000.product_plane.common.cf_checkpoints import _registry as _registry
+from trading_advisor_3000.product_plane.common.cf_checkpoints import (
+    snapshot_registry as snapshot_registry,
+)
 from trading_advisor_3000.product_plane.common.data_snapshots import (
     SnapshotUnavailableError,
     assert_tables_unchanged,
@@ -29,30 +34,9 @@ from trading_advisor_3000.product_plane.research.operations import preflight, wo
 _STAGE_OUTPUTS: dict[str, tuple[str, ...]] = {}
 
 
-def snapshot_registry(output_dir: Path, dataset_version: str, contour_id: str) -> Path:
-    scope = hashlib.sha256(json.dumps([dataset_version, contour_id]).encode()).hexdigest()[:24]
-    return output_dir / ".data_snapshots" / scope
-
-
 def _configuration(context: Any) -> dict[str, Any]:
     op_context = getattr(context, "op_execution_context", context)
     return dict(op_context.op_config)
-
-
-def _registry(config: Mapping[str, Any]) -> Path:
-    contour = (
-        "pit_active_front" if config.get("series_mode") == "continuous_front" else "native_tradable"
-    )
-    return snapshot_registry(
-        Path(config["materialized_output_dir"]), str(config["dataset_version"]), contour
-    )
-
-
-def _pending_path(context: Any, config: Mapping[str, Any], run_id: str | None = None) -> Path:
-    # Dagster run IDs identify attempts; campaign_run_id is often reused nightly.
-    run_id = run_id or str(context.run_id)
-    token = hashlib.sha256(run_id.encode()).hexdigest()
-    return _registry(config) / "pending" / f"{token}.json"
 
 
 def _input_tables(
@@ -285,54 +269,7 @@ def _assert_current_data_parent(config: Mapping[str, Any], pending: Mapping[str,
 
 def verified_cf_checkpoint(instance, source_id, config):
     """Bind the admission exemption to the successful producer's saved descriptors."""
-    run = instance.get_run_by_id(source_id) if instance and source_id else None
-    stage = "continuous_front_bars"
-    receipt = config.get("refresh_admission")
-    if (
-        not run
-        or run.job_name != "moex_cf_catch_up_job"
-        or run.status.value != "SUCCESS"
-        or not any(
-            step.step_key == stage and step.status.value == "SUCCESS"
-            for step in instance.get_run_step_stats(source_id)
-        )
-    ):
-        raise ValueError("daily refresh upstream CF run/step/admission changed")
-    source = json.loads(_pending_path(run, config, source_id).read_text(encoding="utf-8"))
-    outputs = _STAGE_OUTPUTS[stage]
-    if (
-        source["run_id"] != source_id
-        or source["parameters"].get("refresh_admission") != receipt
-        or source["quality_owners"].get(stage) != source_id
-        or source["quality_checks"].get(stage) != "PASS"
-    ):
-        raise ValueError("daily refresh upstream CF checkpoint lineage or QC changed")
-    if config.get("operation") == "daily" and (
-        run.run_config.get("ops", {}).get(stage, {}).get("config", {}).get("refresh_admission")
-        != receipt
-        or source["expected_current_id"] != receipt["research_parent"]["snapshot_id"]
-        or source["parents"] != [receipt["data_parent"]["snapshot_id"]]
-        or source["parent_manifest_sha256"] != receipt["data_parent"]["manifest_sha256"]
-    ):
-        raise ValueError("daily refresh upstream CF admission or parents changed")
-    result = source["quality_evidence"][stage].get("cf_result", {})
-    if (
-        result.get("status") != "PASS"
-        or set(result.get("rows_by_table", {})) != set(outputs)
-        or result.get("dataset_version") != config["dataset_version"]
-        or not result.get("qc_rows")
-        or any(row.get("status") != "PASS" for row in result["qc_rows"])
-        or set(result.get("output_paths", {})) != set(outputs)
-    ):
-        raise ValueError("daily refresh upstream CF result incomplete or QC failed")
-    for name in outputs:
-        expected = Path(config["materialized_output_dir"]) / f"{name}.delta"
-        ref = source["tables"].get(name)
-        if not ref or any(
-            Path(path).resolve() != expected.resolve()
-            for path in (ref["table_path"], result["output_paths"][name])
-        ):
-            raise ValueError(f"daily refresh upstream CF checkpoint path or pin changed: {name}")
+    source = _read_cf_checkpoint(instance, source_id, config)
     assert_tables_unchanged(source["tables"])
     return source
 
@@ -523,13 +460,7 @@ def _validate_hash_compatibility(config: Mapping, pending: Mapping, instance: An
         or normalized(scope["windows"]) != normalized(config.get("changed_windows", []))
     ):
         raise ValueError("hash compatibility frozen scope changed or unbounded")
-    assert_tables_unchanged(
-        {
-            name: ref
-            for name, ref in accepted["tables"].items()
-            if name not in old_data["tables"] and name not in completed
-        }
-    )
+    # resolve_refresh_scope checked the accepted output vector at its certified starting pins.
     assert_tables_unchanged(pending["tables"])
     return accepted
 
