@@ -521,3 +521,33 @@ def test_history_board_securities_uses_stronger_retry_budget(monkeypatch) -> Non
     ]
     assert retry_events
     assert max(int(event.get("attempt_limit", 0)) for event in retry_events) == 5
+
+
+def test_current_snapshot_rejects_conflicting_first_trade_before_card_hash(monkeypatch):
+    page = _snapshot_page()
+    page["securities"] = {
+        "columns": ["SECID", "FRSTTRADE", "FRSTTRADE", "NEW_INSTRUMENT"],
+        "data": [["BRN7", "2026-11-21", "2026-11-23", 1]],
+    }
+    client = MoexISSClient()
+    monkeypatch.setattr(client, "_get_json", lambda *a, **kw: page)
+    with pytest.raises(ValueError, match="ambiguous"):
+        client.fetch_futures_contract_snapshot()
+
+
+@pytest.mark.parametrize("block,field", [("limits", "mr1"), ("staticparams", "radius")])
+@pytest.mark.parametrize("fault", [None, "malformed", "wrong_schema"])
+def test_dated_rms_empty_requires_valid_issuer_block(monkeypatch, block, field, fault):
+    data = {"columns": ["assetcode", "tradedate", field], "data": []}
+    if fault == "malformed":
+        data["data"] = "bad"
+    if fault == "wrong_schema":
+        data["columns"].remove("assetcode")
+    client = MoexISSClient()
+    monkeypatch.setattr(client, "_get_json", lambda *a, **kw: {block: data})
+    fetch = getattr(client, "fetch_futures_rms_" + block)
+    if fault:
+        with pytest.raises(ValueError):
+            fetch(trade_date=date(2026, 11, 21))
+    else:
+        assert fetch(trade_date=date(2026, 11, 21)) == []
