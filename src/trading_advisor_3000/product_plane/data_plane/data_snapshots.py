@@ -480,6 +480,8 @@ def recover_data_scope(
     expected_research_id,
     publish=False,
     spark_session_factory=None,
+    prior_cf_run_id=None,
+    instance=None,
 ):
     """Explicit audit; optional metadata-only publication by the existing owner.
 
@@ -511,27 +513,66 @@ def recover_data_scope(
     outputs = {
         name: ref for name, ref in research["tables"].items() if name not in source["tables"]
     }
+    prior_cf = None
+    if prior_cf_run_id:
+        from contextlib import nullcontext
+
+        from dagster import DagsterInstance
+
+        from trading_advisor_3000.product_plane.research.data_snapshots import (
+            recorded_cf_outputs,
+            recovery_cf_checkpoint,
+        )
+
+        with nullcontext(instance) if instance is not None else DagsterInstance.get() as owner:
+            cf_data, prior_cf = recovery_cf_checkpoint(
+                owner,
+                prior_cf_run_id,
+                research=research,
+                data_root=root,
+                research_root=research_root,
+            )
+        cf_outputs = recorded_cf_outputs(prior_cf, research, cf_data)
+        outputs.update(cf_outputs)
     assert_tables_unchanged(data["tables"])
     assert_tables_unchanged(outputs)
     provenance = runtime_provenance()
-    native = compare_snapshot_tables(
-        source_tables=source["tables"],
-        target_tables=data["tables"],
-        timeframes=research["parameters"]["timeframes"],
-        not_before=not_before,
-        spark_session_factory=spark_session_factory,
-    )
-    report = {
-        "schema_version": 1,
-        "source": _recovery_identity(source),
-        "target": _recovery_identity(data),
-        "research": _recovery_identity(research),
-        "not_before": iso(not_before),
-        "timeframes": list(research["parameters"]["timeframes"]),
-        **native,
-        "runtime_provenance": provenance,
-    }
-    report["report_sha256"] = _recovery_digest(report)
+
+    def audit(anchor):
+        native = compare_snapshot_tables(
+            source_tables=anchor["tables"],
+            target_tables=data["tables"],
+            timeframes=research["parameters"]["timeframes"],
+            not_before=not_before,
+            spark_session_factory=spark_session_factory,
+        )
+        report = {
+            "schema_version": 1,
+            "source": _recovery_identity(anchor),
+            "target": _recovery_identity(data),
+            "research": _recovery_identity(research),
+            "not_before": iso(not_before),
+            "timeframes": list(research["parameters"]["timeframes"]),
+            **native,
+            "runtime_provenance": provenance,
+        }
+        report["report_sha256"] = _recovery_digest(report)
+        return report
+
+    report = audit(source)
+    scope = _recovery_scope(report, data["tables"])
+    if prior_cf is not None:
+        from trading_advisor_3000.spark_jobs.snapshot_diff_job import verify_cf_retained_rows
+
+        prior_cf["recovery"] = audit(cf_data)
+        if not report["windows"] or prior_cf["recovery"]["windows"] != report["windows"]:
+            raise ValueError(
+                "distinct CF and Research recovery windows require separate admissions"
+            )
+        verify_cf_retained_rows(
+            research, cf_outputs, report["windows"], spark_session_factory=spark_session_factory
+        )
+        scope["prior_cf"] = prior_cf
     manifest = create_snapshot(
         tables=data["tables"],
         required_tables=data["required_tables"],
@@ -542,7 +583,7 @@ def recover_data_scope(
         parents=[data["snapshot_id"]],
         parameters={
             **data["parameters"],
-            "downstream_scope": _recovery_scope(report, data["tables"]),
+            "downstream_scope": scope,
         },
         window=data["window"],
     )
@@ -586,6 +627,9 @@ def main():
         operation.add_argument("--publish", action="store_true")
         operation.add_argument("--report-path", type=Path)
     recover.add_argument("--not-before", required=True)
+    recover.add_argument(
+        "--prior-cf-run-id", help="Verify a scheduled CF already ahead of accepted Research"
+    )
     restore.add_argument("--baseline-report-path", type=Path, required=True)
     args = parser.parse_args()
     common = dict(
@@ -596,7 +640,9 @@ def main():
         publish=args.publish,
     )
     result = (
-        recover_data_scope(**common, not_before=args.not_before)
+        recover_data_scope(
+            **common, not_before=args.not_before, prior_cf_run_id=args.prior_cf_run_id
+        )
         if args.operation == "recover-scope"
         else restore_economics_inputs(**common, baseline_report_path=args.baseline_report_path)
     )

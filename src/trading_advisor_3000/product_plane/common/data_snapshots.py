@@ -799,8 +799,55 @@ def _recovery_scope(report, tables):
     }
 
 
-def validate_recovery_bridge(manifest, *, root, research):
+def validate_recovery_bridge(manifest, *, root, research, checkpoint_outputs=None):
     """Validate one complete immutable segment; never clear an unknown child."""
+    scope = manifest["parameters"]["downstream_scope"]
+    report = scope["recovery"]
+    if research["parents"] != [report["source"]["snapshot_id"]]:
+        raise ValueError("recovery Research anchor changed")
+    source = _validate_recovery_report(manifest, root, research, report)
+    expected = _recovery_scope(report, manifest["tables"])
+    if "prior_cf" in scope:
+        cf = scope["prior_cf"]
+        if not isinstance(cf, dict) or set(cf) != {
+            "run_id",
+            "admission_id",
+            "checkpoint_sha256",
+            "owner_ticks",
+            "recovery",
+        }:
+            raise ValueError("incomplete recovery CF binding")
+        ticks = cf["owner_ticks"]
+        if (
+            not isinstance(ticks, dict)
+            or set(ticks)
+            != {
+                "moex_baseline_daily_update_schedule",
+                "moex_cf_catch_up_after_moex_baseline_sensor",
+            }
+            or any(type(tick) is not int or tick <= 0 for tick in ticks.values())
+        ):
+            raise ValueError("missing recovery CF owner ticks")
+        residual = cf["recovery"]
+        if not residual["windows"] or residual["windows"] != report["windows"]:
+            raise ValueError(
+                "distinct CF and Research recovery windows require separate admissions"
+            )
+        checkpoint_data = _validate_recovery_report(manifest, root, research, residual)
+        if checkpoint_data["parents"] != research["parents"]:
+            raise ValueError("recovery CF predecessor changed")
+        from trading_advisor_3000.product_plane.research.data_snapshots import recorded_cf_outputs
+
+        outputs = recorded_cf_outputs(cf, research, checkpoint_data)
+        if checkpoint_outputs is not None:
+            checkpoint_outputs.update(outputs)
+        expected["prior_cf"] = cf
+    if scope != expected or manifest["quality_checks"].get("scope_recovery") != "PASS":
+        raise ValueError("recovery publication scope changed")
+    return source
+
+
+def _validate_recovery_report(manifest, root, research, report):
     from datetime import timedelta
 
     from trading_advisor_3000.product_plane.contracts.schema_validation import (
@@ -810,17 +857,13 @@ def validate_recovery_bridge(manifest, *, root, research):
 
     stamp, iso = recovery_stamp, recovery_iso
 
-    scope = manifest["parameters"]["downstream_scope"]
-    report = scope["recovery"]
     schema = Path(__file__).parents[1] / "contracts/schemas/data_scope_recovery.v1.json"
     validate_schema(load_schema(schema), report)
     if report["report_sha256"] != _recovery_digest(
         {k: v for k, v in report.items() if k != "report_sha256"}
     ):
         raise ValueError("recovery report digest changed")
-    if _recovery_identity(research) != report["research"] or research["parents"] != [
-        report["source"]["snapshot_id"]
-    ]:
+    if _recovery_identity(research) != report["research"]:
         raise ValueError("recovery Research anchor changed")
     if set(report["timeframes"]) != set(research["parameters"].get("timeframes", ())):
         raise ValueError("recovery Research periods changed")
@@ -833,11 +876,6 @@ def validate_recovery_bridge(manifest, *, root, research):
         raise ValueError("recovery segment identity changed")
     if manifest["parents"] != [target["snapshot_id"]] or manifest["tables"] != target["tables"]:
         raise ValueError("recovery publication changed target tables or parent")
-    if (
-        scope != _recovery_scope(report, target["tables"])
-        or manifest["quality_checks"].get("scope_recovery") != "PASS"
-    ):
-        raise ValueError("recovery publication scope changed")
     cursor, seen = target, set()
     while cursor["snapshot_id"] != source["snapshot_id"]:
         if cursor["snapshot_id"] in seen or len(cursor["parents"]) != 1:
