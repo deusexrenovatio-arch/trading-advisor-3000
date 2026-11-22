@@ -11,6 +11,7 @@ from trading_advisor_3000.product_plane.common.data_snapshots import (
     _recovery_identity,
     _recovery_scope,
     assert_tables_unchanged,
+    capture_recovery_input_heads,
     capture_table,
     create_snapshot,
     current_snapshot,
@@ -482,6 +483,7 @@ def recover_data_scope(
     spark_session_factory=None,
     prior_cf_run_id=None,
     instance=None,
+    accepted_input_pins=False,
 ):
     """Explicit audit; optional metadata-only publication by the existing owner.
 
@@ -493,6 +495,8 @@ def recover_data_scope(
 
     from trading_advisor_3000.spark_jobs.snapshot_diff_job import compare_snapshot_tables, iso
 
+    if type(accepted_input_pins) is not bool:
+        raise TypeError("accepted_input_pins must be bool")
     root = Path(canonical_root) / ".data_snapshots"
     data, research = current_snapshot(root), current_snapshot(Path(research_root))
     if (
@@ -534,7 +538,8 @@ def recover_data_scope(
             )
         cf_outputs = recorded_cf_outputs(prior_cf, research, cf_data)
         outputs.update(cf_outputs)
-    assert_tables_unchanged(data["tables"])
+    controls = capture_recovery_input_heads(data["tables"]) if accepted_input_pins else {}
+    assert_tables_unchanged(data["tables"], pinned_inputs=controls)
     assert_tables_unchanged(outputs)
     provenance = runtime_provenance()
 
@@ -556,6 +561,8 @@ def recover_data_scope(
             **native,
             "runtime_provenance": provenance,
         }
+        if controls:
+            report["input_read_consistency"] = {"version": 1, "inputs": controls}
         report["report_sha256"] = _recovery_digest(report)
         return report
 
@@ -588,7 +595,7 @@ def recover_data_scope(
         window=data["window"],
     )
     validate_recovery_bridge(manifest, root=root, research=research)
-    assert_tables_unchanged(data["tables"])
+    assert_tables_unchanged(data["tables"], pinned_inputs=controls)
     assert_tables_unchanged(outputs)
     if (
         runtime_provenance() != provenance
@@ -630,6 +637,11 @@ def main():
     recover.add_argument(
         "--prior-cf-run-id", help="Verify a scheduled CF already ahead of accepted Research"
     )
+    recover.add_argument(
+        "--accepted-input-pins",
+        action="store_true",
+        help="audit exact accepted input pins while fencing later native heads",
+    )
     restore.add_argument("--baseline-report-path", type=Path, required=True)
     args = parser.parse_args()
     common = dict(
@@ -641,7 +653,10 @@ def main():
     )
     result = (
         recover_data_scope(
-            **common, not_before=args.not_before, prior_cf_run_id=args.prior_cf_run_id
+            **common,
+            not_before=args.not_before,
+            prior_cf_run_id=args.prior_cf_run_id,
+            accepted_input_pins=args.accepted_input_pins,
         )
         if args.operation == "recover-scope"
         else restore_economics_inputs(**common, baseline_report_path=args.baseline_report_path)

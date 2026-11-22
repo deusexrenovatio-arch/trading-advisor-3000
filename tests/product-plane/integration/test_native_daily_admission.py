@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -54,13 +55,23 @@ def test_foreign_cf_commit_and_replacement_block_scheduler_and_consumer(tmp_path
     _native_handoff(tmp_path, monkeypatch, foreign_write=True)
 
 
-def _native_handoff(tmp_path, monkeypatch, *, foreign_write):
+@pytest.mark.parametrize("foreign_write", [False, True, "initial"])
+@pytest.mark.skipif(os.name == "nt", reason="native Spark/Delta proof runs on Linux")
+def test_accepted_input_pins_through_native_daily_chain(tmp_path, monkeypatch, foreign_write):
+    _native_handoff(tmp_path, monkeypatch, foreign_write=foreign_write, pinned_recovery=True)
+
+
+def _native_handoff(tmp_path, monkeypatch, *, foreign_write, pinned_recovery=False):
     source = Path(__file__).with_name("test_research_dagster_jobs.py")
     spec = importlib.util.spec_from_file_location("native_daily_fixtures", source)
     fixtures = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fixtures)
     canonical, output, raw = tmp_path / "canonical", tmp_path / "research", tmp_path / "raw"
     fixtures._write_rich_stage7_canonical_context(canonical)
+    if pinned_recovery:
+        monkeypatch.setattr(
+            assets, "DEFAULT_VOLUME_PROFILE_TICK_SIZE_BY_INSTRUMENT", {"BR": 0.01, "Si": 1.0}
+        )
     # This intraday fixture has no exchange expiry packet. Use the native OI
     # policy and cross two contracts so all four CF outputs have physical rows.
     monkeypatch.setenv(
@@ -91,9 +102,25 @@ def _native_handoff(tmp_path, monkeypatch, *, foreign_write):
         write_deltalake(
             str(path), pa.Table.from_pylist(later, schema=original.schema), mode="append"
         )
+    if pinned_recovery:
+        path = canonical / "canonical_bars.delta"
+        original = DeltaTable(str(path)).to_pyarrow_table()
+        prefix = dict(original.to_pylist()[0], instrument_id="PREFIX", timeframe="1m")
+        for name in ("ts", "ts_open", "ts_close"):
+            if name in prefix:
+                prefix[name] = (
+                    datetime(2018, 1, 1, tzinfo=UTC)
+                    if isinstance(prefix[name], datetime)
+                    else datetime(2018, 1, 1, tzinfo=UTC).isoformat()
+                )
+        write_deltalake(
+            str(path), pa.Table.from_pylist([prefix], schema=original.schema), mode="append"
+        )
     raw.mkdir()
     rows = DeltaTable(str(canonical / "canonical_bars.delta")).to_pyarrow_table().to_pylist()
     raw_rows = [{**r, "ts_open": r["ts"], "ts_close": r["ts"]} for r in rows]
+    if pinned_recovery:
+        raw_rows = [dict(row, timeframe="1m") for row in raw_rows]
     write_deltalake(str(raw / "raw_moex_history.delta"), pa.Table.from_pylist(raw_rows))
     monkeypatch.setenv(assets.RESEARCH_DATA_PREP_MATERIALIZED_OUTPUT_DIR_ENV, str(output))
     monkeypatch.setenv(assets.RESEARCH_DATA_PREP_RESULTS_OUTPUT_DIR_ENV, str(tmp_path / "results"))
@@ -182,6 +209,89 @@ def _native_handoff(tmp_path, monkeypatch, *, foreign_write):
             "end_ts": "2026-03-16T23:45:00Z",
         }
         latest = publish_data([window])
+        pinned_hash = None
+        consumed_raw = []
+        if pinned_recovery:
+            indicator_module = importlib.import_module(
+                "trading_advisor_3000.product_plane.research.indicators.materialize"
+            )
+            native_load_raw = indicator_module._load_volume_profile_source_rows
+
+            def observe_raw_read(**kwargs):
+                result = native_load_raw(**kwargs)
+                consumed_raw.extend(row for rows in result.values() for row in rows)
+                return result
+
+            monkeypatch.setattr(
+                indicator_module, "_load_volume_profile_source_rows", observe_raw_read
+            )
+
+            from test_native_scope_recovery import spark_factory
+
+            from trading_advisor_3000.product_plane.data_plane.data_snapshots import (
+                recover_data_scope,
+            )
+            from trading_advisor_3000.spark_jobs.research_bar_views_job import _delta_log_hash
+
+            path = canonical / "canonical_session_intervals.delta"
+            pinned_hash = _delta_log_hash(path)
+            intervals = DeltaTable(str(path)).to_pyarrow_table()
+            changed_intervals = [
+                dict(
+                    row, interval_id="foreign-" + row["interval_id"], session_class="partial_or_gap"
+                )
+                for row in intervals.to_pylist()
+            ]
+            write_deltalake(
+                str(path),
+                pa.Table.from_pylist(changed_intervals, schema=intervals.schema),
+                mode="overwrite",
+            )
+            raw_path = raw / "raw_moex_history.delta"
+            raw_payload = DeltaTable(str(raw_path)).to_pyarrow_table()
+            write_deltalake(
+                str(raw_path),
+                pa.Table.from_pylist(
+                    [
+                        dict(
+                            row,
+                            low=row["low"] * 100,
+                            high=row["high"] * 100,
+                            volume=row["volume"] * 10,
+                        )
+                        for row in raw_payload.to_pylist()
+                    ],
+                    schema=raw_payload.schema,
+                ),
+                mode="overwrite",
+            )
+            version_before = {
+                name: DeltaTable(ref["table_path"]).version()
+                for name, ref in parent["tables"].items()
+            }
+            options = dict(
+                canonical_root=canonical,
+                research_root=root,
+                expected_data_id=parent["snapshot_id"],
+                expected_research_id=accepted["snapshot_id"],
+                not_before="2026-03-01T00:00:00Z",
+                spark_session_factory=spark_factory,
+            )
+            with pytest.raises(
+                storage.SnapshotUnavailableError, match="changed during calculation"
+            ):
+                recover_data_scope(**options)
+            recovered_scope = recover_data_scope(**options, accepted_input_pins=True, publish=True)
+            parent = recovered_scope["manifest"]
+            assert set(storage.recovery_input_controls(parent)) == {
+                "canonical_session_intervals",
+                "raw_moex_history",
+            }
+            assert version_before == {
+                name: DeltaTable(ref["table_path"]).version()
+                for name, ref in parent["tables"].items()
+            }
+            latest = canonical / ".data_snapshots/manifests" / f"{parent['snapshot_id']}.json"
         context = fixtures._baseline_update_sensor_context(
             tmp_path=tmp_path,
             run_id="daily-data",
@@ -197,6 +307,74 @@ def _native_handoff(tmp_path, monkeypatch, *, foreign_write):
             assets.moex_cf_catch_up_after_moex_baseline_sensor, context
         )
         assert hasattr(request, "run_config"), request
+        if pinned_recovery:
+            import copy
+
+            from dagster import validate_run_config
+
+            from trading_advisor_3000.product_plane.research import data_snapshots as snapshot_owner
+
+            cf_job = repository.get_job(assets.MOEX_CF_CATCH_UP_JOB_NAME)
+            effective = validate_run_config(cf_job, request.run_config)["ops"][
+                "continuous_front_bars"
+            ]["config"]
+            assert admission.recovery_inputs_for_config(effective)
+            alias = dict(
+                effective, canonical_contract_economics_path=str(raw / "raw_moex_history.delta")
+            )
+            with pytest.raises(ValueError, match="aliases an unpinned CF reader"):
+                admission.recovery_inputs_for_config(alias)
+            tampered = copy.deepcopy(parent)
+            tampered["parameters"]["downstream_scope"]["recovery"]["input_read_consistency"][
+                "inputs"
+            ]["raw_moex_history"]["observed_head"]["delta_version"] += 1
+            with pytest.raises(storage.SnapshotUnavailableError, match="receipt"):
+                storage.recovery_input_controls(tampered)
+            original_current = admission.current_snapshot
+            with monkeypatch.context() as stale:
+                stale.setattr(
+                    admission,
+                    "current_snapshot",
+                    lambda path: (
+                        dict(accepted, snapshot_id="f" * 32)
+                        if Path(path) == root
+                        else original_current(path)
+                    ),
+                )
+                with pytest.raises(admission.AdmissionParentSuperseded, match="Research changed"):
+                    admission.recovery_inputs_for_config(effective)
+            if foreign_write == "initial":
+                original_inputs = snapshot_owner._input_tables
+                path = output / "research_bar_views.delta"
+                table = DeltaTable(str(path))
+                table_id = table.metadata().id
+
+                def append_after_input_validation(*args):
+                    result = original_inputs(*args)
+                    write_deltalake(str(path), table.to_pyarrow_table(), mode="append")
+                    return result
+
+                context = SimpleNamespace(
+                    run_id="initial-race",
+                    op_config=effective,
+                    instance=instance,
+                    dagster_run=SimpleNamespace(tags=request.tags),
+                )
+                with monkeypatch.context() as race:
+                    race.setattr(snapshot_owner, "_input_tables", append_after_input_validation)
+                    with pytest.raises(
+                        storage.SnapshotUnavailableError, match="research_bar_views.delta"
+                    ):
+                        snapshot_owner._initial(context, effective)
+                assert DeltaTable(str(path)).metadata().id == table_id
+                assert not snapshot_owner._pending_path(context, effective).exists()
+                assert storage.current_snapshot(root)["snapshot_id"] == accepted["snapshot_id"]
+                assert all(
+                    DeltaTable(str(output / f"{name}.delta")).version()
+                    == accepted["tables"][name]["delta_version"]
+                    for name in assets.CONTINUOUS_FRONT_TABLES
+                )
+                return
         sensor = assets.research_data_prep_after_moex_cf_catch_up_sensor
 
         def tick(cursor=None):
@@ -328,9 +506,9 @@ def _native_handoff(tmp_path, monkeypatch, *, foreign_write):
         assert not tick(delivered.cursor).run_requests
         receipt = request.run_config["ops"]["continuous_front_bars"]["config"]["refresh_admission"]
         assert receipt["operation"] == "daily" and receipt["outcome"] == "SCOPED"
-        assert {(w["instrument_id"], w["timeframe"]) for w in receipt["effective_windows"]} == {
-            ("BR", "15m")
-        }
+        assert {(w["instrument_id"], w["timeframe"]) for w in receipt["effective_windows"]} == (
+            {("BR", "15m"), ("Si", "15m")} if pinned_recovery else {("BR", "15m")}
+        )
         for step_config in handoff.run_config["ops"].values():
             assert step_config["config"]["refresh_admission"] == receipt
         native_l2 = assets.materialize_derived_indicator_frames
@@ -377,6 +555,54 @@ def _native_handoff(tmp_path, monkeypatch, *, foreign_write):
             assert after["tables"][name]["delta_version"] == version
             assert DeltaTable(str(output / f"{name}.delta")).version() == version
         assert after["parameters"]["refresh_admission"] == receipt
+        if pinned_recovery:
+
+            def raw_values(row):
+                timestamp = datetime.fromisoformat(str(row["ts_open"]).replace("Z", "+00:00"))
+                return (
+                    str(row["instrument_id"]),
+                    str(row["contract_id"]),
+                    timestamp.astimezone(UTC).timestamp(),
+                    *(float(row[key]) for key in ("low", "high", "volume")),
+                )
+
+            expected_raw = {raw_values(row) for row in raw_rows}
+            assert consumed_raw
+            unexpected = [
+                raw_values(row) for row in consumed_raw if raw_values(row) not in expected_raw
+            ]
+            assert not unexpected, (unexpected[:2], sorted(expected_raw)[:2])
+            assert all(
+                float(row["high"]) < 100000 for row in consumed_raw if row["instrument_id"] == "BR"
+            )
+            bar_rows = (
+                storage.open_pinned_table(after["tables"]["research_bar_views"])
+                .to_pyarrow_table()
+                .to_pylist()
+            )
+            active_rows = [row for row in bar_rows if row["contour_id"] == "pit_active_front"]
+            assert active_rows
+            assert all(row["session_class"] == "regular" for row in active_rows)
+            assert all(not row["session_interval_id"].startswith("foreign-") for row in active_rows)
+            for name in ("canonical_session_intervals", "raw_moex_history"):
+                assert after["tables"][name] == parent["tables"][name]
+                assert (
+                    DeltaTable(after["tables"][name]["table_path"]).version()
+                    > after["tables"][name]["delta_version"]
+                )
+            manifests = (
+                storage.open_pinned_table(after["tables"]["research_datasets"])
+                .to_pyarrow_table()
+                .to_pylist()
+            )
+            for row in manifests:
+                versions = json.loads(row["source_delta_versions_json"])
+                hashes = json.loads(row["source_delta_hashes_json"])
+                assert (
+                    versions["canonical_session_intervals"]
+                    == parent["tables"]["canonical_session_intervals"]["delta_version"]
+                )
+                assert hashes["canonical_session_intervals"] == pinned_hash
         for name in (
             "continuous_front_bars",
             "research_bar_views",
@@ -387,7 +613,8 @@ def _native_handoff(tmp_path, monkeypatch, *, foreign_write):
         ):
             pinned = storage.open_pinned_table(after["tables"][name]).to_pyarrow_table().to_pylist()
             old = [r for r in before[name] if r.get("instrument_id") == "Si"]
-            assert [r for r in pinned if r.get("instrument_id") == "Si"] == old, name
+            if not pinned_recovery:
+                assert [r for r in pinned if r.get("instrument_id") == "Si"] == old, name
         # Same-attempt publication is idempotent only with the unchanged native
         # checkpoint/config/QC. This exercises the real publisher after CAS.
         from dagster import validate_run_config

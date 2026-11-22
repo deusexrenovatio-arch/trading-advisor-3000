@@ -1015,3 +1015,79 @@ def test_canonical_parameter_renewal_requires_bound_money_effects(tmp_path, defe
         previous_tables=previous,
     )
     assert (name in scope["covered_tables"]) is (mutation is None)
+
+
+def test_recovery_keeps_accepted_raw_pin_and_fences_the_observed_head(tmp_path):
+    path = tmp_path / "raw_moex_history.delta"
+    write_deltalake(str(path), _table([1], [2026], [True], [10]), partition_by=["year"])
+    tables = {path.stem: snapshots.capture_table(path)}
+    _append(path)
+    controls = snapshots.capture_recovery_input_heads(tables)
+    assert set(controls) == {path.stem}
+    assert controls[path.stem]["reference_sha256"] == snapshots._recovery_digest(tables[path.stem])
+    with pytest.raises(snapshots.SnapshotUnavailableError, match="changed during calculation"):
+        snapshots.assert_tables_unchanged(tables)
+    snapshots.assert_tables_unchanged(tables, pinned_inputs=controls)
+    assert snapshots.open_pinned_table(tables[path.stem]).to_pyarrow_table()[
+        "amount"
+    ].to_pylist() == [10]
+    _append(path)
+    with pytest.raises(snapshots.SnapshotUnavailableError, match="changed during calculation"):
+        snapshots.assert_tables_unchanged(tables, pinned_inputs=controls)
+
+
+def test_recovery_pins_cannot_allow_a_changed_output(tmp_path):
+    path = tmp_path / "continuous_front_bars.delta"
+    write_deltalake(str(path), _table([1], [2026], [True], [10]), partition_by=["year"])
+    tables = {path.stem: snapshots.capture_table(path)}
+    _append(path)
+    with pytest.raises(snapshots.SnapshotUnavailableError):
+        snapshots.capture_recovery_input_heads(tables)
+
+
+def test_recovery_pin_still_requires_the_original_physical_file(tmp_path):
+    path = tmp_path / "raw_moex_history.delta"
+    write_deltalake(str(path), _table([1], [2026], [True], [10]), partition_by=["year"])
+    tables = {path.stem: snapshots.capture_table(path)}
+    old = snapshots.open_pinned_table(tables[path.stem])
+    _append(path)
+    controls = snapshots.capture_recovery_input_heads(tables)
+    original = snapshots._file_path(old.file_uris()[0])
+    original.unlink()
+    with pytest.raises(snapshots.SnapshotUnavailableError) as exc:
+        snapshots.assert_tables_unchanged(tables, pinned_inputs=controls)
+    assert original.name in str(exc.value)
+
+
+def test_pinned_dataset_metadata_reproduces_the_version_before_append(tmp_path):
+    from trading_advisor_3000.spark_jobs import research_bar_views_job as views
+
+    path = tmp_path / "canonical_session_intervals.delta"
+    write_deltalake(str(path), _table([1], [2026], [True], [10]), partition_by=["year"])
+    before = views._delta_log_hash(path)
+    pinned = snapshots.capture_table(path)
+    manifest = _manifest(path, reference=pinned)
+    _append(path)
+    assert views._latest_delta_version(path) == 1
+    (path / "_delta_log/00000000000000000001.checkpoint.future.json").write_text("{}")
+    with snapshots.snapshot_read_scope(manifest):
+        assert snapshots.open_read_table(path).to_pyarrow_table()["amount"].to_pylist() == [10]
+        assert views._latest_delta_version(path) == 0
+        assert views._delta_log_hash(path) == before
+        unknown = path / "_delta_log/unknown.json"
+        unknown.write_text("{}")
+        with pytest.raises(ValueError, match="unversioned Delta log metadata"):
+            views._delta_log_hash(path)
+        unknown.unlink()
+    assert views._latest_delta_version(path) == 1
+
+
+def test_guarded_recovery_owner_rejects_unregistered_input(source, tmp_path):
+    unknown = tmp_path / "late-input.delta"
+    write_deltalake(str(unknown), _table([1], [2026], [True], [7]), partition_by=["year"])
+    with snapshots.materialization_snapshot_scope(
+        _manifest(source), capture_new_inputs=False
+    ) as reads:
+        with pytest.raises(snapshots.SnapshotUnavailableError, match="not pinned"):
+            snapshots.open_read_table(unknown)
+        assert "late-input" not in reads.plain_tables()

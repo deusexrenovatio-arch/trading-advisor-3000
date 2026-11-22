@@ -17,6 +17,8 @@ from trading_advisor_3000.product_plane.common.data_snapshots import (
     capture_table,
     current_snapshot,
     load_snapshot,
+    recovery_input_controls,
+    validate_recovery_bridge,
 )
 
 _ACTIVE: ContextVar[dict | None] = ContextVar("research_refresh_admission", default=None)
@@ -65,6 +67,69 @@ def _domain(config, *, inputs=None):
 def _seal(payload):
     payload = json.loads(_json(payload))
     return {**payload, "admission_id": _digest(payload)}
+
+
+def recovery_inputs_for_config(config, *, publication_run_id=None):
+    """Only the accepted native bridge can authorize its exact earlier input pins."""
+    if config.get("operation") != "daily":
+        return {}
+    root = Path(config["canonical_output_dir"]) / ".data_snapshots"
+    data = current_snapshot(root)
+    controls = recovery_input_controls(data)
+    if not controls:
+        return {}
+    value = config.get("refresh_admission") or {}
+    if (
+        value.get("operation") != "daily"
+        or value.get("outcome") != "SCOPED"
+        or value.get("admission_id")
+        != _digest({k: v for k, v in value.items() if k != "admission_id"})
+        or value.get("data_parent") != _parent(root, data)
+        or value.get("inputs") != data["tables"]
+        or Path(str(config.get("data_snapshot_manifest_path") or "")).resolve()
+        != (root / "manifests" / f"{data['snapshot_id']}.json").resolve()
+    ):
+        raise ValueError("pinned recovery requires the exact current Data admission")
+    from .data_snapshots import _registry
+
+    research_root = _registry(config)
+    declared = value.get("research_parent")
+    if not declared or Path(declared["registry_root"]).resolve() != research_root.resolve():
+        raise ValueError("pinned recovery Research registry changed")
+    research = load_snapshot(research_root / "manifests" / f"{declared['snapshot_id']}.json")
+    if declared != _parent(research_root, research):
+        raise ValueError("pinned recovery Research binding changed")
+    current = current_snapshot(research_root)
+    committed = (
+        current
+        and publication_run_id == current["run_id"]
+        and current["parents"] == [data["snapshot_id"]]
+        and current["parameters"].get("refresh_admission") == value
+    )
+    if not current or (current["snapshot_id"] != research["snapshot_id"] and not committed):
+        raise AdmissionParentSuperseded("pinned recovery accepted Research changed")
+    validate_recovery_bridge(data, root=root, research=research)
+    outputs = Path(config["materialized_output_dir"]).resolve()
+    canonical = Path(config["canonical_output_dir"])
+    direct_cf_inputs = {
+        (canonical / (name + ".delta")).resolve()
+        for name in ("canonical_bars", "canonical_session_calendar", "canonical_roll_map")
+    }
+    economics = config.get("canonical_contract_economics_path")
+    if economics:
+        direct_cf_inputs.add(Path(economics).resolve())
+    for name in controls:
+        path = Path(data["tables"][name]["table_path"]).resolve()
+        if path.is_relative_to(outputs) or path.stem != name:
+            raise ValueError("pinned recovery input aliases a writable output")
+        if path in direct_cf_inputs:
+            raise ValueError("pinned recovery input aliases an unpinned CF reader")
+    vp = str(config.get("volume_profile_raw_1m_table_path") or "")
+    if vp and Path(vp).resolve() not in {
+        Path(r["table_path"]).resolve() for r in data["tables"].values()
+    }:
+        raise ValueError("pinned recovery external volume-profile input is unbound")
+    return controls
 
 
 def issue_admission(config, *, operation, completed_outputs=()):
@@ -153,6 +218,7 @@ def validate_admission(
     resolve=True,
     defer_research_current=False,
     upstream_cf=None,
+    publication_run_id=None,
 ):
     """Reject missing/legacy/tampered evidence, drift, and implicit broadening."""
     if not isinstance(value, Mapping):
@@ -193,7 +259,15 @@ def validate_admission(
                 f"refresh admission parent changed: {role} "
                 f"{parent['snapshot_id']} -> {current['snapshot_id']}"
             )
-    assert_tables_unchanged(value["inputs"])
+    guard_config = {
+        **(config or value["domain"]),
+        "operation": value["operation"],
+        "refresh_admission": value,
+    }
+    if value["data_parent"]:
+        guard_config["data_snapshot_manifest_path"] = value["data_parent"]["manifest_path"]
+    controls = recovery_inputs_for_config(guard_config, publication_run_id=publication_run_id)
+    assert_tables_unchanged(value["inputs"], pinned_inputs=controls)
     if config is not None:
         if _domain(config, inputs=value["inputs"]) != value["domain"]:
             raise ValueError("refresh admission configuration changed")
