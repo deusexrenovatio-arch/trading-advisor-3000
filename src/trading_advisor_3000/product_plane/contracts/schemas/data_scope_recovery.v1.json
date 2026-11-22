@@ -191,6 +191,65 @@
     "report_sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "input_read_consistency": {
+      "type": "object",
+      "required": [
+        "version",
+        "inputs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "inputs": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "enum": [
+              "canonical_session_intervals",
+              "raw_moex_history",
+              "canonical_contract_parameters",
+              "raw_moex_contract_securities",
+              "raw_moex_session_schedule"
+            ]
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "reference_sha256",
+              "observed_head"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "reference_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "observed_head": {
+                "type": "object",
+                "required": [
+                  "table_id",
+                  "delta_version"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "table_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "delta_version": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "additionalProperties": false

@@ -334,10 +334,91 @@ def open_pinned_table(reference: Mapping[str, Any]) -> DeltaTable:
         ) from exc
 
 
-def assert_tables_unchanged(tables: Mapping[str, Mapping[str, Any]]) -> None:
-    for reference in tables.values():
+RECOVERY_PINNED_INPUTS = frozenset(
+    {
+        "canonical_session_intervals",
+        "raw_moex_history",
+        "canonical_contract_parameters",
+        "raw_moex_contract_securities",
+        "raw_moex_session_schedule",
+    }
+)
+
+
+def _validate_input_controls(tables, controls):
+    if not isinstance(controls, Mapping) or set(controls) - RECOVERY_PINNED_INPUTS:
+        raise SnapshotUnavailableError("unsupported pinned recovery input")
+    for name, control in controls.items():
+        reference = tables.get(name)
+        head = control.get("observed_head", {})
+        if (
+            not reference
+            or Path(reference["table_path"]).stem != name
+            or set(control) != {"reference_sha256", "observed_head"}
+            or set(head) != {"table_id", "delta_version"}
+            or control["reference_sha256"] != _recovery_digest(reference)
+            or head["table_id"] != reference["table_id"]
+            or type(head["delta_version"]) is not int
+            or head["delta_version"] <= reference["delta_version"]
+        ):
+            raise SnapshotUnavailableError(f"invalid pinned recovery binding: {name}")
+
+
+def capture_recovery_input_heads(tables):
+    """The recovery owner observes later heads without adopting their contents."""
+    controls = {}
+    for name, reference in tables.items():
+        pinned = open_pinned_table(reference)
+        head = DeltaTable(str(reference["table_path"]))
+        if head.version() == pinned.version():
+            continue
+        if (
+            name not in RECOVERY_PINNED_INPUTS
+            or Path(reference["table_path"]).stem != name
+            or head.schema() != pinned.schema()
+            or head.metadata().partition_columns != pinned.metadata().partition_columns
+        ):
+            raise SnapshotUnavailableError(
+                f"unsupported recovery input drift: {reference['table_path']}"
+            )
+        controls[name] = {
+            "reference_sha256": _recovery_digest(reference),
+            "observed_head": {"table_id": head.metadata().id, "delta_version": head.version()},
+        }
+    _validate_input_controls(tables, controls)
+    return controls
+
+
+def recovery_input_controls(manifest):
+    report = (manifest or {}).get("parameters", {}).get("downstream_scope", {}).get("recovery", {})
+    consistency = report.get("input_read_consistency")
+    if consistency is None:
+        return {}
+    if (
+        manifest["code_version"] != "metadata-only-scope-recovery.v1"
+        or manifest["quality_checks"].get("scope_recovery") != "PASS"
+        or set(consistency) != {"version", "inputs"}
+        or consistency["version"] != 1
+        or not consistency["inputs"]
+        or report["report_sha256"]
+        != _recovery_digest({k: v for k, v in report.items() if k != "report_sha256"})
+    ):
+        raise SnapshotUnavailableError("invalid accepted input recovery receipt")
+    _validate_input_controls(manifest["tables"], consistency["inputs"])
+    return consistency["inputs"]
+
+
+def assert_tables_unchanged(tables: Mapping[str, Mapping[str, Any]], *, pinned_inputs=None) -> None:
+    controls = pinned_inputs or {}
+    _validate_input_controls(tables, controls)
+    for name, reference in tables.items():
         table = open_pinned_table(reference)
-        if DeltaTable(str(reference["table_path"])).version() != table.version():
+        expected = (
+            controls[name]["observed_head"]["delta_version"]
+            if name in controls
+            else table.version()
+        )
+        if DeltaTable(str(reference["table_path"])).version() != expected:
             raise SnapshotUnavailableError(
                 f"snapshot input changed during calculation: {reference['table_path']}"
             )
@@ -829,6 +910,8 @@ def validate_recovery_bridge(manifest, *, root, research, checkpoint_outputs=Non
         ):
             raise ValueError("missing recovery CF owner ticks")
         residual = cf["recovery"]
+        if residual.get("input_read_consistency") != report.get("input_read_consistency"):
+            raise ValueError("CF recovery input consistency changed")
         if not residual["windows"] or residual["windows"] != report["windows"]:
             raise ValueError(
                 "distinct CF and Research recovery windows require separate admissions"
@@ -886,6 +969,8 @@ def _validate_recovery_report(manifest, root, research, report):
         target["tables"]
     ):
         raise ValueError("recovery table coverage changed")
+    if "input_read_consistency" in report:
+        _validate_input_controls(target["tables"], report["input_read_consistency"]["inputs"])
     starts, ends = [], []
     for name, record in report["tables"].items():
         old, new = source["tables"][name], target["tables"][name]

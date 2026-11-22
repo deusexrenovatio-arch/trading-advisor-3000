@@ -153,3 +153,60 @@ costs; no new writer, registry, scheduler, numerical formula or table schema is 
 
 Use the existing Data publisher and native audit. Restoration repairs the missing
 input description; native comparison remains the sole authority for changed scope.
+
+
+## Accepted inputs after an interrupted Data write
+
+Decision status is admitted for isolated implementation review. The existing Data
+recovery publisher owns this opt-in extension. The native daily CF and Research
+owners retain execution and publication. Architecture impact is contract-change.
+
+An explicit recover-scope audit may preserve accepted input versions while later
+unaccepted native heads exist. Its optional input_read_consistency report section
+binds each actually advanced input to the complete accepted descriptor hash and
+the observed physical table ID and version. These observations fence concurrency.
+The bridge retains the exact accepted target tables and parent. Native comparison
+still audits the complete accepted segment, retained prefix, original QC and CF
+checkpoint. The option is --accepted-input-pins and requires the owning native audit.
+
+The verified reader families are canonical_session_intervals, raw_moex_history,
+canonical_contract_parameters, raw_moex_contract_securities and
+raw_moex_session_schedule. Active daily numerical reads in this set use the pinned
+Spark or Delta/Arrow helpers. The inherited support inputs use pinned native audit.
+Other inputs and every CF/Research output retain physical-head equality. Paths
+must retain the declared family and cannot alias an output or a direct latest
+CF source. Unsupported changed inputs reject the opt-in audit.
+
+Every daily worker boundary derives the allowance from the exact current Data
+bridge in its configured canonical registry and the bound accepted Research.
+Resume, CF handoff, resolve=False validation and publication repeat this check.
+An input must equal its accepted descriptor in full. The observed heads must
+still have their original IDs and versions. A changed accepted parent, expired
+pin, altered report or additional unregistered read stops execution. The guarded
+branch uses the exact parent input list and capture_new_inputs=False. Rebuild and
+later Data children obtain their own ordinary admission.
+
+Research dataset provenance uses the selected source version and the historical
+log fingerprint through that version. It reproduces the fingerprint taken before
+an appended commit. This preserves the established hash recipe and numerical
+contract while keeping the manifest consistent with its actual input rows.
+
+The former unconditional head comparison rejects readable accepted versions after
+an interrupted writer. Rewriting descriptors to current heads would discard the
+selected accepted boundary. The opt-in receipt preserves that boundary and keeps
+later writes outside it. It introduces no table writer, numerical fallback or
+alternative scheduler. The additional cost is the existing one-off native audit
+and small metadata validation at worker boundaries.
+
+Promote the reviewed code to both drained workers before publishing a bridge
+with this optional report. Older workers reject the new report field. A rollback
+after bridge publication requires compatible forward repair or completion under
+the admitted code. Immutable manifests, Delta versions and cursors retain their
+original history.
+
+Acceptance requires real isolated Delta versions with different session intervals
+and one-minute raw bars, old rows with matching source metadata, repeated worker
+validation, and rejection of foreign outputs, stale parents, missing pins and
+tampered or unregistered inputs. The seven-component numerical digest must equal
+the accepted Research digest. A published metadata bridge still requires explicit
+dispatch through the existing daily Dagster job.
