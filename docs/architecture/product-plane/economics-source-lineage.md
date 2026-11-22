@@ -216,4 +216,14 @@ the deferred card digest, both dates, raw pin and original coverage checks.
 An ordinary trading day requires the contract. This uses the existing published
 economics fallback and introduces no historical calculation.
 
+A delayed retry can observe the following additional session while still processing
+the earlier closed day. Keep the two dates distinct. Require both original dated
+catalogs in the exact native RAW renewal pin, each bound to its issuer page and
+open W session for the same later first trading day. Compare the closed-day catalog
+with the independently checked current contract set. Missing, ambiguous or changed
+membership stops the delayed deferral. Check the prelisting card on both dates and
+all contradictory history through the observation date. The report retains the
+closed day, actual observation day and original closed-session receipt. Coverage,
+interval validity and source age remain evaluated for the closed day.
+
 [MOEX SPECTRA, instrument admission in additional sessions](https://ftp.moex.com/pub/ClientsAPI/Spectra/CGate/prod/docs/p2gate_ru.pdf#page=96)

@@ -3571,7 +3571,27 @@ def test_reuse_refuses_unpublished_economics_even_when_physical_coverage_is_vali
         "no_weekend",
     ],
 )
-def test_closed_weekend_economics_uses_accepted_pin_before_first_trade(tmp_path, fault):
+@pytest.mark.parametrize("delayed", [False, True])
+def test_closed_weekend_economics_uses_accepted_pin_before_first_trade(tmp_path, fault, delayed):
+    _check_closed_weekend_economics(tmp_path, fault, delayed)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "closed_catalog_absent",
+        "closed_catalog_short",
+        "disappeared_active",
+        "closed_calendar_conflict",
+        "observed_card_conflict",
+        "source_before_target",
+    ],
+)
+def test_delayed_weekend_requires_the_original_contract_catalog(tmp_path, fault):
+    _check_closed_weekend_economics(tmp_path, fault, True)
+
+
+def _check_closed_weekend_economics(tmp_path, fault, delayed):
     import hashlib
 
     from trading_advisor_3000.product_plane.common import data_snapshots as snapshots
@@ -3657,6 +3677,74 @@ def test_closed_weekend_economics_uses_accepted_pin_before_first_trade(tmp_path,
             columns={**dict.fromkeys(row, "string"), "trade_date": "date"},
         )
         refs[name] = snapshots.capture_table(path)
+    if delayed:
+        from copy import deepcopy
+
+        observation = "2026-07-10" if fault == "source_before_target" else "2026-07-12"
+        observed_pages = deepcopy(pages)
+        observed_pages[0]["dataversion"]["trade_date"] = observation
+        if "session_calendar" in observed_pages[0]:
+            observed_pages[0]["session_calendar"]["date"] = observation
+        # The closed-day catalog must still contain every independently checked contract.
+        active_card = {"SECID": "BRM6", "BOARDID": "RFUD", "FRSTTRADE": "2026-06-01"}
+        active_json = json.dumps(active_card, sort_keys=True, separators=(",", ":"))
+        active = {
+            **row,
+            "moex_secid": "BRM6",
+            "source_document_id": f"snapshot:BRM6:{day}",
+            "source_document_hash": hashlib.sha256(active_json.encode()).hexdigest(),
+            "raw_payload_json": active_json,
+        }
+        rows.append(active)
+        rows.extend(
+            {
+                **record,
+                "trade_date": observation,
+                "source_document_id": f"snapshot:{record['moex_secid']}:{observation}",
+                "snapshot_metadata_json": json.dumps(observed_pages),
+            }
+            for record in (row, active)
+        )
+        if fault == "closed_catalog_absent":
+            rows = [r for r in rows if r["trade_date"] != day]
+        if fault == "closed_catalog_short":
+            rows = [r for r in rows if r["trade_date"] != day or r["moex_secid"] != "BRM6"]
+        if fault == "disappeared_active":
+            old_card = {**active_card, "SECID": "BRU6"}
+            old_json = json.dumps(old_card, sort_keys=True, separators=(",", ":"))
+            rows.append(
+                {
+                    **active,
+                    "moex_secid": "BRU6",
+                    "source_document_id": f"snapshot:BRU6:{day}",
+                    "raw_payload_json": old_json,
+                    "source_document_hash": hashlib.sha256(old_json.encode()).hexdigest(),
+                }
+            )
+        if fault == "closed_calendar_conflict":
+            bad_pages = deepcopy(pages)
+            bad_pages[0]["session_calendar"]["trade_session_date"] = "2026-07-14"
+            for r in rows:
+                if r["trade_date"] == day:
+                    r["snapshot_metadata_json"] = json.dumps(bad_pages)
+        if fault == "observed_card_conflict":
+            bad_json = json.dumps(
+                {**card, "FRSTTRADE": "2026-07-14"}, sort_keys=True, separators=(",", ":")
+            )
+            for r in rows:
+                if r["trade_date"] == observation and r["moex_secid"] == "BRN6":
+                    r.update(
+                        raw_payload_json=bad_json,
+                        source_document_hash=hashlib.sha256(bad_json.encode()).hexdigest(),
+                    )
+        for name in ("raw", "prepared", "oi"):
+            path = tmp_path / (name + ".delta")
+            write_delta_table_rows(
+                table_path=path,
+                rows=rows,
+                columns={**dict.fromkeys(row, "string"), "trade_date": "date"},
+            )
+            refs[name] = snapshots.capture_table(path)
     required = ["BRM6", "BRN6"]
     if fault == "missing_active":
         required.append("BRU6")
@@ -3669,8 +3757,8 @@ def test_closed_weekend_economics_uses_accepted_pin_before_first_trade(tmp_path,
         "tables": refs,
         "current_crosscheck": {
             "status": "PASS",
-            "source_trade_date": day,
-            "source_audit": {"pages": pages},
+            "source_trade_date": observation if delayed else day,
+            "source_audit": {"pages": observed_pages if delayed else pages},
             "contracts": [{"secid": s} for s in required],
         },
     }
@@ -3700,6 +3788,10 @@ def test_closed_weekend_economics_uses_accepted_pin_before_first_trade(tmp_path,
                 coverage["covered_contracts"],
             ) == (2, 1, 1)
             assert coverage["deferred_prelistings"]["BRN6"]["source_document_hash"] == digest
+            listing = coverage["deferred_prelistings"]["BRN6"]
+            assert listing["closed_date"] == day
+            assert listing["observation_date"] == (observation if delayed else day)
+            assert listing["closed_session_calendar"] == pages[0]["session_calendar"]
             assert coverage["published_snapshot_id"] == parent["snapshot_id"]
             assert coverage["table_reference"] == pin
     assert snapshots.capture_table(money) == pin

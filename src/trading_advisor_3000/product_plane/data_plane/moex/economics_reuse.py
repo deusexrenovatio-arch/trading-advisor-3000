@@ -266,11 +266,27 @@ def _published_contract_economics_coverage(
     }
 
 
+def _snapshot_card(row, day, pages):
+    card = json.loads(row["raw_payload_json"])
+    if (
+        row["source_document_id"] == f"snapshot:{row['moex_secid']}:{day}"
+        and row["board"] == "RFUD"
+        and row["source_document_hash"]
+        == hashlib.sha256(row["raw_payload_json"].encode("utf-8")).hexdigest()
+        and row["snapshot_metadata_json"]
+        and json.loads(row["snapshot_metadata_json"]) == pages
+        and card.get("SECID") == row["moex_secid"]
+        and card.get("BOARDID") == "RFUD"
+    ):
+        return card
+    return {}
+
+
 def _weekend_prelistings(coverage, source_error, raw_reference, ingest_till_utc):
     """MOEX SPECTRA §2.12.3: new instruments start after the additional session."""
     renewal = source_error.native_history_renewal or {}
     check = renewal.get("current_crosscheck", {})
-    pages = check.get("source_audit", {}).get("pages", [])
+    observed_pages = check.get("source_audit", {}).get("pages", [])
     missing = coverage["missing_contract_ids"]
     day = date.fromisoformat(source_error.target_session_date)
     close = datetime.combine(
@@ -282,34 +298,21 @@ def _weekend_prelistings(coverage, source_error, raw_reference, ingest_till_utc)
         or not coverage.get("published_snapshot_id")
         or set(source_error.missing_sources) != {"rms_limits", "rms_staticparams"}
         or check.get("status") != "PASS"
-        or check.get("source_trade_date") != day.isoformat()
-        or not pages
+        or not check.get("source_trade_date")
+        or not observed_pages
         or _try_parse_utc_timestamp(ingest_till_utc) != close
     ):
         return {}
-    # A W receipt only exists after the ISS adapter certified the exact date pair.
-    calendar = pages[0].get("session_calendar") or {}
-    session = calendar.get("trade_session_date")
-    if (
-        calendar.get("reason") != "W"
-        or calendar.get("engine") != "futures"
-        or type(calendar.get("is_traded")) is not int
-        or calendar["is_traded"] != 1
-        or calendar.get("date") != day.isoformat()
-        or not session
-        or date.fromisoformat(session) <= day
-        or any(
-            page.get("session_calendar") != calendar
-            or page["dataversion"].get("trade_date") != day.isoformat()
-            or page["dataversion"].get("trade_session_date") != session
-            for page in pages
-        )
-    ):
+    observed_day = date.fromisoformat(check["source_trade_date"])
+    if observed_day < day:
         return {}
     checked = {row["secid"] for row in check["contracts"]}
     table = open_pinned_table(raw_reference)
     rows = table.to_pyarrow_table(
-        filters=[("moex_secid", "in", missing), ("trade_date", "<=", day)],
+        filters=[
+            [("moex_secid", "in", missing), ("trade_date", "<=", observed_day)],
+            [("source_id", "=", "moex_iss_futures_securities"), ("trade_date", "=", day)],
+        ],
         columns=[
             "moex_secid",
             "trade_date",
@@ -321,35 +324,63 @@ def _weekend_prelistings(coverage, source_error, raw_reference, ingest_till_utc)
             "snapshot_metadata_json",
         ],
     ).to_pylist()
+    target_pages = observed_pages
+    if observed_day > day:
+        catalog = [
+            r
+            for r in rows
+            if r["trade_date"] == day and r["source_id"] == "moex_iss_futures_securities"
+        ]
+        if len(catalog) != len(checked) or {r["moex_secid"] for r in catalog} != checked:
+            return {}
+        target_pages = json.loads(catalog[0]["snapshot_metadata_json"] or "[]")
+        if not target_pages or not all(_snapshot_card(r, day, target_pages) for r in catalog):
+            return {}
+    session = (observed_pages[0].get("session_calendar") or {}).get("trade_session_date")
+    if not session or observed_day >= date.fromisoformat(session):
+        return {}
+    # Each actual date needs its own issuer receipt, including a delayed retry's closed day.
+    for receipt_day, pages in ((day, target_pages), (observed_day, observed_pages)):
+        calendar = pages[0].get("session_calendar") or {}
+        if (
+            calendar.get("reason") != "W"
+            or calendar.get("engine") != "futures"
+            or type(calendar.get("is_traded")) is not int
+            or calendar["is_traded"] != 1
+            or calendar.get("date") != receipt_day.isoformat()
+            or calendar.get("trade_session_date") != session
+            or any(
+                page.get("session_calendar") != calendar
+                or page["dataversion"].get("trade_date") != receipt_day.isoformat()
+                or page["dataversion"].get("trade_session_date") != session
+                for page in pages
+            )
+        ):
+            return {}
     deferred = {}
     for secid in sorted(checked.intersection(missing)):
         records = [r for r in rows if r["moex_secid"] == secid]
-        cards = [
-            r
-            for r in records
-            if r["trade_date"] == day and r["source_id"] == "moex_iss_futures_securities"
-        ]
-        if len(cards) != 1 or any(r["source_id"] != "moex_iss_futures_securities" for r in records):
+        if any(r["source_id"] != "moex_iss_futures_securities" for r in records):
             continue
-        row = cards[0]
-        card = json.loads(row["raw_payload_json"])
-        digest = hashlib.sha256(row["raw_payload_json"].encode("utf-8")).hexdigest()
-        if (
-            row["source_document_id"] == f"snapshot:{secid}:{day}"
-            and row["board"] == "RFUD"
-            and row["source_document_hash"] == digest
-            and row["snapshot_metadata_json"]
-            and json.loads(row["snapshot_metadata_json"]) == pages
-            and card.get("SECID") == secid
-            and card.get("BOARDID") == "RFUD"
-            and type(card.get("NEW_INSTRUMENT")) is int
-            and card["NEW_INSTRUMENT"] == 1
-            and card.get("FRSTTRADE") == session
+        cards = []
+        for card_day, pages in ((day, target_pages), (observed_day, observed_pages)):
+            candidates = [r for r in records if r["trade_date"] == card_day]
+            card = _snapshot_card(candidates[0], card_day, pages) if len(candidates) == 1 else {}
+            cards.append(card)
+        if all(
+            type(c.get("NEW_INSTRUMENT")) is int
+            and c["NEW_INSTRUMENT"] == 1
+            and c.get("FRSTTRADE") == session
+            for c in cards
         ):
+            row = next(r for r in records if r["trade_date"] == day)
             deferred[secid] = {
                 "first_trade_date": session,
-                "source_document_hash": digest,
+                "source_document_hash": row["source_document_hash"],
                 "source_document_id": row["source_document_id"],
+                "closed_date": day.isoformat(),
+                "observation_date": observed_day.isoformat(),
+                "closed_session_calendar": target_pages[0]["session_calendar"],
             }
     return deferred
 
