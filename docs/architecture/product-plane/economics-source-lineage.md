@@ -217,10 +217,11 @@ An ordinary trading day requires the contract. This uses the existing published
 economics fallback and introduces no historical calculation.
 
 A delayed retry can observe the following additional session while still processing
-the earlier closed day. Keep the two dates distinct. Require both original dated
-catalogs in the exact native RAW renewal pin, each bound to its issuer page and
-open W session for the same later first trading day. Compare the closed-day catalog
-with the independently checked current contract set. Missing, ambiguous or changed
+the earlier closed day. Keep the two dates distinct. Require the complete original
+closed-day catalog in the exact native RAW renewal pin, bound to its issuer pages.
+Compare it with all contracts independently checked by the native current-source
+validator. Require each candidate's original RAW card on both dates and both open
+W receipts for the same later first trading day. Missing, ambiguous or changed
 membership stops the delayed deferral. Check the prelisting card on both dates and
 all contradictory history through the observation date. The report retains the
 closed day, actual observation day and original closed-session receipt. Coverage,
