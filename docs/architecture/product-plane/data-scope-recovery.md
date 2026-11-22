@@ -157,8 +157,9 @@ input description; native comparison remains the sole authority for changed scop
 
 ## Accepted inputs after an interrupted Data write
 
-Decision status is admitted for isolated implementation review. The existing Data
-recovery publisher owns this opt-in extension. The native daily CF and Research
+Decision status is accepted for scoped recovery. Native isolated producer and
+consumer proof passed; production promotion remains a separate step. The existing
+Data recovery publisher owns this opt-in extension. The native daily CF and Research
 owners retain execution and publication. Architecture impact is contract-change.
 
 An explicit recover-scope audit may preserve accepted input versions while later

@@ -558,14 +558,20 @@ def _native_handoff(tmp_path, monkeypatch, *, foreign_write, pinned_recovery=Fal
         if pinned_recovery:
 
             def raw_values(row):
-                return tuple(
-                    str(row[key])
-                    for key in ("instrument_id", "contract_id", "ts_open", "low", "high", "volume")
+                timestamp = datetime.fromisoformat(str(row["ts_open"]).replace("Z", "+00:00"))
+                return (
+                    str(row["instrument_id"]),
+                    str(row["contract_id"]),
+                    timestamp.astimezone(UTC).timestamp(),
+                    *(float(row[key]) for key in ("low", "high", "volume")),
                 )
 
             expected_raw = {raw_values(row) for row in raw_rows}
             assert consumed_raw
-            assert all(raw_values(row) in expected_raw for row in consumed_raw)
+            unexpected = [
+                raw_values(row) for row in consumed_raw if raw_values(row) not in expected_raw
+            ]
+            assert not unexpected, (unexpected[:2], sorted(expected_raw)[:2])
             assert all(
                 float(row["high"]) < 100000 for row in consumed_raw if row["instrument_id"] == "BR"
             )
