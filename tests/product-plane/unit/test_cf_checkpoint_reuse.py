@@ -189,9 +189,9 @@ def test_cf_checkpoint_cannot_certify_concurrent_new_output(checkpoint, monkeypa
     original = owner.assert_tables_unchanged
     changed = False
 
-    def mutate_after_validation(tables):
+    def mutate_after_validation(tables, **kwargs):
         nonlocal changed
-        original(tables)
+        original(tables, **kwargs)
         if not changed and set(CONTINUOUS_FRONT_TABLES).issubset(tables):
             changed = True
             path = tables["continuous_front_bars"]["table_path"]
