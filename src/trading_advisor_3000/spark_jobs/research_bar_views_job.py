@@ -7,7 +7,11 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Callable, Mapping
 
-from trading_advisor_3000.product_plane.common.data_snapshots import read_spark_delta
+from trading_advisor_3000.product_plane.common.data_snapshots import (
+    open_pinned_table,
+    read_spark_delta,
+    snapshot_table_reference,
+)
 from trading_advisor_3000.product_plane.common.table_layout import (
     YEAR_PARTITION_COLUMN,
     compact_spark_table,
@@ -87,6 +91,9 @@ def _utc_now_iso() -> str:
 
 
 def _latest_delta_version(table_path: Path) -> int | None:
+    reference = snapshot_table_reference(table_path)
+    if reference is not None:
+        return open_pinned_table(reference).version()
     log_dir = table_path / "_delta_log"
     if not log_dir.exists():
         return None
@@ -100,11 +107,19 @@ def _latest_delta_version(table_path: Path) -> int | None:
 
 
 def _delta_log_hash(table_path: Path) -> str:
+    reference = snapshot_table_reference(table_path)
+    version = open_pinned_table(reference).version() if reference is not None else None
     log_dir = table_path / "_delta_log"
     digest = hashlib.sha256()
     if not log_dir.exists():
         return ""
     for item in sorted(log_dir.glob("*.json")):
+        if version is not None:
+            commit = item.name.split(".", 1)[0]
+            if len(commit) != 20 or not commit.isdigit():
+                raise ValueError(f"unversioned Delta log metadata: {item}")
+            if int(commit) > version:
+                continue
         digest.update(item.name.encode("utf-8"))
         digest.update(str(item.stat().st_size).encode("utf-8"))
     return digest.hexdigest()[:16].upper()

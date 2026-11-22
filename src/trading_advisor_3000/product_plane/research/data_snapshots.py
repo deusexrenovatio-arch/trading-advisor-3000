@@ -39,9 +39,23 @@ def _configuration(context: Any) -> dict[str, Any]:
     return dict(op_context.op_config)
 
 
+def _assert_research_tables(config, tables, *, publication_run_id=None):
+    from .admission import recovery_inputs_for_config
+
+    controls = recovery_inputs_for_config(config, publication_run_id=publication_run_id)
+    assert_tables_unchanged(tables, pinned_inputs=controls)
+
+
 def _input_tables(
     config: Mapping[str, Any], parent: Mapping[str, Any] | None
 ) -> dict[str, dict[str, Any]]:
+    from .admission import recovery_inputs_for_config
+
+    controls = recovery_inputs_for_config(config)
+    if controls:
+        tables = dict(parent["tables"])
+        assert_tables_unchanged(tables, pinned_inputs=controls)
+        return tables
     canonical = Path(config["canonical_output_dir"])
     roots = [canonical]
     raw_root = str(config.get("data_snapshot_raw_output_dir") or "")
@@ -186,7 +200,7 @@ def _initial(context: Any, config: Mapping[str, Any]) -> dict[str, Any]:
         pending["quality_owners"] = {stage: owners.get(stage, parent_run_id) for stage in reusable}
         _assert_quality_owners(op_context.instance, pending, current_run_id=str(context.run_id))
         _assert_current_data_parent(config, pending)
-        assert_tables_unchanged(pending["tables"])
+        _assert_research_tables(config, pending["tables"])
         current = current_snapshot(_registry(config))
         if (current["snapshot_id"] if current else None) != pending["expected_current_id"]:
             raise ValueError("accepted Research changed before resume")
@@ -211,21 +225,52 @@ def _initial(context: Any, config: Mapping[str, Any]) -> dict[str, Any]:
         ):
             raise ValueError("the explicit Data parent is not the accepted current snapshot")
     tables = _input_tables(config, parent)
-    # Partial rebuild jobs also pin pre-existing upstream research materializations.
-    for path in sorted(Path(config["materialized_output_dir"]).glob("*.delta")):
-        if (
-            path.stem
-            in {
-                "research_datasets",
-                "research_instrument_tree",
-                "research_bar_views",
-                "research_indicator_frames",
-                "research_derived_source_frames",
-                "research_derived_indicator_frames",
-            }
-            or path.stem.startswith(("continuous_front_", "cf_indicator_", "indicator_roll_"))
-        ) and (path / "_delta_log").exists():
-            tables[path.stem] = capture_table(path)
+    from .admission import recovery_inputs_for_config
+
+    controls = recovery_inputs_for_config(config)
+    if controls:
+        from trading_advisor_3000.product_plane.common.data_snapshots import (
+            validate_recovery_bridge,
+        )
+
+        expected = {
+            name: ref for name, ref in current["tables"].items() if name not in parent["tables"]
+        }
+        checkpoint = {}
+        validate_recovery_bridge(
+            parent,
+            root=Path(config["canonical_output_dir"]) / ".data_snapshots",
+            research=current,
+            checkpoint_outputs=checkpoint,
+        )
+        expected.update(checkpoint)
+        tags = getattr(getattr(op_context, "dagster_run", None), "tags", {}) or {}
+        if tags.get("ta3000/upstream_job") == "moex_cf_catch_up_job":
+            from .continuous_front import CONTINUOUS_FRONT_TABLES
+
+            source = verified_cf_checkpoint(
+                op_context.instance, tags.get("ta3000/upstream_run_id"), config
+            )
+            expected.update({name: source["tables"][name] for name in CONTINUOUS_FRONT_TABLES})
+        assert_tables_unchanged(expected)
+        tables.update(expected)
+    else:
+        # Partial rebuild jobs also pin pre-existing upstream research materializations.
+        for path in sorted(Path(config["materialized_output_dir"]).glob("*.delta")):
+            if (
+                path.stem
+                in {
+                    "research_datasets",
+                    "research_instrument_tree",
+                    "research_bar_views",
+                    "research_indicator_frames",
+                    "research_derived_source_frames",
+                    "research_derived_indicator_frames",
+                }
+                or path.stem.startswith(("continuous_front_", "cf_indicator_", "indicator_roll_"))
+            ) and (path / "_delta_log").exists():
+                reference = capture_table(path)
+                tables[path.stem] = reference
     return {
         "run_id": str(context.run_id),
         "dataset_version": str(config["dataset_version"]),
@@ -269,7 +314,7 @@ def _assert_current_data_parent(config: Mapping[str, Any], pending: Mapping[str,
 def verified_cf_checkpoint(instance, source_id, config):
     """Bind the admission exemption to the successful producer's saved descriptors."""
     source = _read_cf_checkpoint(instance, source_id, config)
-    assert_tables_unchanged(source["tables"])
+    _assert_research_tables(config, source["tables"])
     return source
 
 
@@ -327,7 +372,7 @@ def _upstream_cf_result(context: Any, config: Mapping[str, Any], pending: dict) 
     pending["quality_evidence"]["continuous_front_bars"] = evidence
     for name in outputs:
         pending["tables"][name] = source["tables"][name]
-    assert_tables_unchanged(pending["tables"])
+    _assert_research_tables(config, pending["tables"])
     atomic_json(_pending_path(context, config), pending)
     return {**result, "status": "PASS-NOOP", "stage_timings": {}, "reused_from_run_id": source_id}
 
@@ -459,7 +504,7 @@ def _validate_hash_compatibility(config: Mapping, pending: Mapping, instance: An
     ):
         raise ValueError("hash compatibility frozen scope changed or unbounded")
     # resolve_refresh_scope checked the accepted output vector at its certified starting pins.
-    assert_tables_unchanged(pending["tables"])
+    _assert_research_tables(config, pending["tables"])
     return accepted
 
 
@@ -553,7 +598,7 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
             inputs = {
                 name: ref for name, ref in pending["tables"].items() if name not in output_tables
             }
-            assert_tables_unchanged(inputs)
+            _assert_research_tables(config, inputs)
             view = (
                 create_snapshot(
                     tables=inputs,
@@ -576,10 +621,15 @@ def snapshot_materialization(output_tables: Sequence[str]) -> Callable:
                 else nullcontext()
             )
             with worker_lease(root, str(context.run_id), function.__name__), migration:
-                with materialization_snapshot_scope(view, writable_paths=writable) as reads:
+                from .admission import recovery_inputs_for_config
+
+                controls = recovery_inputs_for_config(config)
+                with materialization_snapshot_scope(
+                    view, writable_paths=writable, capture_new_inputs=not bool(controls)
+                ) as reads:
                     result = function(context, *args, **kwargs)
             inputs = reads.plain_tables()
-            assert_tables_unchanged(inputs)
+            _assert_research_tables(config, inputs)
             if not isinstance(result, Mapping):
                 raise ValueError(f"snapshot stage requires QC result: {function.__name__}")
             if isinstance(result, Mapping):
@@ -668,7 +718,11 @@ def publish_research_snapshot(context: Any, *, acceptance: Mapping[str, Any]) ->
     from .admission import validate_admission
 
     validate_admission(
-        config.get("refresh_admission"), config=config, resolve=False, defer_research_current=True
+        config.get("refresh_admission"),
+        config=config,
+        resolve=False,
+        defer_research_current=True,
+        publication_run_id=str(context.run_id),
     )
     if not config.get("data_snapshot_enabled", False):
         return {"status": "SKIPPED", "reason": "snapshot_owner_not_enabled"}
@@ -723,7 +777,7 @@ def publish_research_snapshot(context: Any, *, acceptance: Mapping[str, Any]) ->
                 "continuous_front_indicator_run_manifest",
             )
         )
-    assert_tables_unchanged(pending["tables"])
+    _assert_research_tables(config, pending["tables"], publication_run_id=str(context.run_id))
     if runtime_provenance() != pending["runtime_provenance"]:
         raise ValueError("snapshot code/dependencies changed during calculation")
     manifest = create_snapshot(
